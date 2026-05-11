@@ -1,0 +1,45 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Serif+SC:ital,wght@0,700;0,900;1,700;1,900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-serif: "Noto Serif SC", serif;
+  
+  --animate-scroll-y: scroll-y 20s linear infinite;
+  --animate-scroll-x: scroll-x 28s ease-in-out infinite;
+
+  @keyframes scroll-x {
+    0%, 18% { transform: translateX(0); }
+    25%, 43% { transform: translateX(-25%); }
+    50%, 68% { transform: translateX(-50%); }
+    75%, 93% { transform: translateX(-75%); }
+    100% { transform: translateX(0); }
+  }
+
+  @keyframes scroll-y {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(-50%); }
+  }
+}
+
+body {
+  @apply bg-white text-slate-800 antialiased;
+}
+
+.glass-panel {
+  @apply bg-white/80 backdrop-blur-xl;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.pattern-bg {
+  background-color: #FAFAFA;
+  background-image: radial-gradient(#F1F5F9 1px, transparent 1px);
+  background-size: 32px 32px;
+}
