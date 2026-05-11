@@ -5,7 +5,7 @@ import PhoneMockup from './PhoneMockup';
 
 export default function Hero({ onOpenModal }: { onOpenModal: () => void }) {
   return (
-    <section id="desk" className="pt-36 pb-24 lg:pt-48 lg:pb-32 overflow-hidden relative bg-white">
+    <section id="desk" className="pt-24 pb-24 lg:pt-32 lg:pb-32 overflow-hidden relative bg-white">
       <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#66CDB5]/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
       
       <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-20 items-center relative z-10">
