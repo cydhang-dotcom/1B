@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Hero from './components/Hero';
 import Services from './components/Services';
@@ -9,8 +9,16 @@ import CTA from './components/CTA';
 import Footer from './components/Footer';
 import TrustModal from './components/TrustModal';
 
+function useIosScrollFix() {
+  useEffect(() => {
+    if (!/iPad|iPhone|iPod/.test(navigator.userAgent)) return;
+    document.documentElement.style.overscrollBehavior = 'none';
+  }, []);
+}
+
 export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  useIosScrollFix();
 
   return (
     <div className="min-h-screen">

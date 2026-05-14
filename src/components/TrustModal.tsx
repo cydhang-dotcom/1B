@@ -2,19 +2,64 @@ import React, { useState } from 'react';
 import { X, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+type SubmitStatus = 'idle' | 'submitting' | 'error';
+
 export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [isSuccess, setIsSuccess] = useState(false);
   const [formData, setFormData] = useState({ name: '', phone: '', company: '' });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const clearFieldError = (field: string) => {
+    setErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.phone) return;
-    setIsSuccess(true);
-    setTimeout(() => {
-      setIsSuccess(false);
-      onClose();
-      setFormData({ name: '', phone: '', company: '' });
-    }, 2000);
+
+    const newErrors: Record<string, string> = {};
+    if (!formData.name.trim()) {
+      newErrors.name = '请输入您的称呼';
+    }
+    if (!/^1[3-9]\d{9}$/.test(formData.phone)) {
+      newErrors.phone = '请输入正确的手机号码';
+    }
+    if (Object.keys(newErrors).length) {
+      setErrors(newErrors);
+      return;
+    }
+
+    setSubmitStatus('submitting');
+    try {
+      const res = await fetch('https://v3001.ibanbu.com/v1/xcx/xhr-co/subscribe/zxfw-sqsy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name.trim(),
+          mobile: formData.phone,
+          name1: formData.company.trim(),
+          source: '2',
+        }),
+      });
+
+      if (!res.ok) throw new Error('提交失败');
+
+      setIsSuccess(true);
+      setTimeout(() => {
+        setIsSuccess(false);
+        onClose();
+        setFormData({ name: '', phone: '', company: '' });
+        setSubmitStatus('idle');
+      }, 2000);
+    } catch {
+      setSubmitStatus('error');
+      setTimeout(() => setSubmitStatus('idle'), 2000);
+    }
   };
 
   if (!isOpen) return null;
@@ -64,42 +109,45 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
               <h3 className="text-2xl font-extrabold text-slate-900 mb-6 md:mb-8 text-center md:text-left mt-4 md:mt-0">托管我的企业</h3>
 
-              <form onSubmit={handleSubmit} className="space-y-5">
+              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
                 <div>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
-                    placeholder="您的称呼" 
-                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
+                    placeholder="您的称呼"
+                    className={`w-full h-12 px-5 bg-white border rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100 ${errors.name ? 'border-red-400' : 'border-slate-200'}`}
                     value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
+                    onChange={e => { setFormData({...formData, name: e.target.value}); clearFieldError('name'); }}
                   />
+                  {errors.name && <p className="text-red-500 text-xs mt-1.5 pl-5">{errors.name}</p>}
                 </div>
                 <div>
-                  <input 
-                    type="tel" 
+                  <input
+                    type="tel"
                     required
-                    placeholder="您的联系方式" 
-                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
+                    placeholder="您的联系方式"
+                    className={`w-full h-12 px-5 bg-white border rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100 ${errors.phone ? 'border-red-400' : 'border-slate-200'}`}
                     value={formData.phone}
-                    onChange={e => setFormData({...formData, phone: e.target.value})}
+                    onChange={e => { setFormData({...formData, phone: e.target.value}); clearFieldError('phone'); }}
                   />
+                  {errors.phone && <p className="text-red-500 text-xs mt-1.5 pl-5">{errors.phone}</p>}
                 </div>
                 <div>
-                  <input 
-                    type="text" 
-                    placeholder="企业名称（选填）" 
+                  <input
+                    type="text"
+                    placeholder="企业名称（选填）"
                     className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
                     value={formData.company}
                     onChange={e => setFormData({...formData, company: e.target.value})}
                   />
                 </div>
-                
-                <button 
+
+                <button
                   type="submit"
-                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] text-white rounded-full font-medium text-base mt-2 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+                  disabled={submitStatus === 'submitting'}
+                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-full font-medium text-base mt-2 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
                 >
-                  提交托管需求
+                  {submitStatus === 'submitting' ? '提交中...' : submitStatus === 'error' ? '提交失败，请稍后重试' : '提交托管需求'}
                 </button>
               </form>
             </div>

@@ -111,7 +111,7 @@ export default function PhoneMockup() {
               </div>
             </div>
 
-            {/* Screen 3: Workspace Placeholder */}
+            {/* Screen 3: Workspace */}
             <div className="w-1/4 h-full p-4 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-24">
                <div>
                 <div className="text-[9px] font-bold text-slate-500 tracking-widest uppercase mb-2">WORKSPACE</div>
@@ -120,17 +120,25 @@ export default function PhoneMockup() {
               <div className="h-10 bg-white rounded-xl border border-slate-200 flex items-center px-4 text-xs text-slate-500 shadow-sm">
                  查找功能或事务...
               </div>
-              
-              <div className="grid grid-cols-4 gap-2">
-                {[...Array(8)].map((_, i) => (
-                  <div key={i} className="flex flex-col items-center gap-2">
-                    <div className="w-12 h-12 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-center">
-                      <div className="w-5 h-5 bg-[#66CDB5]/10 rounded"></div>
-                    </div>
-                    <div className="text-[9px] font-bold text-slate-600">应用{i+1}</div>
+
+              {[
+                { title: '财务运营', color: 'emerald', items: ['对账','流水','发票','报销','凭证','报表','税款'] },
+                { title: '人事管理', color: 'blue', items: ['员工','薪酬','五险一金','合同'] },
+              ].map(group => (
+                <div key={group.title}>
+                  <div className={`text-[9px] font-bold mb-2 ${group.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>{group.title}</div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {group.items.map(label => (
+                      <div key={label} className="flex flex-col items-center gap-2">
+                        <div className={`w-12 h-12 bg-white rounded-xl border shadow-sm flex items-center justify-center ${group.color === 'emerald' ? 'border-emerald-100' : 'border-blue-100'}`}>
+                          <div className={`w-5 h-5 rounded ${group.color === 'emerald' ? 'bg-emerald-400/15' : 'bg-blue-400/15'}`}></div>
+                        </div>
+                        <div className="text-[9px] font-bold text-slate-600">{label}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
 
             {/* Screen 4: Company Placeholder */}
@@ -159,22 +167,17 @@ export default function PhoneMockup() {
 
         {/* Tab Bar */}
         <div className="h-16 bg-white border-t border-slate-100 absolute bottom-0 inset-x-0 flex justify-around items-center px-4">
-           <div className="flex flex-col items-center gap-1 text-[#66CDB5]">
-             <div className="w-5 h-5 rounded-[4px] bg-current opacity-20"></div>
-             <span className="text-[8px] font-bold uppercase tracking-widest">Dash</span>
-           </div>
-           <div className="flex flex-col items-center gap-1 text-slate-300">
-             <div className="w-5 h-5 rounded-[4px] bg-current opacity-20"></div>
-             <span className="text-[8px] font-bold uppercase tracking-widest">Tasks</span>
-           </div>
-           <div className="flex flex-col items-center gap-1 text-slate-300">
-             <div className="w-5 h-5 rounded-[4px] bg-current opacity-20"></div>
-             <span className="text-[8px] font-bold uppercase tracking-widest">Docs</span>
-           </div>
-           <div className="flex flex-col items-center gap-1 text-slate-300">
-             <div className="w-5 h-5 rounded-[4px] bg-current opacity-20"></div>
-             <span className="text-[8px] font-bold uppercase tracking-widest">Me</span>
-           </div>
+           {[
+             { label: '总览', active: true },
+             { label: '任务' },
+             { label: '事务' },
+             { label: '公司' },
+           ].map((tab, i) => (
+             <div key={tab.label} className={`flex flex-col items-center gap-1 ${tab.active ? 'text-[#66CDB5]' : 'text-slate-300'}`}>
+               <div className="w-5 h-5 rounded-[4px] bg-current opacity-20"></div>
+               <span className="text-[8px] font-bold uppercase tracking-widest">{tab.label}</span>
+             </div>
+           ))}
         </div>
       </div>
     </div>

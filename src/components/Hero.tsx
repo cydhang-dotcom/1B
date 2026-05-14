@@ -2,8 +2,11 @@ import React from 'react';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import PhoneMockup from './PhoneMockup';
+import { useShareUserUuid, appendShareUserUuid } from '../hooks/useShareUserUuid';
 
 export default function Hero({ onOpenModal }: { onOpenModal: () => void }) {
+  const uuid = useShareUserUuid();
+
   return (
     <section id="desk" className="pt-24 pb-16 sm:pb-20 lg:pt-32 lg:pb-32 overflow-hidden relative bg-white border-b border-slate-100">
       
@@ -41,8 +44,8 @@ export default function Hero({ onOpenModal }: { onOpenModal: () => void }) {
             >
               托管我的企业
             </button>
-            <a 
-              href="#path"
+            <a
+              href={appendShareUserUuid('/CAA', uuid)}
               className="inline-flex items-center justify-center h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-base sm:text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-colors gap-2 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200"
             >
               注册新的公司

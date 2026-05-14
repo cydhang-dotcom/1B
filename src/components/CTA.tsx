@@ -1,7 +1,10 @@
 import React from 'react';
 import { ArrowRight } from 'lucide-react';
+import { useShareUserUuid, appendShareUserUuid } from '../hooks/useShareUserUuid';
 
 export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
+  const uuid = useShareUserUuid();
+
   return (
     <section className="py-16 sm:py-20 lg:py-32 relative overflow-hidden bg-white border-t border-slate-100">
       <div className="max-w-7xl mx-auto px-5 sm:px-6">
@@ -22,9 +25,9 @@ export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
                 托管我的企业
                 <ArrowRight size={20} />
               </button>
-              <button className="inline-flex items-center justify-center h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-base sm:text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">
+              <a href={appendShareUserUuid('/CAA', uuid)} className="inline-flex items-center justify-center h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-base sm:text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">
                 注册新的公司
-              </button>
+              </a>
             </div>
           </div>
         </div>
