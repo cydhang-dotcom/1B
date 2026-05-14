@@ -38,8 +38,8 @@ export default function Features() {
 
         <div className="grid lg:grid-cols-3 gap-6">
           {scenarios.map((scene, idx) => (
-            <div key={idx} className="group bg-slate-50 p-7 sm:p-10 lg:p-12 rounded-[1.5rem] sm:rounded-[2rem] border border-slate-100 transition-all duration-300 hover:bg-white hover:border-slate-300 hover:shadow-xl hover:shadow-slate-200/60 hover:-translate-y-1">
-              <div className={`w-12 h-12 rounded-2xl bg-white border border-slate-200 shadow-sm shadow-slate-200/60 flex items-center justify-center text-xl font-bold mb-6 sm:mb-8 transition-transform duration-300 group-hover:scale-105 ${scene.color}`}>
+            <div key={idx} className="bg-slate-50 p-7 sm:p-10 lg:p-12 rounded-[1.5rem] sm:rounded-[2rem] border border-slate-100 transition-colors duration-300 hover:bg-white hover:border-slate-300">
+              <div className={`w-12 h-12 rounded-2xl bg-white border border-slate-200 flex items-center justify-center text-xl font-bold mb-6 sm:mb-8 ${scene.color}`}>
                 {scene.num}
               </div>
               <h3 className="text-2xl font-bold text-slate-900 mb-4">{scene.title}</h3>

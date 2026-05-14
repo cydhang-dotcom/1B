@@ -29,12 +29,10 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-2xl shadow-slate-950/15 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
+            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl shadow-slate-950/10 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
           >
             {/* Modal Aside */}
             <div className="w-full md:w-2/5 bg-slate-50 p-6 md:p-12 flex flex-col justify-center relative overflow-hidden shrink-0 border-b md:border-b-0 md:border-r border-slate-100">
-               <div className="absolute top-0 right-0 w-64 h-64 bg-[#66CDB5]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-               
                <div className="relative z-10">
                  <div className="text-[10px] font-bold tracking-widest text-[#66CDB5] uppercase mb-4 md:mb-6">BANBU ONE SERVICE</div>
                  <h3 className="text-2xl md:text-3xl font-extrabold text-slate-900 leading-[1.2] mb-3 md:mb-4">企业后台<br/>交给班步</h3>
@@ -99,7 +97,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 
                 <button 
                   type="submit"
-                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] text-white rounded-full font-medium text-base mt-2 transition-all shadow-lg shadow-[#66CDB5]/20 hover:shadow-xl hover:shadow-[#66CDB5]/25 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] text-white rounded-full font-medium text-base mt-2 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
                 >
                   提交托管需求
                 </button>

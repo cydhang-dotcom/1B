@@ -48,7 +48,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
           ))}
           <button
             onClick={onOpenModal}
-            className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-all shadow-sm shadow-[#66CDB5]/30 hover:-translate-y-0.5 hover:shadow-md hover:shadow-[#66CDB5]/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+            className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
           >
             托管我的企业
           </button>
@@ -70,7 +70,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl shadow-slate-200/60 md:hidden"
+            className="absolute top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-md md:hidden"
           >
             {navLinks.map((link) => (
               <a
