@@ -9,15 +9,15 @@ export default function Stats() {
   ];
 
   return (
-    <section className="py-24 bg-[#f0fdfa]/50 relative overflow-hidden border-y border-[#ccfbf1]/50">
-      <div className="max-w-7xl mx-auto px-6 relative z-10">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
+    <section className="py-16 sm:py-20 lg:py-24 bg-[#f0fdfa]/50 relative overflow-hidden border-y border-[#ccfbf1]/50">
+      <div className="max-w-7xl mx-auto px-5 sm:px-6 relative z-10">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-10 sm:gap-8">
           {stats.map((stat, idx) => (
-            <div key={idx} className="p-8 pb-0">
+            <div key={idx} className="p-0 sm:p-8 sm:pb-0">
               <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d9488] mb-4 block">
                 {stat.label}
               </span>
-              <div className="text-4xl lg:text-5xl font-extrabold text-[#0f766e] mb-4 tracking-tight">
+              <div className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-[#0f766e] mb-3 sm:mb-4 tracking-tight">
                 {stat.value}
               </div>
               <p className="text-sm text-[#115e59]/70 leading-relaxed font-medium">

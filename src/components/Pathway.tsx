@@ -25,27 +25,27 @@ export default function Pathway() {
   ];
 
   return (
-    <section id="path" className="py-24 lg:py-32 bg-slate-50 border-t border-slate-100 relative">
-      <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-20 items-start">
+    <section id="path" className="py-16 sm:py-20 lg:py-32 bg-slate-50 border-t border-slate-100 relative">
+      <div className="max-w-7xl mx-auto px-5 sm:px-6 grid lg:grid-cols-2 gap-12 lg:gap-20 items-start">
         <div className="lg:sticky lg:top-32">
-          <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2] mb-6">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2] mb-5 sm:mb-6">
             携手共进，<br/><span className="text-[#66CDB5]">未来可期。</span>
           </h2>
-          <p className="text-lg text-slate-600 font-normal max-w-md leading-relaxed">
+          <p className="text-base sm:text-lg text-slate-600 font-normal max-w-md leading-relaxed">
             企业处在不同阶段，需要接上的事项也不同。班步把注册、财税、人事和托管放进连续的服务路径里。
           </p>
         </div>
 
-        <div className="relative border-l border-slate-200 pl-8 lg:pl-12 py-4">
-          <div className="grid gap-16">
+        <div className="relative border-l border-slate-200 pl-7 sm:pl-8 lg:pl-12 py-2 sm:py-4">
+          <div className="grid gap-10 sm:gap-16">
             {steps.map((step, idx) => (
               <div key={idx} className="relative">
                 {/* Dot */}
-                <div className="absolute -left-[37px] lg:-left-[53px] top-2 w-4 h-4 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center">
+                <div className="absolute -left-[35px] sm:-left-[37px] lg:-left-[53px] top-2 w-4 h-4 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center">
                   <div className="w-1.5 h-1.5 rounded-full bg-[#66CDB5]"></div>
                 </div>
                 
-                <div className="flex gap-6 items-start group">
+                <div className="flex gap-4 sm:gap-6 items-start group">
                   <div className="w-12 h-12 shrink-0 rounded-2xl bg-white border border-slate-200 shadow-sm text-[#66CDB5] font-extrabold text-lg flex items-center justify-center transition-all group-hover:scale-110">
                     {step.code}
                   </div>

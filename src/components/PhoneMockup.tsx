@@ -2,14 +2,14 @@ import React from 'react';
 
 export default function PhoneMockup() {
   return (
-    <div className="relative mx-auto w-[320px] h-[640px] bg-white rounded-[40px] p-3 shadow-xl shadow-[#66CDB5]/5 relative z-10 border border-slate-200">
+    <div className="relative mx-auto w-full max-w-[320px] aspect-[1/2] bg-white rounded-[32px] sm:rounded-[40px] p-2.5 sm:p-3 shadow-xl shadow-[#66CDB5]/5 z-10 border border-slate-200">
       {/* Notch */}
-      <div className="absolute top-6 left-1/2 -translate-x-1/2 w-20 h-5 bg-slate-100 rounded-full z-20 border border-slate-200"></div>
+      <div className="absolute top-5 sm:top-6 left-1/2 -translate-x-1/2 w-16 sm:w-20 h-4 sm:h-5 bg-slate-100 rounded-full z-20 border border-slate-200"></div>
 
       {/* Screen */}
       <div className="h-full w-full bg-[#fafafa] rounded-[32px] overflow-hidden relative flex flex-col border border-slate-100">
         {/* Status Bar */}
-        <div className="h-8 flex justify-between items-center px-8 pt-4 text-[10px] font-bold text-slate-500 z-10 shrink-0 mb-1">
+        <div className="h-8 flex justify-between items-center px-6 sm:px-8 pt-4 text-[10px] font-bold text-slate-500 z-10 shrink-0 mb-1">
           <span>9:41</span>
           <div className="flex gap-1 items-center">
             <div className="w-3 h-3 border border-slate-300 rounded-full"></div>
@@ -18,10 +18,10 @@ export default function PhoneMockup() {
         </div>
 
         {/* WeChat Header */}
-        <div className="h-14 w-full px-6 flex justify-between items-center shrink-0 border-b border-slate-100 bg-white mb-3">
+        <div className="h-14 w-full px-5 sm:px-6 flex justify-between items-center shrink-0 border-b border-slate-100 bg-white mb-3">
           <div>
             <div className="text-[9px] font-bold text-[#66CDB5] uppercase tracking-widest leading-none mb-1">CEO Dashboard</div>
-            <div className="text-xl font-bold text-slate-800">班步一企通</div>
+            <div className="text-lg sm:text-xl font-bold text-slate-800">班步一企通</div>
           </div>
           <div className="w-8 h-8 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
             <div className="w-2 h-2 bg-[#66CDB5] rounded-full"></div>

@@ -23,7 +23,7 @@
 }
 
 body {
-  @apply bg-white text-slate-800 antialiased;
+  @apply bg-white text-slate-800 antialiased overflow-x-hidden;
 }
 
 .glass-panel {

@@ -23,23 +23,23 @@ export default function Features() {
   ];
 
   return (
-    <section id="scenes" className="py-24 lg:py-32 bg-white border-t border-slate-100">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="flex flex-col md:flex-row justify-between items-end gap-12 mb-20">
+    <section id="scenes" className="py-16 sm:py-20 lg:py-32 bg-white border-t border-slate-100">
+      <div className="max-w-7xl mx-auto px-5 sm:px-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-12 mb-10 sm:mb-14 lg:mb-20">
           <div className="max-w-2xl">
-            <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2]">
+            <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2]">
               可视可控，<br/><span className="text-[#66CDB5]">省心安心。</span>
             </h2>
           </div>
-          <p className="text-lg text-slate-600 font-normal max-w-md pb-2 leading-relaxed">
+          <p className="text-base sm:text-lg text-slate-600 font-normal max-w-md md:pb-2 leading-relaxed">
             办理进度、经营概览和风险提醒都沉淀在小程序里，减少来回问人、找表和翻聊天记录。
           </p>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">
           {scenarios.map((scene, idx) => (
-            <div key={idx} className="bg-slate-50 p-10 lg:p-12 rounded-[2rem] border border-slate-100 transition-all hover:bg-white hover:border-slate-300 hover:shadow-md">
-              <div className={`w-12 h-12 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center text-xl font-bold mb-8 ${scene.color}`}>
+            <div key={idx} className="bg-slate-50 p-7 sm:p-10 lg:p-12 rounded-[1.5rem] sm:rounded-[2rem] border border-slate-100 transition-all hover:bg-white hover:border-slate-300 hover:shadow-md">
+              <div className={`w-12 h-12 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center justify-center text-xl font-bold mb-6 sm:mb-8 ${scene.color}`}>
                 {scene.num}
               </div>
               <h3 className="text-2xl font-bold text-slate-900 mb-4">{scene.title}</h3>
