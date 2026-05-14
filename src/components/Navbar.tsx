@@ -24,12 +24,12 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled ? 'glass-panel border-b border-slate-100' : 'bg-transparent'
+        isScrolled ? 'glass-panel border-b border-slate-100 shadow-sm shadow-slate-200/60' : 'bg-transparent'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+      <div className="max-w-7xl mx-auto px-5 sm:px-6 h-20 flex items-center justify-between">
         <a href="#" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 bg-[#66CDB5] rounded-xl flex items-center justify-center text-white group-hover:scale-105 transition-transform">
+          <div className="w-10 h-10 bg-[#66CDB5] rounded-xl flex items-center justify-center text-white shadow-sm shadow-[#66CDB5]/30 group-hover:scale-105 group-hover:shadow-md group-hover:shadow-[#66CDB5]/30 transition-all">
             <Building2 size={22} strokeWidth={2.5} />
           </div>
           <span className="font-bold text-xl tracking-tight text-slate-800">班步一企通 <span className="text-slate-500 font-medium hidden sm:inline">· BANBU</span></span>
@@ -48,7 +48,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
           ))}
           <button
             onClick={onOpenModal}
-            className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-all shadow-sm"
+            className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-all shadow-sm shadow-[#66CDB5]/30 hover:-translate-y-0.5 hover:shadow-md hover:shadow-[#66CDB5]/30 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
           >
             托管我的企业
           </button>
@@ -56,7 +56,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
 
         {/* Mobile Toggle */}
         <button
-          className="md:hidden p-2 text-slate-600"
+          className="md:hidden h-11 w-11 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-colors"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
           {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -70,14 +70,14 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl md:hidden"
+            className="absolute top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl shadow-slate-200/60 md:hidden"
           >
             {navLinks.map((link) => (
               <a
                 key={link.name}
                 href={link.href}
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="text-lg font-semibold text-slate-900 py-2 border-b border-slate-100"
+                className="text-lg font-semibold text-slate-900 py-3 border-b border-slate-100"
               >
                 {link.name}
               </a>
@@ -87,7 +87,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
                 setIsMobileMenuOpen(false);
                 onOpenModal();
               }}
-              className="w-full mt-4 px-6 py-3 bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-bold rounded-xl shadow-md text-center transition-colors"
+              className="w-full mt-4 px-6 py-3 bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-bold rounded-xl shadow-md shadow-[#66CDB5]/25 text-center transition-all active:scale-[0.99]"
             >
               托管我的企业
             </button>

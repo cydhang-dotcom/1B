@@ -10,10 +10,11 @@ export default function Stats() {
 
   return (
     <section className="py-16 sm:py-20 lg:py-24 bg-[#f0fdfa]/50 relative overflow-hidden border-y border-[#ccfbf1]/50">
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[#66CDB5]/30 to-transparent"></div>
       <div className="max-w-7xl mx-auto px-5 sm:px-6 relative z-10">
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-10 sm:gap-8">
           {stats.map((stat, idx) => (
-            <div key={idx} className="p-0 sm:p-8 sm:pb-0">
+            <div key={idx} className="p-0 sm:p-8 sm:pb-0 rounded-2xl transition-colors hover:bg-white/40">
               <span className="text-[10px] font-bold tracking-widest uppercase text-[#0d9488] mb-4 block">
                 {stat.label}
               </span>

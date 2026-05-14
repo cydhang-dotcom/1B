@@ -21,7 +21,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={onClose}></div>
       
       <AnimatePresence mode="wait">
         {!isSuccess ? (
@@ -29,7 +29,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl shadow-slate-200/50 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
+            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-2xl shadow-slate-950/15 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
           >
             {/* Modal Aside */}
             <div className="w-full md:w-2/5 bg-slate-50 p-6 md:p-12 flex flex-col justify-center relative overflow-hidden shrink-0 border-b md:border-b-0 md:border-r border-slate-100">
@@ -59,7 +59,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             <div className="w-full md:w-3/5 p-6 md:p-12 relative">
               <button 
                 onClick={onClose}
-                className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-50 text-slate-400 transition-colors"
+                className="absolute top-6 right-6 h-10 w-10 flex items-center justify-center rounded-full hover:bg-slate-50 active:bg-slate-100 text-slate-400 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200"
               >
                 <X size={20} />
               </button>
@@ -72,7 +72,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                     type="text" 
                     required
                     placeholder="您的称呼" 
-                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400"
+                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
                     value={formData.name}
                     onChange={e => setFormData({...formData, name: e.target.value})}
                   />
@@ -82,7 +82,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                     type="tel" 
                     required
                     placeholder="您的联系方式" 
-                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400"
+                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
                     value={formData.phone}
                     onChange={e => setFormData({...formData, phone: e.target.value})}
                   />
@@ -91,7 +91,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                   <input 
                     type="text" 
                     placeholder="企业名称（选填）" 
-                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400"
+                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
                     value={formData.company}
                     onChange={e => setFormData({...formData, company: e.target.value})}
                   />
@@ -99,7 +99,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 
                 <button 
                   type="submit"
-                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] text-white rounded-full font-medium text-base mt-2 transition-all"
+                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] text-white rounded-full font-medium text-base mt-2 transition-all shadow-lg shadow-[#66CDB5]/20 hover:shadow-xl hover:shadow-[#66CDB5]/25 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
                 >
                   提交托管需求
                 </button>

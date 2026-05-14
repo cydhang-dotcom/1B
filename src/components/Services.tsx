@@ -34,7 +34,8 @@ const services = [
 
 export default function Services() {
   return (
-    <section id="services" className="py-16 sm:py-20 lg:py-32 bg-slate-50 border-t border-slate-100">
+    <section id="services" className="py-16 sm:py-20 lg:py-32 bg-slate-50 border-t border-slate-100 relative overflow-hidden">
+      <div className="absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-white/70 to-transparent pointer-events-none"></div>
       <div className="max-w-7xl mx-auto px-5 sm:px-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-12 mb-10 sm:mb-14 lg:mb-20">
           <div className="max-w-2xl">
@@ -49,11 +50,11 @@ export default function Services() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {services.map((service, idx) => (
-            <div key={idx} className="group p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] bg-white border border-slate-200 hover:border-slate-300 hover:shadow-md shadow-sm transition-all duration-300 flex flex-col h-full relative overflow-hidden">
-              <div className="mb-6 sm:mb-8 w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center relative z-10 group-hover:scale-110 transition-transform">
+            <div key={idx} className="group p-6 sm:p-8 rounded-[1.5rem] sm:rounded-[2rem] bg-white border border-slate-200 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-200/70 shadow-sm shadow-slate-200/50 transition-all duration-300 flex flex-col h-full relative overflow-hidden hover:-translate-y-1">
+              <div className="mb-6 sm:mb-8 w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 shadow-sm shadow-slate-200/60 flex items-center justify-center relative z-10 group-hover:scale-105 transition-transform">
                 {service.icon}
               </div>
-              <div className="absolute top-6 right-6 text-6xl font-extrabold text-slate-50 group-hover:text-[#66CDB5]/10 transition-colors pointer-events-none select-none z-0">
+              <div className="absolute top-6 right-6 text-6xl font-extrabold text-slate-100/70 group-hover:text-[#66CDB5]/10 transition-colors pointer-events-none select-none z-0">
                 {service.num}
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-4 relative z-10">{service.title}</h3>
@@ -61,7 +62,7 @@ export default function Services() {
               
               <div className="flex flex-wrap gap-2 mt-auto relative z-10">
                 {service.tags.map(tag => (
-                  <span key={tag} className="px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-full text-[11px] font-medium text-slate-600">
+                  <span key={tag} className="px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-full text-[11px] font-medium text-slate-600 shadow-sm shadow-white/80">
                     {tag}
                   </span>
                 ))}

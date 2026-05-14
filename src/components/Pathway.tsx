@@ -25,7 +25,7 @@ export default function Pathway() {
   ];
 
   return (
-    <section id="path" className="py-16 sm:py-20 lg:py-32 bg-slate-50 border-t border-slate-100 relative">
+    <section id="path" className="py-16 sm:py-20 lg:py-32 bg-gradient-to-b from-slate-50 to-white border-t border-slate-100 relative overflow-hidden">
       <div className="max-w-7xl mx-auto px-5 sm:px-6 grid lg:grid-cols-2 gap-12 lg:gap-20 items-start">
         <div className="lg:sticky lg:top-32">
           <h2 className="text-3xl sm:text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2] mb-5 sm:mb-6">
@@ -41,15 +41,15 @@ export default function Pathway() {
             {steps.map((step, idx) => (
               <div key={idx} className="relative">
                 {/* Dot */}
-                <div className="absolute -left-[35px] sm:-left-[37px] lg:-left-[53px] top-2 w-4 h-4 rounded-full bg-white border-2 border-slate-200 flex items-center justify-center">
+                <div className="absolute -left-[35px] sm:-left-[37px] lg:-left-[53px] top-2 w-4 h-4 rounded-full bg-white border-2 border-slate-200 shadow-sm shadow-slate-200/60 flex items-center justify-center">
                   <div className="w-1.5 h-1.5 rounded-full bg-[#66CDB5]"></div>
                 </div>
                 
                 <div className="flex gap-4 sm:gap-6 items-start group">
-                  <div className="w-12 h-12 shrink-0 rounded-2xl bg-white border border-slate-200 shadow-sm text-[#66CDB5] font-extrabold text-lg flex items-center justify-center transition-all group-hover:scale-110">
+                  <div className="w-12 h-12 shrink-0 rounded-2xl bg-white border border-slate-200 shadow-sm shadow-slate-200/60 text-[#66CDB5] font-extrabold text-lg flex items-center justify-center transition-all group-hover:scale-105 group-hover:shadow-md group-hover:shadow-slate-200/70">
                     {step.code}
                   </div>
-                  <div>
+                  <div className="rounded-2xl transition-colors duration-300 group-hover:bg-white/70 group-hover:shadow-sm group-hover:shadow-slate-200/50 group-hover:border-slate-100 group-hover:border border border-transparent px-0 sm:px-4 py-0 sm:py-3 sm:-mt-3">
                     <h3 className="text-xl font-bold text-slate-900 mb-3">{step.title}</h3>
                     <p className="text-slate-600 leading-relaxed text-sm">{step.desc}</p>
                   </div>
