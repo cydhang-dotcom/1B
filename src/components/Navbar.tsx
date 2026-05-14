@@ -32,7 +32,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
           <div className="w-10 h-10 bg-[#66CDB5] rounded-xl flex items-center justify-center text-white group-hover:scale-105 transition-transform">
             <Building2 size={22} strokeWidth={2.5} />
           </div>
-          <span className="font-bold text-xl tracking-tight text-slate-800">班步一企通 <span className="text-slate-400 font-medium hidden sm:inline">· BANBU</span></span>
+          <span className="font-bold text-xl tracking-tight text-slate-800">班步一企通 <span className="text-slate-500 font-medium hidden sm:inline">· BANBU</span></span>
         </a>
 
         {/* Desktop Nav */}
@@ -41,14 +41,14 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
             <a
               key={link.name}
               href={link.href}
-              className="text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors relative after:absolute after:bottom-[-4px] after:left-0 after:w-full after:h-[2px] after:bg-[#66CDB5] after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:origin-left"
+              className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors relative after:absolute after:bottom-[-4px] after:left-0 after:w-full after:h-[2px] after:bg-[#66CDB5] after:scale-x-0 hover:after:scale-x-100 after:transition-transform after:origin-left"
             >
               {link.name}
             </a>
           ))}
           <button
             onClick={onOpenModal}
-            className="px-6 py-2.5 bg-slate-50 border border-slate-200 text-slate-700 text-sm font-medium rounded-full hover:bg-white hover:border-[#66CDB5] hover:text-[#66CDB5] transition-all"
+            className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-all shadow-sm"
           >
             托管我的企业
           </button>

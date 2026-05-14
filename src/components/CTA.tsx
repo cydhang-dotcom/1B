@@ -3,7 +3,7 @@ import { ArrowRight } from 'lucide-react';
 
 export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
   return (
-    <section className="py-24 lg:py-32 relative overflow-hidden bg-white">
+    <section className="py-24 lg:py-32 relative overflow-hidden bg-white border-t border-slate-100">
       <div className="max-w-7xl mx-auto px-6">
         <div className="bg-[#f8fafc] rounded-[3rem] p-12 lg:p-24 relative overflow-hidden border border-slate-100">
           {/* Decorative graphic */}
@@ -13,7 +13,7 @@ export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
             <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2] mb-6">
               选择，<br/>进入下一步。
             </h2>
-            <p className="text-lg text-slate-500 mb-10 max-w-xl leading-relaxed">
+            <p className="text-lg text-slate-600 mb-10 max-w-xl leading-relaxed">
               无论是先了解注册路径，还是直接托管财税、人事和补贴事项，班步都可以从当前阶段接入，帮你把后台事务推进清楚。
             </p>
             

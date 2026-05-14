@@ -25,18 +25,18 @@ export default function Pathway() {
   ];
 
   return (
-    <section id="path" className="py-24 lg:py-32 bg-white relative">
+    <section id="path" className="py-24 lg:py-32 bg-slate-50 border-t border-slate-100 relative">
       <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-20 items-start">
         <div className="lg:sticky lg:top-32">
           <h2 className="text-4xl md:text-5xl font-extrabold text-slate-900 leading-[1.2] mb-6">
             携手共进，<br/><span className="text-[#66CDB5]">未来可期。</span>
           </h2>
-          <p className="text-lg text-slate-500 font-normal max-w-md leading-relaxed">
+          <p className="text-lg text-slate-600 font-normal max-w-md leading-relaxed">
             企业处在不同阶段，需要接上的事项也不同。班步把注册、财税、人事和托管放进连续的服务路径里。
           </p>
         </div>
 
-        <div className="relative border-l border-slate-100 pl-8 lg:pl-12 py-4">
+        <div className="relative border-l border-slate-200 pl-8 lg:pl-12 py-4">
           <div className="grid gap-16">
             {steps.map((step, idx) => (
               <div key={idx} className="relative">
@@ -46,12 +46,12 @@ export default function Pathway() {
                 </div>
                 
                 <div className="flex gap-6 items-start group">
-                  <div className="w-12 h-12 shrink-0 rounded-2xl bg-white border border-slate-100 text-[#66CDB5] font-extrabold text-lg flex items-center justify-center transition-all group-hover:scale-110">
+                  <div className="w-12 h-12 shrink-0 rounded-2xl bg-white border border-slate-200 shadow-sm text-[#66CDB5] font-extrabold text-lg flex items-center justify-center transition-all group-hover:scale-110">
                     {step.code}
                   </div>
                   <div>
                     <h3 className="text-xl font-bold text-slate-900 mb-3">{step.title}</h3>
-                    <p className="text-slate-500 leading-relaxed text-sm">{step.desc}</p>
+                    <p className="text-slate-600 leading-relaxed text-sm">{step.desc}</p>
                   </div>
                 </div>
               </div>

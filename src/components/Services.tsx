@@ -34,7 +34,7 @@ const services = [
 
 export default function Services() {
   return (
-    <section id="services" className="py-24 lg:py-32 bg-white">
+    <section id="services" className="py-24 lg:py-32 bg-slate-50 border-t border-slate-100">
       <div className="max-w-7xl mx-auto px-6">
         <div className="flex flex-col md:flex-row justify-between items-end gap-12 mb-20">
           <div className="max-w-2xl">
@@ -42,26 +42,26 @@ export default function Services() {
               后台事务，<br/><span className="text-[#66CDB5]">一站服务。</span>
             </h2>
           </div>
-          <p className="text-lg text-slate-500 font-normal max-w-md pb-2 leading-relaxed">
+          <p className="text-lg text-slate-600 font-normal max-w-md pb-2 leading-relaxed">
             从注册代理到财务代理、人事外包和政府补贴申请，服务前后衔接，减少创业初期到处找人的成本。
           </p>
         </div>
 
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
           {services.map((service, idx) => (
-            <div key={idx} className="group p-8 rounded-[2rem] bg-slate-50 border border-slate-100 hover:border-slate-200 hover:bg-white transition-all duration-300 flex flex-col h-full relative overflow-hidden">
-              <div className="mb-8 w-12 h-12 rounded-2xl bg-white border border-slate-100 flex items-center justify-center relative z-10 group-hover:scale-110 transition-transform">
+            <div key={idx} className="group p-8 rounded-[2rem] bg-white border border-slate-200 hover:border-slate-300 hover:shadow-md shadow-sm transition-all duration-300 flex flex-col h-full relative overflow-hidden">
+              <div className="mb-8 w-12 h-12 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center relative z-10 group-hover:scale-110 transition-transform">
                 {service.icon}
               </div>
-              <div className="absolute top-6 right-6 text-6xl font-extrabold text-slate-100/50 group-hover:text-[#66CDB5]/10 transition-colors pointer-events-none select-none z-0">
+              <div className="absolute top-6 right-6 text-6xl font-extrabold text-slate-50 group-hover:text-[#66CDB5]/10 transition-colors pointer-events-none select-none z-0">
                 {service.num}
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-4 relative z-10">{service.title}</h3>
-              <p className="text-slate-500 text-sm leading-relaxed mb-10 flex-grow relative z-10">{service.desc}</p>
+              <p className="text-slate-600 text-sm leading-relaxed mb-10 flex-grow relative z-10">{service.desc}</p>
               
               <div className="flex flex-wrap gap-2 mt-auto relative z-10">
                 {service.tags.map(tag => (
-                  <span key={tag} className="px-3 py-1.5 bg-white border border-slate-100 rounded-full text-[11px] font-medium text-slate-500">
+                  <span key={tag} className="px-3 py-1.5 bg-slate-50 border border-slate-100 rounded-full text-[11px] font-medium text-slate-600">
                     {tag}
                   </span>
                 ))}

@@ -22,7 +22,7 @@ export default function Hero({ onOpenModal }: { onOpenModal: () => void }) {
             </span>
           </h1>
           
-          <p className="text-lg text-slate-500 font-normal leading-relaxed mb-10 max-w-lg">
+          <p className="text-lg text-slate-600 font-normal leading-relaxed mb-10 max-w-lg">
             <strong className="text-[#66CDB5] font-semibold">「班步一企通」</strong>包含公司注册、财税代理、人事外包和补贴申请的一站式管家服务。
           </p>
 

@@ -9,7 +9,7 @@ export default function PhoneMockup() {
       {/* Screen */}
       <div className="h-full w-full bg-[#fafafa] rounded-[32px] overflow-hidden relative flex flex-col border border-slate-100">
         {/* Status Bar */}
-        <div className="h-8 flex justify-between items-center px-8 pt-4 text-[10px] font-bold text-slate-400 z-10 shrink-0 mb-1">
+        <div className="h-8 flex justify-between items-center px-8 pt-4 text-[10px] font-bold text-slate-500 z-10 shrink-0 mb-1">
           <span>9:41</span>
           <div className="flex gap-1 items-center">
             <div className="w-3 h-3 border border-slate-300 rounded-full"></div>
@@ -59,12 +59,12 @@ export default function PhoneMockup() {
                   <div className="text-xs font-bold text-slate-800 mb-1 flex items-center justify-between gap-1">
                     智能健康诊断
                   </div>
-                  <p className="text-[10px] text-slate-500 leading-relaxed">资金充裕，预计覆盖近期开支。</p>
+                  <p className="text-[10px] text-slate-600 leading-relaxed">资金充裕，预计覆盖近期开支。</p>
                 </div>
               </div>
 
               <div className="mx-2 bg-white rounded-2xl p-4 border border-slate-200 mt-2 shadow-sm shadow-slate-100">
-                <div className="text-[9px] font-bold text-slate-400 uppercase mb-3">账户余额走势</div>
+                <div className="text-[9px] font-bold text-slate-500 uppercase mb-3">账户余额走势</div>
                 <div className="h-12 w-full bg-slate-50 rounded-lg relative overflow-hidden flex items-end">
                   <div className="w-full h-3/4 bg-blue-500/10 rounded-t-lg" style={{ clipPath: 'polygon(0 60%, 18% 54%, 35% 67%, 52% 24%, 68% 43%, 84% 40%, 100% 34%, 100% 100%, 0 100%)' }}></div>
                   <div className="absolute inset-0 w-full h-full" style={{ background: 'linear-gradient(to right, transparent, rgba(255,255,255,0.8))' }}></div>
@@ -75,24 +75,24 @@ export default function PhoneMockup() {
             {/* Screen 2: Tasks */}
             <div className="w-1/4 h-full p-4 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-24">
               <div>
-                <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase mb-1">EXECUTION</div>
+                <div className="text-[9px] font-bold text-slate-500 tracking-widest uppercase mb-1">EXECUTION</div>
                 <h3 className="text-xl font-bold text-slate-800">本月任务</h3>
               </div>
 
               <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm shadow-slate-100">
                 <div className="flex items-center gap-3 mb-6">
                   <div className="text-sm font-bold text-slate-800 flex-1">交付履约进度</div>
-                  <div className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">正常进展</div>
+                  <div className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">正常进展</div>
                 </div>
 
                 <div className="relative border-l ml-3 border-slate-100 pb-2 space-y-6">
                   <div className="relative pl-6">
                     <div className="absolute w-2.5 h-2.5 bg-white border-2 border-slate-300 rounded-full -left-[5.5px] top-1"></div>
-                    <div className="text-[9px] font-medium text-slate-400 mb-1">12-10</div>
+                    <div className="text-[9px] font-medium text-slate-500 mb-1">12-10</div>
                     <div className="text-sm font-bold text-slate-800 mb-2">薪酬发放</div>
                     <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                       <div className="flex justify-between items-center mb-3">
-                        <span className="text-[10px] text-slate-500">实发总额</span>
+                        <span className="text-[10px] text-slate-600">实发总额</span>
                         <span className="font-bold text-slate-800 text-xs">¥425k</span>
                       </div>
                       <div className="w-full text-center py-2 bg-slate-800 text-white text-[10px] font-medium rounded-lg">待确认</div>
@@ -100,7 +100,7 @@ export default function PhoneMockup() {
                   </div>
                   <div className="relative pl-6">
                     <div className="absolute w-2.5 h-2.5 bg-[#66CDB5] border-2 border-white rounded-full -left-[5.5px] top-1"></div>
-                    <div className="text-[9px] font-medium text-slate-400 mb-1">12-15</div>
+                    <div className="text-[9px] font-medium text-slate-500 mb-1">12-15</div>
                     <div className="text-sm font-bold text-slate-800 mb-2">税务申报</div>
                     <div className="flex gap-2">
                       <span className="bg-[#f0fdfa] text-[#0d9488] text-[9px] px-2 py-1 rounded font-medium border border-[#ccfbf1]">增值税</span>
@@ -114,10 +114,10 @@ export default function PhoneMockup() {
             {/* Screen 3: Workspace Placeholder */}
             <div className="w-1/4 h-full p-4 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-24">
                <div>
-                <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase mb-2">WORKSPACE</div>
+                <div className="text-[9px] font-bold text-slate-500 tracking-widest uppercase mb-2">WORKSPACE</div>
                 <h3 className="text-xl font-extrabold text-slate-900">事务工作台</h3>
               </div>
-              <div className="h-10 bg-white rounded-xl border border-slate-200 flex items-center px-4 text-xs text-slate-400 shadow-sm">
+              <div className="h-10 bg-white rounded-xl border border-slate-200 flex items-center px-4 text-xs text-slate-500 shadow-sm">
                  查找功能或事务...
               </div>
               
@@ -127,7 +127,7 @@ export default function PhoneMockup() {
                     <div className="w-12 h-12 bg-white rounded-xl border border-slate-100 shadow-sm flex items-center justify-center">
                       <div className="w-5 h-5 bg-[#66CDB5]/10 rounded"></div>
                     </div>
-                    <div className="text-[9px] font-bold text-slate-500">应用{i+1}</div>
+                    <div className="text-[9px] font-bold text-slate-600">应用{i+1}</div>
                   </div>
                 ))}
               </div>
@@ -136,11 +136,11 @@ export default function PhoneMockup() {
             {/* Screen 4: Company Placeholder */}
             <div className="w-1/4 h-full p-4 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-24">
                <div>
-                <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase mb-1">ENTERPRISE</div>
+                <div className="text-[9px] font-bold text-slate-500 tracking-widest uppercase mb-1">ENTERPRISE</div>
                 <h3 className="text-xl font-bold text-slate-800">我的企业</h3>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shadow-slate-100 flex items-center gap-4">
-                <div className="w-12 h-12 bg-slate-50 rounded-xl text-slate-500 flex items-center justify-center font-bold text-lg border border-slate-100">企</div>
+                <div className="w-12 h-12 bg-slate-50 rounded-xl text-slate-600 flex items-center justify-center font-bold text-lg border border-slate-200 shadow-sm">企</div>
                 <div>
                   <div className="font-bold text-slate-800 mb-1 text-sm">干机科技</div>
                   <div className="flex gap-2">
@@ -149,8 +149,8 @@ export default function PhoneMockup() {
                 </div>
               </div>
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shadow-slate-100">
-                <div className="text-[9px] font-bold text-slate-400 mb-1">统一社会信用代码</div>
-                <div className="text-xs font-mono text-slate-500 tracking-widest">91310000XXXX</div>
+                <div className="text-[9px] font-bold text-slate-500 mb-1">统一社会信用代码</div>
+                <div className="text-xs font-mono text-slate-600 tracking-widest">91310000XXXX</div>
               </div>
             </div>
 
