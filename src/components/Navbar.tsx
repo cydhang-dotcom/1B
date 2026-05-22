@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Building2, Menu, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from "react";
+import { Building2, Menu, X } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 
 export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
   const [isScrolled, setIsScrolled] = useState(false);
@@ -10,29 +10,37 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 10);
     };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const navLinks = [
-    { name: '产品入口', href: '#desk' },
-    { name: '服务内容', href: '#services' },
-    { name: '能力亮点', href: '#scenes' },
-    { name: '服务路径', href: '#path' },
+    { name: "产品入口", href: "#desk" },
+    { name: "服务内容", href: "#services" },
+    { name: "能力亮点", href: "#scenes" },
+    { name: "服务路径", href: "#path" },
   ];
 
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        isScrolled ? 'glass-panel border-b border-slate-100' : 'bg-transparent'
+        isScrolled ? "glass-panel border-b border-slate-100" : "bg-transparent"
       }`}
     >
-      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-        <a href="#" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 bg-[#66CDB5] rounded-xl flex items-center justify-center text-white group-hover:scale-105 transition-transform">
-            <Building2 size={22} strokeWidth={2.5} />
+      <div className="max-w-7xl mx-auto px-5 md:px-8 h-16 md:h-20 flex items-center justify-between">
+        <a href="#" className="flex items-center gap-2 md:gap-3 group">
+          <div className="w-8 h-8 md:w-10 md:h-10 bg-[#66CDB5] rounded-[10px] md:rounded-xl flex items-center justify-center text-white group-hover:scale-105 transition-transform">
+            <Building2
+              className="w-5 h-5 md:w-[22px] md:h-[22px]"
+              strokeWidth={2.5}
+            />
           </div>
-          <span className="font-bold text-xl tracking-tight text-slate-800">班步一企通 <span className="text-slate-500 font-medium hidden sm:inline">· BANBU</span></span>
+          <span className="font-bold text-lg md:text-xl tracking-tight text-slate-800">
+            班步一企通{" "}
+            <span className="text-slate-500 font-medium hidden sm:inline">
+              · BANBU
+            </span>
+          </span>
         </a>
 
         {/* Desktop Nav */}
@@ -70,7 +78,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl md:hidden"
+            className="absolute top-16 md:top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl md:hidden"
           >
             {navLinks.map((link) => (
               <a

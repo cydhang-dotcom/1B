@@ -1,79 +1,92 @@
-import React from 'react';
-import { ArrowRight, Sparkles, CheckCircle2 } from 'lucide-react';
-import { motion } from 'motion/react';
-import PhoneMockup from './PhoneMockup';
+import React from "react";
+import { ArrowRight, Sparkles, Check } from "lucide-react";
+import { motion } from "motion/react";
+import PhoneMockup from "./PhoneMockup";
 
 export default function Hero({ onOpenModal }: { onOpenModal: () => void }) {
   return (
-    <section id="desk" className="pt-24 pb-24 lg:pt-32 lg:pb-32 overflow-hidden relative bg-white">
+    <section
+      id="desk"
+      className="pt-24 lg:pt-32 pb-0 lg:pb-32 overflow-hidden relative bg-white flex flex-col"
+    >
       <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#66CDB5]/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-      
-      <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-20 items-center relative z-10">
-        <motion.div 
+      <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-[#EEF0FF]/40 rounded-full blur-3xl translate-y-1/3 -translate-x-1/3"></div>
+
+      <div className="max-w-7xl mx-auto px-5 md:px-8 w-full grow flex flex-col lg:grid lg:grid-cols-2 gap-6 lg:gap-20 relative z-10">
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
-          className="max-w-2xl"
+          className="flex flex-col pt-10 sm:pt-14 lg:pt-0 lg:justify-center order-1 lg:order-none max-w-2xl mx-0 lg:mx-0 w-full relative z-20 items-start"
         >
-          <h1 className="text-5xl lg:text-[5rem] leading-[1.1] font-extrabold text-slate-900 tracking-tight mb-8">
-            陪跑创业者<br/>
-            <span className="text-[#66CDB5] relative inline-block mt-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-teal-50 border border-teal-100 text-teal-700 text-xs sm:text-sm font-semibold mb-6 mx-0">
+            <span className="flex h-2 w-2 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-teal-500"></span>
+            </span>
+            专注初创企业一站式管家服务
+          </div>
+
+          <h1 className="text-[2.6rem] sm:text-4xl lg:text-[4.5rem] xl:text-[5rem] leading-[1.15] lg:leading-[1.1] font-black text-slate-900 tracking-tight mb-5 lg:mb-8 text-left text-balance w-full">
+            陪跑创业者
+            <br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-600 to-[#66CDB5] relative inline-block mt-1 sm:mt-2">
               赢在起跑线
             </span>
           </h1>
-          
-          <p className="text-lg text-slate-600 font-normal leading-relaxed mb-10 max-w-lg">
-            <strong className="text-[#66CDB5] font-semibold">「班步一企通」</strong>包含公司注册、财税代理、人事外包和补贴申请的一站式管家服务。
+
+          <p className="text-[15px] sm:text-lg text-slate-500 font-medium leading-relaxed mb-8 lg:mb-10 max-w-lg mx-0 text-left text-balance">
+            <strong className="text-teal-600 font-semibold">
+              「班步一企通」
+            </strong>
+            为您提供全周期的
+            <strong className="text-slate-800 font-bold ml-1">
+              一站式管家服务
+            </strong>
+            。
           </p>
 
-          <div className="flex flex-wrap gap-3 mb-12">
-            {['后台事务', '一站服务', '可视可控'].map((point) => (
-              <div key={point} className="flex items-center gap-2 text-sm font-medium text-slate-600 bg-slate-50 px-4 py-2.5 rounded-full border border-slate-100">
-                <CheckCircle2 size={16} className="text-[#66CDB5]" />
+          <div className="flex flex-wrap sm:justify-start gap-3 sm:gap-4 mb-4 lg:mb-12 w-full">
+            {["公司注册", "财税代理", "人事外包", "补贴申请"].map((point) => (
+              <div
+                key={point}
+                className="flex items-center gap-2.5 px-4 sm:px-5 py-3 sm:py-3.5 bg-white border border-slate-100 rounded-xl sm:rounded-full shadow-sm text-[14px] sm:text-[15px] font-semibold text-slate-700 cursor-default hover:border-teal-200 hover:shadow-md transition-all justify-start"
+              >
+                <div className="w-5 h-5 rounded-full bg-teal-50 flex items-center justify-center shrink-0">
+                  <Check size={12} strokeWidth={3} className="text-teal-500" />
+                </div>
                 {point}
               </div>
             ))}
           </div>
-          
-          <div className="flex flex-col sm:flex-row gap-4">
-            <button 
+
+          <div className="flex flex-col sm:flex-row gap-3 mt-12 sm:mt-10 w-full sm:max-w-none mx-0">
+            <button
               onClick={onOpenModal}
-              className="inline-flex items-center justify-center h-14 px-8 rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-medium text-lg transition-all gap-2"
+              className="inline-flex items-center justify-center h-[52px] sm:h-14 px-8 w-full sm:w-auto rounded-[16px] sm:rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] active:bg-[#52ba9f] text-white font-medium text-[16px] sm:text-[17px] transition-all shadow-lg shadow-[#66CDB5]/30 sm:shadow-sm"
             >
               托管我的企业
             </button>
-            <a 
+            <a
               href="#path"
-              className="inline-flex items-center justify-center h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-all gap-2"
+              className="inline-flex items-center justify-center h-[52px] sm:h-14 px-8 w-full sm:w-auto rounded-[16px] sm:rounded-full bg-white text-slate-700 font-medium text-[16px] sm:text-[17px] border border-slate-200 hover:border-slate-300 hover:text-slate-900 active:bg-slate-50 transition-all gap-2"
             >
               了解服务路径
-              <ArrowRight size={20} />
+              <ArrowRight size={18} className="hidden sm:block" />
             </a>
-          </div>
-          
-          <div className="mt-16 pt-10 border-t border-slate-100 grid grid-cols-3 gap-8">
-            <div>
-              <div className="text-4xl font-extrabold text-slate-900">20<span className="text-[#66CDB5]">+</span></div>
-              <div className="text-xs font-medium text-slate-400 mt-2">年服务经验</div>
-            </div>
-            <div>
-              <div className="text-4xl font-extrabold text-slate-900">自研</div>
-              <div className="text-xs font-medium text-slate-400 mt-2">一站式平台</div>
-            </div>
-            <div>
-              <div className="text-4xl font-extrabold text-slate-900">1v1</div>
-              <div className="text-xs font-medium text-slate-400 mt-2">专家团队</div>
-            </div>
           </div>
         </motion.div>
 
+        {/* Right Col (Phone) */}
         <motion.div
-           initial={{ opacity: 0, y: 40 }}
-           animate={{ opacity: 1, y: 0 }}
-           transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
-           className="relative mx-auto w-full max-w-md lg:max-w-none pattern-bg rounded-[40px] p-8 border border-slate-100 flex items-center justify-center"
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+          className="relative mx-auto w-full max-w-[360px] lg:max-w-none pattern-bg rounded-t-[2.5rem] sm:rounded-[40px] p-6 sm:p-8 flex items-center justify-center order-2 lg:order-none grow lg:grow-0 mt-10 lg:mt-0 overflow-hidden lg:overflow-visible border-x border-t lg:border-b border-slate-100 lg:border-transparent"
         >
-           <PhoneMockup />
+          <div className="transform scale-[0.8] sm:scale-[0.85] lg:scale-100 origin-top lg:origin-center -mb-40 sm:-mb-24 lg:mb-0 w-full flex justify-center">
+            <PhoneMockup />
+          </div>
         </motion.div>
       </div>
     </section>
