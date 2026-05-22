@@ -25,11 +25,11 @@ export default function Hero({ onOpenModal }: { onOpenModal: () => void }) {
           </h1>
           
           <p className="text-base sm:text-lg text-slate-600 font-normal leading-relaxed mb-6 sm:mb-8 max-w-lg">
-            <strong className="text-[#66CDB5] font-semibold">「班步一企通」</strong>包含公司注册、财税代理、人事外包和补贴申请的一站式管家服务。
+            <strong className="text-[#66CDB5] font-semibold">「班步一企通」</strong>为您提供全周期的<strong>一站式管家服务。</strong>
           </p>
 
-          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:gap-2.5 mb-8 sm:mb-9">
-            {['后台事务', '一站服务', '可视可控'].map((point) => (
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-2.5 mb-8 sm:mb-9">
+            {['公司注册', '财税代理', '人事外包', '补贴申请'].map((point) => (
               <div key={point} className="flex min-w-0 items-center justify-center gap-1.5 whitespace-nowrap text-xs sm:text-[13px] font-medium text-slate-500 bg-slate-50 px-2 sm:px-3 py-2 rounded-full border border-slate-100">
                 <CheckCircle2 size={16} className="h-3.5 w-3.5 shrink-0 text-[#66CDB5]" />
                 {point}
