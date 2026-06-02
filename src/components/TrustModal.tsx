@@ -65,7 +65,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center px-4 py-4">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center px-6 py-4 sm:px-10 lg:px-16">
       <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={onClose}></div>
 
       <AnimatePresence mode="wait">
@@ -74,7 +74,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl shadow-slate-950/10 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
+            className="w-full max-w-3xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl shadow-slate-950/10 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
           >
             {/* Modal Aside */}
             <div className="w-full md:w-2/5 bg-slate-50 p-8 sm:p-12 flex flex-col justify-center relative overflow-hidden shrink-0 border-b md:border-b-0 md:border-r border-slate-100">
@@ -87,13 +87,10 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-[1.2] mb-3 sm:mb-4">
                   企业后台
                   <br />
-                  交给班步
+                  <span className="text-[#66CDB5]">交给班步</span>
                 </h3>
-                <p className="text-sm text-slate-500 mb-6 sm:mb-10 leading-relaxed">
-                  从注册落地到财税、人事、补贴申请，按月推进、在线可见。
-                </p>
 
-                <div className="space-y-3 sm:space-y-4 border-t border-slate-200 pt-5 sm:pt-8">
+                <div className="space-y-3 sm:space-y-4 border-t border-slate-200 pt-5 sm:pt-8 mt-6 sm:mt-10">
                   <div className="flex gap-3 text-sm font-medium text-slate-600">
                     <Check size={18} className="text-[#66CDB5] shrink-0" />
                     公司注册与后续托管衔接

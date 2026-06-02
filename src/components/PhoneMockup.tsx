@@ -1,6 +1,26 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 export default function PhoneMockup() {
+  const tabs = ["总览", "任务", "事务", "公司"];
+  const [activeTab, setActiveTab] = useState(0);
+
+  useEffect(() => {
+    const loopMs = 28000;
+    let frameId = 0;
+
+    const syncActiveTab = () => {
+      const progress = ((performance.now() % loopMs) / loopMs) * 100;
+      const nextTab =
+        progress < 22 ? 0 : progress < 47 ? 1 : progress < 72 ? 2 : progress < 96 ? 3 : 0;
+
+      setActiveTab((current) => (current === nextTab ? current : nextTab));
+      frameId = requestAnimationFrame(syncActiveTab);
+    };
+
+    frameId = requestAnimationFrame(syncActiveTab);
+    return () => cancelAnimationFrame(frameId);
+  }, []);
+
   return (
     <div className="relative mx-auto w-full max-w-[320px] aspect-[1/2] bg-white rounded-[32px] sm:rounded-[40px] p-2.5 sm:p-3 shadow-xl shadow-[#66CDB5]/5 z-10 border border-slate-200">
       {/* Notch */}
@@ -138,7 +158,7 @@ export default function PhoneMockup() {
                           ¥425k
                         </span>
                       </div>
-                      <div className="w-full text-center py-2 bg-slate-800 text-white text-[10px] font-medium rounded-lg">
+                      <div className="w-full text-center py-2 bg-[#66CDB5] text-white text-[10px] font-medium rounded-lg shadow-sm shadow-[#66CDB5]/25">
                         待确认
                       </div>
                     </div>
@@ -198,7 +218,7 @@ export default function PhoneMockup() {
               ))}
             </div>
 
-            {/* Screen 4: Company Placeholder */}
+            {/* Screen 4: Company */}
             <div className="w-1/4 h-full p-4 flex flex-col gap-4 overflow-y-auto no-scrollbar pb-24">
               <div>
                 <div className="text-[9px] font-bold text-slate-500 tracking-widest uppercase mb-1">
@@ -206,27 +226,103 @@ export default function PhoneMockup() {
                 </div>
                 <h3 className="text-xl font-bold text-slate-800">我的企业</h3>
               </div>
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shadow-slate-100 flex items-center gap-4">
-                <div className="w-12 h-12 bg-slate-50 rounded-xl text-slate-600 flex items-center justify-center font-bold text-lg border border-slate-200 shadow-sm">
+
+              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shadow-slate-100">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 bg-blue-600 rounded-xl text-white flex items-center justify-center font-bold text-lg shadow-sm shadow-blue-100">
                   企
-                </div>
-                <div>
-                  <div className="font-bold text-slate-800 mb-1 text-sm">
-                    干机科技
                   </div>
-                  <div className="flex gap-2">
-                    <span className="bg-[#f0fdfa] text-[#0d9488] text-[8px] px-2 py-0.5 rounded font-medium border border-[#ccfbf1]">
-                      已认证
-                    </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-slate-900 mb-1 text-base">
+                      千机科技
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="bg-[#f0fdfa] text-[#0d9488] text-[8px] px-2 py-0.5 rounded-md font-medium border border-[#ccfbf1]">
+                        已实名认证
+                      </span>
+                      <span className="bg-blue-50 text-blue-600 text-[8px] px-2 py-0.5 rounded-md font-medium border border-blue-100">
+                        存续
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-slate-300 text-lg leading-none">↗</div>
+                </div>
+
+                <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                  <div className="text-[8px] font-bold text-slate-400 mb-1">
+                    统一社会信用代码
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[11px] font-mono font-bold tracking-widest text-slate-700">
+                      91310000XXXXXXXX
+                    </div>
+                    <div className="text-slate-400 text-xs">▣</div>
                   </div>
                 </div>
               </div>
-              <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shadow-slate-100">
-                <div className="text-[9px] font-bold text-slate-500 mb-1">
-                  统一社会信用代码
+
+              <div>
+                <div className="text-[9px] font-bold tracking-widest text-slate-400 mb-2">
+                  对公账户
                 </div>
-                <div className="text-xs font-mono text-slate-600 tracking-widest">
-                  91310000XXXX
+                <div className="rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="text-sm font-bold text-slate-900">招商银行</div>
+                      <div className="text-[9px] font-medium text-slate-400 mt-0.5">
+                        基本存款账户
+                      </div>
+                    </div>
+                    <div className="h-8 w-8 rounded-full bg-white border border-blue-100 text-slate-400 flex items-center justify-center text-sm">
+                      ◎
+                    </div>
+                  </div>
+                  <div className="mt-4 text-2xl font-black tracking-tight text-slate-900">
+                    ¥142,590.00
+                  </div>
+                  <div className="mt-3 inline-flex items-center rounded-lg bg-white px-3 py-1.5 text-[10px] font-bold tracking-widest text-slate-400 shadow-sm shadow-blue-100">
+                    6227 0038 **** 8888
+                  </div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 border-t border-blue-100 pt-3">
+                    <div>
+                      <div className="text-[8px] font-bold text-slate-400 mb-1">本月收入</div>
+                      <div className="text-xs font-extrabold text-[#0d9488]">62,000</div>
+                    </div>
+                    <div>
+                      <div className="text-[8px] font-bold text-slate-400 mb-1">本月支出</div>
+                      <div className="text-xs font-extrabold text-orange-600">29,500</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-[9px] font-bold tracking-widest text-slate-400 mb-2">
+                  常用资料
+                </div>
+                <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm shadow-slate-100">
+                  {[
+                    ["开票信息", "税号、地址电话、开户行", "票"],
+                    ["收件地址", "上海市徐汇区...", "址"],
+                  ].map((item, index) => (
+                    <div
+                      key={item[0]}
+                      className={`flex items-center gap-3 p-3 ${
+                        index > 0 ? "border-t border-slate-100" : ""
+                      }`}
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-slate-50 text-blue-500 flex items-center justify-center text-xs font-bold">
+                        {item[2]}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-800">{item[0]}</div>
+                        <div className="text-[9px] font-medium text-slate-400 mt-0.5">
+                          {item[1]}
+                        </div>
+                      </div>
+                      <div className="text-slate-300 text-base">›</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -235,17 +331,25 @@ export default function PhoneMockup() {
 
         {/* Tab Bar */}
         <div className="h-16 bg-white border-t border-slate-100 absolute bottom-0 inset-x-0 flex justify-around items-center px-4">
-           {[
-             { label: '总览', active: true },
-             { label: '任务' },
-             { label: '事务' },
-             { label: '公司' },
-           ].map((tab, i) => (
-             <div key={tab.label} className={`flex flex-col items-center gap-1 ${tab.active ? 'text-[#66CDB5]' : 'text-slate-300'}`}>
-               <div className="w-5 h-5 rounded-[4px] bg-current opacity-20"></div>
-               <span className="text-[8px] font-bold uppercase tracking-widest">{tab.label}</span>
-             </div>
-           ))}
+          {tabs.map((label, index) => (
+            <div
+              key={label}
+              className="flex flex-col items-center gap-1"
+            >
+              <div
+                className={`w-5 h-5 rounded-[4px] transition-colors duration-200 ${
+                  index === activeTab ? "bg-[#66CDB5]" : "bg-slate-200"
+                }`}
+              ></div>
+              <span
+                className={`text-[8px] font-bold uppercase tracking-widest transition-colors duration-200 ${
+                  index === activeTab ? "text-slate-900" : "text-slate-300"
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
