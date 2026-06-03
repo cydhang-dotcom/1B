@@ -3,26 +3,24 @@ import React, { useEffect, useState } from "react";
 export default function PhoneMockup() {
   const tabs = ["总览", "任务", "事务", "公司"];
   const [activeTab, setActiveTab] = useState(0);
+  const [isHovering, setIsHovering] = useState(false);
 
   useEffect(() => {
-    const loopMs = 28000;
-    let frameId = 0;
+    if (isHovering) return;
 
-    const syncActiveTab = () => {
-      const progress = ((performance.now() % loopMs) / loopMs) * 100;
-      const nextTab =
-        progress < 22 ? 0 : progress < 47 ? 1 : progress < 72 ? 2 : progress < 96 ? 3 : 0;
+    const timer = window.setTimeout(() => {
+      setActiveTab((current) => (current + 1) % tabs.length);
+    }, 7000);
 
-      setActiveTab((current) => (current === nextTab ? current : nextTab));
-      frameId = requestAnimationFrame(syncActiveTab);
-    };
-
-    frameId = requestAnimationFrame(syncActiveTab);
-    return () => cancelAnimationFrame(frameId);
-  }, []);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, isHovering, tabs.length]);
 
   return (
-    <div className="relative mx-auto w-full max-w-[320px] aspect-[1/2] bg-white rounded-[32px] sm:rounded-[40px] p-2.5 sm:p-3 shadow-xl shadow-[#66CDB5]/5 z-10 border border-slate-200">
+    <div
+      className="relative mx-auto w-full max-w-[320px] aspect-[1/2] bg-white rounded-[32px] sm:rounded-[40px] p-2.5 sm:p-3 shadow-xl shadow-[#66CDB5]/5 z-10 border border-slate-200"
+      onMouseEnter={() => setIsHovering(true)}
+      onMouseLeave={() => setIsHovering(false)}
+    >
       {/* Notch */}
       <div className="absolute top-5 sm:top-6 left-1/2 -translate-x-1/2 w-16 sm:w-20 h-4 sm:h-5 bg-slate-100 rounded-full z-20 border border-slate-200"></div>
 
@@ -52,7 +50,10 @@ export default function PhoneMockup() {
 
         {/* Scrollable Content wrapper to simulate horizontal scroll trick */}
         <div className="flex-1 w-full overflow-hidden relative">
-          <div className="absolute inset-0 flex w-[400%] animate-scroll-x">
+          <div
+            className="absolute inset-0 flex w-[400%] transition-transform duration-500 ease-out"
+            style={{ transform: `translateX(-${activeTab * 25}%)` }}
+          >
             {/* Screen 1: Dashboard */}
             <div className="w-1/4 h-full p-4 flex flex-col gap-3 overflow-y-auto no-scrollbar pb-24">
               {/* Hero Card */}
@@ -84,8 +85,8 @@ export default function PhoneMockup() {
                 </div>
               </div>
 
-              <div className="mx-2 bg-white rounded-2xl p-4 border border-slate-200 flex gap-3 items-start relative before:absolute before:left-0 before:top-4 before:bottom-4 before:w-1 before:bg-blue-400 before:rounded-r overflow-hidden shadow-sm shadow-slate-100">
-                <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-bold shrink-0 text-xs">
+              <div className="mx-2 bg-white rounded-2xl p-4 border border-slate-200 flex gap-3 items-start relative before:absolute before:left-0 before:top-4 before:bottom-4 before:w-1 before:bg-[#66CDB5] before:rounded-r overflow-hidden shadow-sm shadow-slate-100">
+                <div className="w-8 h-8 rounded-xl bg-[#f0fdfa] flex items-center justify-center text-[#0d9488] font-bold shrink-0 text-xs">
                   AI
                 </div>
                 <div>
@@ -200,15 +201,15 @@ export default function PhoneMockup() {
 
               {[
                 { title: '财务运营', color: 'emerald', items: ['对账','流水','发票','报销','凭证','报表','税款'] },
-                { title: '人事管理', color: 'blue', items: ['员工','薪酬','五险一金','合同'] },
+                { title: '人事管理', color: 'brand', items: ['员工','薪酬','五险一金','合同'] },
               ].map(group => (
                 <div key={group.title}>
-                  <div className={`text-[9px] font-bold mb-2 ${group.color === 'emerald' ? 'text-emerald-600' : 'text-blue-600'}`}>{group.title}</div>
+                  <div className="text-[9px] font-bold mb-2 text-emerald-600">{group.title}</div>
                   <div className="grid grid-cols-4 gap-2">
                     {group.items.map(label => (
                       <div key={label} className="flex flex-col items-center gap-2">
-                        <div className={`w-12 h-12 bg-white rounded-xl border shadow-sm flex items-center justify-center ${group.color === 'emerald' ? 'border-emerald-100' : 'border-blue-100'}`}>
-                          <div className={`w-5 h-5 rounded ${group.color === 'emerald' ? 'bg-emerald-400/15' : 'bg-blue-400/15'}`}></div>
+                        <div className="w-12 h-12 bg-white rounded-xl border shadow-sm flex items-center justify-center border-emerald-100">
+                          <div className="w-5 h-5 rounded bg-emerald-400/15"></div>
                         </div>
                         <div className="text-[9px] font-bold text-slate-600">{label}</div>
                       </div>
@@ -229,7 +230,7 @@ export default function PhoneMockup() {
 
               <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm shadow-slate-100">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-blue-600 rounded-xl text-white flex items-center justify-center font-bold text-lg shadow-sm shadow-blue-100">
+                  <div className="w-12 h-12 bg-[#66CDB5] rounded-xl text-white flex items-center justify-center font-bold text-lg shadow-sm shadow-[#66CDB5]/25">
                   企
                   </div>
                   <div className="min-w-0 flex-1">
@@ -240,7 +241,7 @@ export default function PhoneMockup() {
                       <span className="bg-[#f0fdfa] text-[#0d9488] text-[8px] px-2 py-0.5 rounded-md font-medium border border-[#ccfbf1]">
                         已实名认证
                       </span>
-                      <span className="bg-blue-50 text-blue-600 text-[8px] px-2 py-0.5 rounded-md font-medium border border-blue-100">
+                      <span className="bg-[#f0fdfa] text-[#0d9488] text-[8px] px-2 py-0.5 rounded-md font-medium border border-[#ccfbf1]">
                         存续
                       </span>
                     </div>
@@ -265,7 +266,7 @@ export default function PhoneMockup() {
                 <div className="text-[9px] font-bold tracking-widest text-slate-400 mb-2">
                   对公账户
                 </div>
-                <div className="rounded-2xl border border-blue-100 bg-blue-50/40 p-4">
+                <div className="rounded-2xl border border-[#ccfbf1] bg-[#f0fdfa]/50 p-4">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="text-sm font-bold text-slate-900">招商银行</div>
@@ -273,17 +274,17 @@ export default function PhoneMockup() {
                         基本存款账户
                       </div>
                     </div>
-                    <div className="h-8 w-8 rounded-full bg-white border border-blue-100 text-slate-400 flex items-center justify-center text-sm">
+                    <div className="h-8 w-8 rounded-full bg-white border border-[#ccfbf1] text-slate-400 flex items-center justify-center text-sm">
                       ◎
                     </div>
                   </div>
                   <div className="mt-4 text-2xl font-black tracking-tight text-slate-900">
                     ¥142,590.00
                   </div>
-                  <div className="mt-3 inline-flex items-center rounded-lg bg-white px-3 py-1.5 text-[10px] font-bold tracking-widest text-slate-400 shadow-sm shadow-blue-100">
+                  <div className="mt-3 inline-flex items-center rounded-lg bg-white px-3 py-1.5 text-[10px] font-bold tracking-widest text-slate-400 shadow-sm shadow-[#66CDB5]/10">
                     6227 0038 **** 8888
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 border-t border-blue-100 pt-3">
+                  <div className="mt-4 grid grid-cols-2 gap-3 border-t border-[#ccfbf1] pt-3">
                     <div>
                       <div className="text-[8px] font-bold text-slate-400 mb-1">本月收入</div>
                       <div className="text-xs font-extrabold text-[#0d9488]">62,000</div>
@@ -311,7 +312,7 @@ export default function PhoneMockup() {
                         index > 0 ? "border-t border-slate-100" : ""
                       }`}
                     >
-                      <div className="w-9 h-9 rounded-xl bg-slate-50 text-blue-500 flex items-center justify-center text-xs font-bold">
+                      <div className="w-9 h-9 rounded-xl bg-[#f0fdfa] text-[#0d9488] flex items-center justify-center text-xs font-bold">
                         {item[2]}
                       </div>
                       <div className="min-w-0 flex-1">
@@ -332,9 +333,12 @@ export default function PhoneMockup() {
         {/* Tab Bar */}
         <div className="h-16 bg-white border-t border-slate-100 absolute bottom-0 inset-x-0 flex justify-around items-center px-4">
           {tabs.map((label, index) => (
-            <div
+            <button
+              type="button"
               key={label}
+              onClick={() => setActiveTab(index)}
               className="flex flex-col items-center gap-1"
+              aria-pressed={index === activeTab}
             >
               <div
                 className={`w-5 h-5 rounded-[4px] transition-colors duration-200 ${
@@ -343,12 +347,12 @@ export default function PhoneMockup() {
               ></div>
               <span
                 className={`text-[8px] font-bold uppercase tracking-widest transition-colors duration-200 ${
-                  index === activeTab ? "text-slate-900" : "text-slate-300"
+                  index === activeTab ? "text-slate-600" : "text-slate-300"
                 }`}
               >
                 {label}
               </span>
-            </div>
+            </button>
           ))}
         </div>
       </div>
