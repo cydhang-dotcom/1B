@@ -13,12 +13,16 @@ export default function Footer() {
               </div>
               <div>
                 <div className="text-base font-bold text-white tracking-tight">班步一企通</div>
-                <div className="text-[11px] font-semibold tracking-[0.2em] text-[#66CDB5] uppercase">BANBU ONE</div>
+                <div className="text-[11px] font-semibold tracking-[0.08em] text-[#66CDB5]">后台事务，一站托付</div>
               </div>
             </div>
-            <p className="text-sm leading-relaxed text-slate-400">
-              聚焦创业企业后台事务，把注册、财税、人事和补贴申请放进连续的服务路径里。
-            </p>
+            <div className="mt-5 grid gap-2 text-[11px] leading-relaxed text-slate-500">
+              <div className="font-bold text-slate-300">联系我们</div>
+              <span>地址：上海市浦东新区新金桥路688号金桥壹中心1007单元</span>
+              <span>邮箱：marketing@ibanbu.com</span>
+              <span>邮编：200135</span>
+              <span>总机：021-68962216</span>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 lg:min-w-[520px]">
@@ -50,10 +54,10 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-8 pt-5 border-t border-slate-800 flex flex-col sm:flex-row justify-between gap-3 text-[11px] font-medium text-slate-500">
+        <div className="mt-8 pt-5 border-t border-slate-800 text-center text-[11px] font-medium text-slate-500">
           <span>© 2026 班步一企通 版权所有</span>
-          <span className="text-[#66CDB5]">企业后台事务，一站托管</span>
         </div>
+
       </div>
     </footer>
   );
