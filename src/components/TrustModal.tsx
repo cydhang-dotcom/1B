@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { X, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import customerServiceQr from "../assets/customer-service-qr.png";
 
 type SubmitStatus = 'idle' | 'submitting' | 'error';
 
@@ -17,6 +18,14 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
       delete next[field];
       return next;
     });
+  };
+
+  const handleClose = () => {
+    setIsSuccess(false);
+    setFormData({ name: '', phone: '', company: '' });
+    setErrors({});
+    setSubmitStatus('idle');
+    onClose();
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -50,12 +59,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
       if (!res.ok) throw new Error('提交失败');
 
       setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        onClose();
-        setFormData({ name: '', phone: '', company: '' });
-        setSubmitStatus('idle');
-      }, 2000);
+      setSubmitStatus('idle');
     } catch {
       setSubmitStatus('error');
       setTimeout(() => setSubmitStatus('idle'), 2000);
@@ -66,7 +70,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center px-6 py-4 sm:px-10 lg:px-16">
-      <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={onClose}></div>
+      <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={handleClose}></div>
 
       <AnimatePresence mode="wait">
         {!isSuccess ? (
@@ -106,7 +110,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             {/* Modal Form */}
             <div className="w-full md:w-3/5 p-8 sm:p-12 relative">
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 className="absolute top-4 sm:top-6 right-4 sm:right-6 p-2 rounded-full hover:bg-slate-50 active:bg-slate-100 text-slate-400 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200"
               >
                 <X size={20} />
@@ -165,17 +169,37 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm bg-white p-10 rounded-[2rem] shadow-xl shadow-slate-200/50 relative z-10 flex flex-col items-center text-center border border-slate-100"
+            className="w-full max-w-sm bg-white p-8 sm:p-10 rounded-[2rem] shadow-xl shadow-slate-200/50 relative z-10 flex flex-col items-center text-center border border-slate-100"
           >
+            <button
+              onClick={handleClose}
+              className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-50 active:bg-slate-100 text-slate-400 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200"
+            >
+              <X size={18} />
+            </button>
             <div className="w-16 h-16 bg-[#f0fdfa] text-[#0d9488] rounded-2xl flex items-center justify-center mb-6">
               <Check size={32} strokeWidth={3} />
             </div>
             <h3 className="text-xl font-bold text-slate-900 mb-2">
               提交成功！
             </h3>
-            <p className="text-slate-500 font-medium text-sm">
-              我们会尽快与您联系
+            <p className="text-slate-500 font-medium text-sm leading-relaxed mb-6">
+              您可以扫码添加客服号，直接沟通；也可以等待客服联系。
             </p>
+            <div className="w-40 h-40 rounded-2xl border border-slate-100 bg-white p-2 shadow-sm shadow-slate-100 mb-5">
+              <img
+                src={customerServiceQr}
+                alt="客服二维码"
+                className="h-full w-full object-contain"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="h-11 px-8 rounded-full bg-[#66CDB5] text-white text-sm font-medium hover:bg-[#52ba9f] transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+            >
+              我知道了
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
