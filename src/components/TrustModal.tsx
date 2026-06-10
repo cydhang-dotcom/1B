@@ -28,6 +28,13 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
     onClose();
   };
 
+  const handleRefill = () => {
+    setIsSuccess(false);
+    setFormData({ name: '', phone: '', company: '' });
+    setErrors({});
+    setSubmitStatus('idle');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -169,7 +176,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="w-full max-w-sm bg-white p-8 sm:p-10 rounded-[2rem] shadow-xl shadow-slate-200/50 relative z-10 flex flex-col items-center text-center border border-slate-100"
+            className="w-full max-w-lg bg-white p-6 sm:p-8 rounded-[2rem] shadow-xl shadow-slate-200/50 relative z-10 border border-slate-100"
           >
             <button
               onClick={handleClose}
@@ -177,29 +184,55 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             >
               <X size={18} />
             </button>
-            <div className="w-16 h-16 bg-[#f0fdfa] text-[#0d9488] rounded-2xl flex items-center justify-center mb-6">
-              <Check size={32} strokeWidth={3} />
+
+            <div className="flex items-start gap-4 pr-8">
+              <div className="w-12 h-12 bg-[#f0fdfa] text-[#0d9488] rounded-2xl flex items-center justify-center shrink-0">
+                <Check size={26} strokeWidth={3} />
+              </div>
+              <div>
+                <div className="text-[10px] font-bold tracking-widest text-[#66CDB5] uppercase mb-1">
+                  SUBMITTED
+                </div>
+                <h3 className="text-xl sm:text-2xl font-bold text-slate-900">
+                  信息已提交
+                </h3>
+              </div>
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">
-              提交成功！
-            </h3>
-            <p className="text-slate-500 font-medium text-sm leading-relaxed mb-6">
-              您可以扫码添加客服号，直接沟通；也可以等待客服联系。
-            </p>
-            <div className="w-40 h-40 rounded-2xl border border-slate-100 bg-white p-2 shadow-sm shadow-slate-100 mb-5">
-              <img
-                src={customerServiceQr}
-                alt="客服二维码"
-                className="h-full w-full object-contain"
-              />
+
+            <div className="mt-6 grid gap-5 sm:grid-cols-[180px_1fr] sm:items-center">
+              <div className="mx-auto w-44 h-44 sm:w-[180px] sm:h-[180px] rounded-2xl border border-slate-100 bg-white p-2 shadow-sm shadow-slate-100">
+                <img
+                  src={customerServiceQr}
+                  alt="客服二维码"
+                  className="h-full w-full object-contain"
+                />
+              </div>
+              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-left">
+                <div className="text-sm font-bold text-slate-900 mb-2">
+                  添加客服号
+                </div>
+                <p className="text-sm leading-relaxed text-slate-500">
+                  扫码后可直接沟通托管需求；也可以等待客服联系。
+                </p>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={handleClose}
-              className="h-11 px-8 rounded-full bg-[#66CDB5] text-white text-sm font-medium hover:bg-[#52ba9f] transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
-            >
-              我知道了
-            </button>
+
+            <div className="mt-6 flex w-full gap-3">
+              <button
+                type="button"
+                onClick={handleRefill}
+                className="h-11 flex-1 rounded-full border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200"
+              >
+                重新填写
+              </button>
+              <button
+                type="button"
+                onClick={handleClose}
+                className="h-11 flex-1 rounded-full bg-[#66CDB5] text-white text-sm font-medium hover:bg-[#52ba9f] transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+              >
+                我知道了
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
