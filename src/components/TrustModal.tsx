@@ -1,13 +1,14 @@
 import React, { useState } from "react";
 import { X, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import customerServiceQr from "../assets/customer-service-qr.png";
+import { loadSubmissionState, saveSubmissionState, DEFAULT_FORM_DATA } from "../utils/storage";
 
 type SubmitStatus = 'idle' | 'submitting' | 'error';
 
 export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [formData, setFormData] = useState({ name: '', phone: '', company: '' });
+  // --- Restore persisted submission state once on mount (lazy initializers) ---
+  const [isSuccess, setIsSuccess] = useState(() => loadSubmissionState()?.submitted ?? false);
+  const [formData, setFormData] = useState(() => loadSubmissionState()?.formData ?? DEFAULT_FORM_DATA);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
 
@@ -20,9 +21,14 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
     });
   };
 
+  // Persist submitted state + form data so the contact-customer-service view shows on next visit
+  const persistSubmission = () => {
+    saveSubmissionState(true, formData);
+  };
+
   const handleClose = () => {
-    setIsSuccess(false);
-    setFormData({ name: '', phone: '', company: '' });
+    // Do not reset isSuccess/formData — submission state persists (saved in localStorage).
+    // Closing only hides the modal; reopening shows the same view.
     setErrors({});
     setSubmitStatus('idle');
     onClose();
@@ -30,7 +36,6 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   const handleRefill = () => {
     setIsSuccess(false);
-    setFormData({ name: '', phone: '', company: '' });
     setErrors({});
     setSubmitStatus('idle');
   };
@@ -67,6 +72,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
       setIsSuccess(true);
       setSubmitStatus('idle');
+      persistSubmission();
     } catch {
       setSubmitStatus('error');
       setTimeout(() => setSubmitStatus('idle'), 2000);
@@ -202,7 +208,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             <div className="mt-6 grid gap-5 sm:grid-cols-[180px_1fr] sm:items-center">
               <div className="mx-auto w-44 h-44 sm:w-[180px] sm:h-[180px] rounded-2xl border border-slate-100 bg-white p-2 shadow-sm shadow-slate-100">
                 <img
-                  src={customerServiceQr}
+                  src="/image-yqt/customer-service-qr.png"
                   alt="客服二维码"
                   className="h-full w-full object-contain"
                 />

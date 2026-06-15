@@ -8,6 +8,7 @@ import Stats from './components/Stats';
 import CTA from './components/CTA';
 import Footer from './components/Footer';
 import TrustModal from './components/TrustModal';
+import { loadSubmissionState } from './utils/storage';
 
 function useIosScrollFix() {
   useEffect(() => {
@@ -17,7 +18,8 @@ function useIosScrollFix() {
 }
 
 export default function App() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  // Auto-open the modal if the user has submitted before (to contact customer service)
+  const [isModalOpen, setIsModalOpen] = useState(() => loadSubmissionState()?.submitted ?? false);
   useIosScrollFix();
 
   return (
