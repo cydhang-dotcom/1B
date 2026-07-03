@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Building2, Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
+export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -54,12 +54,14 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
               {link.name}
             </a>
           ))}
-          <button
-            onClick={onOpenModal}
-            className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
-          >
-            托管我的企业
-          </button>
+          {onOpenModal && (
+            <button
+              onClick={onOpenModal}
+              className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+            >
+              托管我的企业
+            </button>
+          )}
         </nav>
 
         {/* Mobile Toggle */}
@@ -90,15 +92,17 @@ export default function Navbar({ onOpenModal }: { onOpenModal: () => void }) {
                 {link.name}
               </a>
             ))}
-            <button
-              onClick={() => {
-                setIsMobileMenuOpen(false);
-                onOpenModal();
-              }}
-              className="w-full mt-4 px-6 py-3 bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-bold rounded-xl shadow-md shadow-[#66CDB5]/25 text-center transition-all active:scale-[0.99]"
-            >
-              托管我的企业
-            </button>
+            {onOpenModal && (
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onOpenModal();
+                }}
+                className="w-full mt-4 px-6 py-3 bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-bold rounded-xl shadow-md shadow-[#66CDB5]/25 text-center transition-all active:scale-[0.99]"
+              >
+                托管我的企业
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
