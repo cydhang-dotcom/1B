@@ -4,16 +4,10 @@
 
 ## [开发中]
 
+### 首页 & 售前咨询页
+- 重构 字体加载改为本地 FontSource 包，移除 Google Fonts 外部依赖
+- 新增 src/fonts.css 统一字体入口文件
+- 新增 @fontsource/inter 和 @fontsource/noto-serif-sc npm 依赖
+
 ### 售前咨询页
-- 新增 presales.html 入口页面，标题为"班步一企通 - 售前咨询"
-- 新增 src/PresalesApp.tsx 售前页面组件，去除托管我的企业和注册新公司按钮
-- 新增 src/presales.tsx React 入口文件
-
-### 导航栏组件
-- 优化 onOpenModal 改为可选属性，未传入时隐藏托管我的企业按钮
-
-### 英雄区组件
-- 优化 onOpenModal 改为可选属性，未传入时隐藏托管我的企业和注册新公司按钮
-
-### 构建配置
-- 新增 build.rollupOptions.input 多页面配置，参考 CAA 项目模式
+- 新增 售前咨询页面并配置多页面构建
