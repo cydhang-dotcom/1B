@@ -67,16 +67,17 @@ export default function Hero({ onOpenModal }: { onOpenModal?: () => void }) {
             <div className="flex flex-col sm:flex-row gap-3 mt-12 sm:mt-10 w-full sm:max-w-none mx-0">
               <button
                 onClick={onOpenModal}
-                className="inline-flex items-center justify-center h-[52px] sm:h-14 px-8 w-full sm:w-auto rounded-[16px] sm:rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] active:bg-[#52ba9f] text-white font-medium text-[16px] sm:text-[17px] transition-all shadow-lg shadow-[#66CDB5]/30 sm:shadow-sm"
+                className="inline-flex items-center justify-center h-[52px] sm:h-14 px-8 w-full sm:w-auto rounded-[16px] sm:rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] active:bg-[#52ba9f] text-white font-medium text-[16px] sm:text-[17px] transition-all shadow-lg shadow-[#66CDB5]/30 sm:shadow-sm gap-2"
               >
-                托管我的企业
+                获取服务
+                <ArrowRight size={18} className="text-white" />
               </button>
               <a
                 href={appendShareUserUuid('/CAA', uuid)}
                 className="inline-flex items-center justify-center h-[52px] sm:h-14 px-8 w-full sm:w-auto rounded-[16px] sm:rounded-full bg-white text-slate-700 font-medium text-[16px] sm:text-[17px] border border-slate-200 hover:border-slate-300 hover:text-slate-900 active:bg-slate-50 transition-all gap-2"
               >
-                注册新的公司
-                <ArrowRight size={18} className="hidden sm:block" />
+                <Sparkles size={18} className="text-[#66CDB5]" />
+                AI注册向导
               </a>
             </div>
           )}

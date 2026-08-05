@@ -6,7 +6,10 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const TARGET_DIR = 'C:\\ibanbu.com\\www.ibanbu.com_V3\\static\\OneBiz';
+
+const TARGET_DIR = process.platform === 'win32'
+  ? 'C:\\\\ibanbu.com\\www.ibanbu.com_V3\\static\\OneBiz'
+  : '/Users/yjj/ibanbu/www.ibanbu.com_V3/static/OneBiz';
 
 console.log('🚀 开始构建和部署...\n');
 

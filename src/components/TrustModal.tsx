@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { X, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { loadSubmissionState, saveSubmissionState, DEFAULT_FORM_DATA } from "../utils/storage";
+import { useShareUserUuid } from "../hooks/useShareUserUuid";
+import { API_HOST, DOC_HOST } from "../config/api";
 
 type SubmitStatus = 'idle' | 'submitting' | 'error';
 
@@ -11,6 +13,34 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
   const [formData, setFormData] = useState(() => loadSubmissionState()?.formData ?? DEFAULT_FORM_DATA);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
+  const shareUserUuid = useShareUserUuid();
+  const [qrCodeUrl, setQrCodeUrl] = useState('/image-yqt/customer-service-qr.png');
+  const [qrLoading, setQrLoading] = useState(true);
+
+  useEffect(() => {
+    if (!shareUserUuid) {
+      setQrLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    setQrLoading(true);
+    fetch(`${DOC_HOST}/xcx/yqt-co/user/${shareUserUuid}/get`, {
+      signal: controller.signal,
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data?.perShareEwmFile) {
+          setQrCodeUrl(`${DOC_HOST}/doc/uuid/${data.perShareEwmFile}/get`);
+        }
+      })
+      .catch(err => {
+        if (err.name === 'AbortError') return;
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setQrLoading(false);
+      });
+    return () => controller.abort();
+  }, [shareUserUuid]);
 
   const clearFieldError = (field: string) => {
     setErrors(prev => {
@@ -57,7 +87,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
     setSubmitStatus('submitting');
     try {
-      const res = await fetch('https://v3001.ibanbu.com/v1/xcx/xhr-co/subscribe/zxfw-sqsy', {
+      const res = await fetch(`${API_HOST}/xcx/xhr-co/subscribe/zxfw-sqsy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -130,7 +160,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
               </button>
 
               <h3 className="text-2xl font-extrabold text-slate-900 mb-6 sm:mb-8 mt-2 sm:mt-0">
-                托管我的企业
+                获取服务
               </h3>
 
               <form onSubmit={handleSubmit} className="space-y-5" noValidate>
@@ -206,12 +236,16 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             </div>
 
             <div className="mt-6 grid gap-5 sm:grid-cols-[180px_1fr] sm:items-center">
-              <div className="mx-auto w-44 h-44 sm:w-[180px] sm:h-[180px] rounded-2xl border border-slate-100 bg-white p-2 shadow-sm shadow-slate-100">
-                <img
-                  src="/image-yqt/customer-service-qr.png"
-                  alt="客服二维码"
-                  className="h-full w-full object-contain"
-                />
+              <div className="mx-auto w-44 h-44 sm:w-[180px] sm:h-[180px] rounded-2xl border border-slate-100 bg-white p-2 shadow-sm shadow-slate-100 flex items-center justify-center">
+                {qrLoading ? (
+                  <div className="w-8 h-8 border-2 border-[#66CDB5]/30 border-t-[#66CDB5] rounded-full animate-spin" />
+                ) : (
+                  <img
+                    src={qrCodeUrl}
+                    alt="客服二维码"
+                    className="h-full w-full object-contain"
+                  />
+                )}
               </div>
               <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4 text-left">
                 <div className="text-sm font-bold text-slate-900 mb-2">

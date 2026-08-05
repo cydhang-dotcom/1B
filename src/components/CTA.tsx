@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { useShareUserUuid, appendShareUserUuid } from '../hooks/useShareUserUuid';
 
 export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
@@ -27,11 +27,12 @@ export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
                 onClick={onOpenModal}
                 className="w-full sm:w-auto inline-flex items-center justify-center h-12 sm:h-14 px-8 rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-medium text-base sm:text-lg transition-all gap-2"
               >
-                托管我的企业
+                获取服务
                 <ArrowRight size={18} className="sm:w-5 sm:h-5" />
               </button>
               <a href={appendShareUserUuid('/CAA', uuid)} className="w-full sm:w-auto inline-flex items-center justify-center h-12 sm:h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-base sm:text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-all">
-                注册新的公司
+                <Sparkles size={18} className="text-[#66CDB5]" />
+                AI注册向导
               </a>
             </div>
           </div>
