@@ -149,9 +149,8 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
           name: formData.name.trim(),
           mobile: formData.phone.trim(),
           name1: formData.serviceTypes.includes('hosting') ? formData.company.trim() : '',
-          intentionName: serviceOptions
-            .filter(option => formData.serviceTypes.includes(option.id))
-            .map(option => option.title)
+          intention: formData.serviceTypes
+            .map(type => type === 'registration' ? '50' : '60')
             .join(','),
           source: '2',
           shareUserUuid: shareUserUuid ?? '',
