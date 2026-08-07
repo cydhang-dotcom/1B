@@ -10,7 +10,11 @@ type SubmitStatus = 'idle' | 'submitting' | 'error';
 export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   // --- Restore persisted submission state once on mount (lazy initializers) ---
   const [isSuccess, setIsSuccess] = useState(() => loadSubmissionState()?.submitted ?? false);
-  const [formData, setFormData] = useState(() => loadSubmissionState()?.formData ?? DEFAULT_FORM_DATA);
+  const [formData, setFormData] = useState(() => {
+    const saved = loadSubmissionState()?.formData;
+    if (!saved) return DEFAULT_FORM_DATA;
+    return { ...saved, serviceTypes: saved.serviceTypes ?? [] };
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const shareUserUuid = useShareUserUuid();
@@ -95,6 +99,8 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
           mobile: formData.phone,
           name1: formData.company.trim(),
           source: '2',
+          shareUserUuid: shareUserUuid ?? '',
+          serviceTypes: formData.serviceTypes,
         }),
       });
 
@@ -164,6 +170,40 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
               </h3>
 
               <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+                <div className="flex flex-wrap gap-3">
+                  {(['registration', 'hosting'] as const).map(type => (
+                    <label
+                      key={type}
+                      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-full border cursor-pointer transition-all text-sm font-medium select-none ${
+                        formData.serviceTypes.includes(type)
+                          ? 'bg-[#f0fdfa] border-[#66CDB5] text-[#66CDB5]'
+                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={formData.serviceTypes.includes(type)}
+                        onChange={() => {
+                          const next = formData.serviceTypes.includes(type)
+                            ? formData.serviceTypes.filter(t => t !== type)
+                            : [...formData.serviceTypes, type];
+                          setFormData({ ...formData, serviceTypes: next });
+                        }}
+                        className="sr-only"
+                      />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
+                        formData.serviceTypes.includes(type)
+                          ? 'bg-[#66CDB5] border-[#66CDB5]'
+                          : 'border-slate-300'
+                      }`}>
+                        {formData.serviceTypes.includes(type) && (
+                          <Check size={12} className="text-white" strokeWidth={4} />
+                        )}
+                      </span>
+                      {type === 'registration' ? '企业注册' : '企业托管'}
+                    </label>
+                  ))}
+                </div>
                 <div>
                   <input
                     type="text"
@@ -186,17 +226,19 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                   />
                   {errors.phone && <p className="text-red-500 text-xs mt-1.5 pl-5">{errors.phone}</p>}
                 </div>
-                <div>
-                  <input
-                    type="text"
-                    placeholder="企业名称（选填）"
-                    className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
-                    value={formData.company}
-                    onChange={(e) =>
-                      setFormData({ ...formData, company: e.target.value })
-                    }
-                  />
-                </div>
+                {formData.serviceTypes.includes('hosting') && (
+                  <div>
+                    <input
+                      type="text"
+                      placeholder="企业名称（选填）"
+                      className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
+                      value={formData.company}
+                      onChange={(e) =>
+                        setFormData({ ...formData, company: e.target.value })
+                      }
+                    />
+                  </div>
+                )}
 
                 <button
                   type="submit"

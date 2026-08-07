@@ -15,14 +15,20 @@
 ### 首页
 - 调整 按钮文案"托管我的企业"改为"获取服务"并新增右箭头图标
 - 调整 按钮文案"注册新的公司"改为"AI注册向导"并新增AI图标
+- 调整 AI注册向导按钮改为新窗口打开链接
 
 ### 弹窗页
 - 新增 二维码根据 shareUserUuid 参数动态调用接口获取
 - 新增 二维码 loading 状态和 AbortController 请求管理
 - 调整 API 地址抽取为环境变量配置项
+- 新增 企业注册/企业托管多选 checkbox
+- 新增 企业托管选中后显示企业名称输入框
+- 修复 旧版 localStorage 无 serviceTypes 字段导致报错
+- 新增 提交时传递 shareUserUuid 享人ID和 serviceTypes 到后台
 
 ### 配置
 - 新增 src/config/api.ts 统一管理 API 和文档服务地址
 - 新增 .env.development 和 .env.production 区分环境
 - 更新 .env.example 补充 API 配置项
 - 优化 构建脚本适配跨平台部署路径
+- 新增 TrustFormData 类型支持 serviceTypes 字段

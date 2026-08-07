@@ -30,7 +30,7 @@ export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
                 获取服务
                 <ArrowRight size={18} className="sm:w-5 sm:h-5" />
               </button>
-              <a href={appendShareUserUuid('/CAA', uuid)} className="w-full sm:w-auto inline-flex items-center justify-center h-12 sm:h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-base sm:text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-all">
+              <a href={appendShareUserUuid('/CAA', uuid)} target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto inline-flex items-center justify-center h-12 sm:h-14 px-8 rounded-full bg-white text-slate-600 font-medium text-base sm:text-lg border border-slate-200 hover:border-slate-300 hover:text-slate-900 transition-all">
                 <Sparkles size={18} className="text-[#66CDB5]" />
                 AI注册向导
               </a>

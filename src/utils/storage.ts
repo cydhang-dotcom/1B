@@ -6,6 +6,7 @@ export interface TrustFormData {
   name: string;
   phone: string;
   company: string;
+  serviceTypes: string[];
 }
 
 /** Shape of the persisted submission state */
@@ -20,7 +21,7 @@ export interface TrustSubmissionState {
   savedAt: number;
 }
 
-const DEFAULT_FORM_DATA: TrustFormData = { name: '', phone: '', company: '' };
+const DEFAULT_FORM_DATA: TrustFormData = { name: '', phone: '', company: '', serviceTypes: [] };
 
 /**
  * Load persisted submission state from localStorage.
