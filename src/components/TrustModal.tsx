@@ -1,20 +1,37 @@
-import React, { useState, useEffect } from "react";
-import { X, Check } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { ArrowRight, Check, ShieldCheck, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { loadSubmissionState, saveSubmissionState, DEFAULT_FORM_DATA } from "../utils/storage";
+import type { TrustServiceId } from "../utils/storage";
 import { useShareUserUuid } from "../hooks/useShareUserUuid";
 import { API_HOST, DOC_HOST } from "../config/api";
 
 type SubmitStatus = 'idle' | 'submitting' | 'error';
+type ServiceId = TrustServiceId;
+
+const serviceOptions: Array<{
+  id: ServiceId;
+  title: string;
+  description: string;
+}> = [
+  {
+    id: 'registration',
+    title: '企业注册',
+    description: '注册路径、材料准备与办理跟进',
+  },
+  {
+    id: 'hosting',
+    title: '企业托管',
+    description: '财税、人事及日常企业事项托管',
+  },
+];
+
+const FIELD_LABEL_STYLE = "mb-2 block text-sm font-semibold text-stone-700";
+const INPUT_STYLE = "h-12 w-full rounded-xl border border-stone-300/70 bg-stone-50/35 px-4 text-stone-800 outline-none transition-all placeholder-stone-400 hover:border-stone-400 focus:border-[#66cdb5] focus:bg-white focus:ring-4 focus:ring-[#66cdb5]/10";
 
 export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  // --- Restore persisted submission state once on mount (lazy initializers) ---
   const [isSuccess, setIsSuccess] = useState(() => loadSubmissionState()?.submitted ?? false);
-  const [formData, setFormData] = useState(() => {
-    const saved = loadSubmissionState()?.formData;
-    if (!saved) return DEFAULT_FORM_DATA;
-    return { ...saved, serviceTypes: saved.serviceTypes ?? [] };
-  });
+  const [formData, setFormData] = useState(() => loadSubmissionState()?.formData ?? DEFAULT_FORM_DATA);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const shareUserUuid = useShareUserUuid();
@@ -46,6 +63,23 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
     return () => controller.abort();
   }, [shareUserUuid]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') handleClose();
+    };
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
   const clearFieldError = (field: string) => {
     setErrors(prev => {
       if (!prev[field]) return prev;
@@ -61,8 +95,6 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
   };
 
   const handleClose = () => {
-    // Do not reset isSuccess/formData — submission state persists (saved in localStorage).
-    // Closing only hides the modal; reopening shows the same view.
     setErrors({});
     setSubmitStatus('idle');
     onClose();
@@ -74,6 +106,22 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
     setSubmitStatus('idle');
   };
 
+  const toggleService = (serviceId: ServiceId) => {
+    setFormData(prev => {
+      const isSelected = prev.serviceTypes.includes(serviceId);
+      const serviceTypes = isSelected
+        ? prev.serviceTypes.filter(item => item !== serviceId)
+        : [...prev.serviceTypes, serviceId];
+
+      return {
+        ...prev,
+        serviceTypes,
+        company: serviceId === 'hosting' && isSelected ? '' : prev.company,
+      };
+    });
+    clearFieldError('serviceTypes');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -83,6 +131,9 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
     }
     if (!/^1[3-9]\d{9}$/.test(formData.phone)) {
       newErrors.phone = '请输入正确的手机号码';
+    }
+    if (!formData.serviceTypes.length) {
+      newErrors.serviceTypes = '请至少选择一项服务';
     }
     if (Object.keys(newErrors).length) {
       setErrors(newErrors);
@@ -96,8 +147,12 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: formData.name.trim(),
-          mobile: formData.phone,
-          name1: formData.company.trim(),
+          mobile: formData.phone.trim(),
+          name1: formData.serviceTypes.includes('hosting') ? formData.company.trim() : '',
+          serviceName: serviceOptions
+            .filter(option => formData.serviceTypes.includes(option.id))
+            .map(option => option.title)
+            .join('、'),
           source: '2',
           shareUserUuid: shareUserUuid ?? '',
           serviceTypes: formData.serviceTypes,
@@ -124,13 +179,16 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
       <AnimatePresence mode="wait">
         {!isSuccess ? (
           <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="service-dialog-title"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="w-full max-w-3xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-xl shadow-slate-950/10 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
+            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-2xl shadow-slate-950/15 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
           >
             {/* Modal Aside */}
-            <div className="w-full md:w-2/5 bg-slate-50 p-8 sm:p-12 flex flex-col justify-center relative overflow-hidden shrink-0 border-b md:border-b-0 md:border-r border-slate-100">
+            <div className="hidden md:flex md:w-[34%] bg-slate-50 md:p-10 flex-col justify-center relative overflow-hidden shrink-0 border-r border-slate-100">
               <div className="absolute top-0 right-0 w-64 h-64 bg-[#66CDB5]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
 
               <div className="relative z-10">
@@ -157,96 +215,136 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             </div>
 
             {/* Modal Form */}
-            <div className="w-full md:w-3/5 p-8 sm:p-12 relative">
+            <div className="w-full md:w-[66%] p-7 sm:p-9 md:p-10 relative overflow-y-auto">
               <button
+                type="button"
                 onClick={handleClose}
+                aria-label="关闭服务选择窗口"
                 className="absolute top-4 sm:top-6 right-4 sm:right-6 p-2 rounded-full hover:bg-slate-50 active:bg-slate-100 text-slate-400 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200"
               >
                 <X size={20} />
               </button>
 
-              <h3 className="text-2xl font-extrabold text-slate-900 mb-6 sm:mb-8 mt-2 sm:mt-0">
-                获取服务
+              <h3 id="service-dialog-title" className="text-2xl font-extrabold text-slate-900 mt-2 sm:mt-0">
+                选择我需要的服务
               </h3>
+              <p className="mt-2 mb-7 text-sm leading-relaxed text-slate-500">
+                可多选，至少选择一项。提交后由顾问与您确认具体需求。
+              </p>
 
               <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-                <div className="flex flex-wrap gap-3">
-                  {(['registration', 'hosting'] as const).map(type => (
-                    <label
-                      key={type}
-                      className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-full border cursor-pointer transition-all text-sm font-medium select-none ${
-                        formData.serviceTypes.includes(type)
-                          ? 'bg-[#f0fdfa] border-[#66CDB5] text-[#66CDB5]'
-                          : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={formData.serviceTypes.includes(type)}
-                        onChange={() => {
-                          const next = formData.serviceTypes.includes(type)
-                            ? formData.serviceTypes.filter(t => t !== type)
-                            : [...formData.serviceTypes, type];
-                          setFormData({ ...formData, serviceTypes: next });
-                        }}
-                        className="sr-only"
-                      />
-                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
-                        formData.serviceTypes.includes(type)
-                          ? 'bg-[#66CDB5] border-[#66CDB5]'
-                          : 'border-slate-300'
-                      }`}>
-                        {formData.serviceTypes.includes(type) && (
-                          <Check size={12} className="text-white" strokeWidth={4} />
-                        )}
-                      </span>
-                      {type === 'registration' ? '企业注册' : '企业托管'}
-                    </label>
-                  ))}
-                </div>
-                <div>
-                  <input
-                    type="text"
-                    required
-                    placeholder="您的称呼"
-                    className={`w-full h-12 px-5 bg-white border rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100 ${errors.name ? 'border-red-400' : 'border-slate-200'}`}
-                    value={formData.name}
-                    onChange={e => { setFormData({...formData, name: e.target.value}); clearFieldError('name'); }}
-                  />
-                  {errors.name && <p className="text-red-500 text-xs mt-1.5 pl-5">{errors.name}</p>}
-                </div>
-                <div>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="您的联系方式"
-                    className={`w-full h-12 px-5 bg-white border rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100 ${errors.phone ? 'border-red-400' : 'border-slate-200'}`}
-                    value={formData.phone}
-                    onChange={e => { setFormData({...formData, phone: e.target.value}); clearFieldError('phone'); }}
-                  />
-                  {errors.phone && <p className="text-red-500 text-xs mt-1.5 pl-5">{errors.phone}</p>}
-                </div>
-                {formData.serviceTypes.includes('hosting') && (
-                  <div>
-                    <input
-                      type="text"
-                      placeholder="企业名称（选填）"
-                      className="w-full h-12 px-5 bg-white border border-slate-200 rounded-full focus:border-[#66CDB5] focus:ring-4 focus:ring-[#66CDB5]/10 outline-none font-medium text-slate-900 transition-all placeholder:text-slate-400 shadow-sm shadow-slate-100"
-                      value={formData.company}
-                      onChange={(e) =>
-                        setFormData({ ...formData, company: e.target.value })
-                      }
-                    />
-                  </div>
-                )}
+                <fieldset>
+                  <legend className="mb-3 text-sm font-semibold text-stone-700">
+                    服务类型 <span className="text-[#42a98f]">*</span>
+                    <span className="ml-2 font-normal text-stone-400">可多选</span>
+                  </legend>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {serviceOptions.map(option => {
+                      const isSelected = formData.serviceTypes.includes(option.id);
 
-                <button
-                  type="submit"
-                  disabled={submitStatus === 'submitting'}
-                  className="w-full h-12 bg-[#66CDB5] hover:bg-[#52ba9f] disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-full font-medium text-base mt-2 transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
-                >
-                  {submitStatus === 'submitting' ? '提交中...' : submitStatus === 'error' ? '提交失败，请稍后重试' : '提交托管需求'}
-                </button>
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => toggleService(option.id)}
+                          className={`relative flex min-h-20 items-center rounded-xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/15 ${
+                            isSelected
+                              ? 'border-[#66cdb5]/55 bg-[#eef8f4] text-stone-700 shadow-[0_10px_22px_rgba(102,205,181,0.10)]'
+                              : 'border-stone-300/70 bg-white text-stone-600 hover:border-[#66cdb5]/34'
+                          }`}
+                        >
+                          <div className={`mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                            isSelected ? 'border-[#66cdb5] bg-[#66cdb5]' : 'border-stone-300 bg-transparent'
+                          }`}>
+                            {isSelected && <Check size={12} className="text-white" aria-hidden="true" />}
+                          </div>
+                          <div>
+                            <div className="text-sm font-medium text-stone-700">{option.title}</div>
+                            <div className="mt-1 text-xs leading-5 text-stone-500">{option.description}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {errors.serviceTypes && <p className="text-red-500 text-xs mt-2">{errors.serviceTypes}</p>}
+                </fieldset>
+
+                <div className="border-t border-stone-200/80 pt-5">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="service-contact-name" className={FIELD_LABEL_STYLE}>
+                        您的称呼 <span className="text-[#42a98f]">*</span>
+                      </label>
+                      <input
+                        id="service-contact-name"
+                        type="text"
+                        required
+                        autoComplete="name"
+                        placeholder="请输入称呼"
+                        className={`${INPUT_STYLE} ${errors.name ? 'border-red-400' : ''}`}
+                        value={formData.name}
+                        onChange={e => { setFormData({...formData, name: e.target.value}); clearFieldError('name'); }}
+                      />
+                      {errors.name && <p className="mt-1.5 text-xs text-red-500">{errors.name}</p>}
+                    </div>
+                    <div>
+                      <label htmlFor="service-contact-phone" className={FIELD_LABEL_STYLE}>
+                        联系方式 <span className="text-[#42a98f]">*</span>
+                      </label>
+                      <input
+                        id="service-contact-phone"
+                        type="tel"
+                        required
+                        inputMode="numeric"
+                        autoComplete="tel"
+                        maxLength={11}
+                        placeholder="请输入手机号码"
+                        className={`${INPUT_STYLE} ${errors.phone ? 'border-red-400' : ''}`}
+                        value={formData.phone}
+                        onChange={e => { setFormData({...formData, phone: e.target.value}); clearFieldError('phone'); }}
+                      />
+                      {errors.phone && <p className="mt-1.5 text-xs text-red-500">{errors.phone}</p>}
+                    </div>
+                  </div>
+
+                  {formData.serviceTypes.includes('hosting') && (
+                    <motion.div className="mt-4" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
+                      <label htmlFor="service-company-name" className={FIELD_LABEL_STYLE}>
+                        现有企业名称 <span className="font-normal text-stone-400">（选填）</span>
+                      </label>
+                      <input
+                        id="service-company-name"
+                        type="text"
+                        autoComplete="organization"
+                        placeholder="如已确定，可填写企业全称"
+                        className={INPUT_STYLE}
+                        value={formData.company}
+                        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                      />
+                    </motion.div>
+                  )}
+                </div>
+
+                <div className="sticky -bottom-7 z-10 -mx-7 space-y-3 border-t border-stone-100 bg-white/95 px-7 pt-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:backdrop-blur-none">
+                  <div className="flex items-center gap-2 text-xs leading-5 text-stone-400">
+                    <ShieldCheck size={15} className="shrink-0 text-[#57bba4]" aria-hidden="true" />
+                    您的信息仅用于本次服务咨询与需求跟进
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitStatus === 'submitting'}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#66cdb5] bg-[#66cdb5] py-4 text-sm font-bold text-white shadow-xl shadow-[#66cdb5]/20 transition-all hover:-translate-y-0.5 hover:bg-[#57bea6] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/20"
+                  >
+                    {submitStatus === 'submitting' ? '提交中...' : submitStatus === 'error' ? '提交失败，请稍后重试' : (
+                      <>
+                        提交服务需求
+                        <ArrowRight size={17} aria-hidden="true" />
+                      </>
+                    )}
+                  </button>
+                </div>
               </form>
             </div>
           </motion.div>

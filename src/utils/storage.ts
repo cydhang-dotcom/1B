@@ -2,11 +2,13 @@
 const STORAGE_KEY = '1b_trust_submission';
 const CURRENT_VERSION = 1;
 
+export type TrustServiceId = 'registration' | 'hosting';
+
 export interface TrustFormData {
   name: string;
   phone: string;
   company: string;
-  serviceTypes: string[];
+  serviceTypes: TrustServiceId[];
 }
 
 /** Shape of the persisted submission state */
@@ -21,7 +23,12 @@ export interface TrustSubmissionState {
   savedAt: number;
 }
 
-const DEFAULT_FORM_DATA: TrustFormData = { name: '', phone: '', company: '', serviceTypes: [] };
+const DEFAULT_FORM_DATA: TrustFormData = {
+  name: '',
+  phone: '',
+  company: '',
+  serviceTypes: [],
+};
 
 /**
  * Load persisted submission state from localStorage.
@@ -37,7 +44,24 @@ export const loadSubmissionState = (): TrustSubmissionState | null => {
       return null;
     }
 
-    return parsed as TrustSubmissionState;
+    const formData = parsed.formData ?? {};
+    const storedTypes = Array.isArray(formData.serviceTypes)
+      ? formData.serviceTypes
+      : Array.isArray(formData.services)
+        ? formData.services.map((type: string) => type === 'management' ? 'hosting' : type)
+        : [];
+    const serviceTypes = storedTypes.filter(
+      (type: string): type is TrustServiceId => type === 'registration' || type === 'hosting',
+    );
+
+    return {
+      ...parsed,
+      formData: {
+        ...DEFAULT_FORM_DATA,
+        ...formData,
+        serviceTypes,
+      },
+    } as TrustSubmissionState;
   } catch {
     return null;
   }

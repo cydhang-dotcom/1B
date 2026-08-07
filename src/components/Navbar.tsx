@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Building2, Menu, X, ArrowRight } from "lucide-react";
+import { Building2, Menu, Sparkles, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { useShareUserUuid, appendShareUserUuid } from '../hooks/useShareUserUuid';
 
 export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const uuid = useShareUserUuid();
 
   useEffect(() => {
     const handleScroll = () => {
@@ -44,7 +46,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
         </a>
 
         {/* Desktop Nav */}
-        <nav className="hidden md:flex items-center gap-8">
+        <nav aria-label="主导航" className="hidden lg:flex items-center gap-8">
           {navLinks.map((link) => (
             <a
               key={link.name}
@@ -55,19 +57,32 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
             </a>
           ))}
           {onOpenModal && (
-            <button
-              onClick={onOpenModal}
-              className="px-6 py-2.5 bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-medium rounded-full transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20 inline-flex items-center gap-1.5"
-            >
-              获取服务
-              <ArrowRight size={16} className="text-white" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onOpenModal}
+                className="h-10 w-[132px] inline-flex items-center justify-center bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-semibold rounded-full transition-all shadow-sm hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+              >
+                获取服务
+              </button>
+              <a
+                href={appendShareUserUuid('/CAA', uuid)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="h-10 w-[132px] inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white/85 text-sm font-semibold text-slate-700 transition-all hover:border-[#66CDB5]/60 hover:bg-teal-50/60 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/15"
+              >
+                <Sparkles size={15} className="text-[#4fb69e]" aria-hidden="true" />
+                AI 注册向导
+              </a>
+            </div>
           )}
         </nav>
 
         {/* Mobile Toggle */}
         <button
-          className="md:hidden h-11 w-11 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-colors"
+          type="button"
+          aria-label={isMobileMenuOpen ? "关闭导航菜单" : "打开导航菜单"}
+          aria-expanded={isMobileMenuOpen}
+          className="lg:hidden h-11 w-11 rounded-full flex items-center justify-center text-slate-600 hover:bg-slate-50 active:bg-slate-100 transition-colors"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
         >
           {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
@@ -77,11 +92,12 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
       {/* Mobile Nav */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <motion.div
+          <motion.nav
+            aria-label="移动端导航"
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-16 md:top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl md:hidden"
+            className="absolute top-16 md:top-20 left-0 right-0 glass-panel border-b border-slate-200 p-6 flex flex-col gap-4 shadow-xl lg:hidden"
           >
             {navLinks.map((link) => (
               <a
@@ -94,18 +110,29 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
               </a>
             ))}
             {onOpenModal && (
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onOpenModal();
-                }}
-                className="w-full mt-4 px-6 py-3 bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-bold rounded-xl shadow-md shadow-[#66CDB5]/25 text-center transition-all active:scale-[0.99] inline-flex items-center justify-center gap-2"
-              >
-                获取服务
-                <ArrowRight size={18} className="text-white" />
-              </button>
+              <div className="mt-4 grid gap-3">
+                <button
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    onOpenModal();
+                  }}
+                  className="w-full h-12 px-6 bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-bold rounded-xl shadow-md shadow-[#66CDB5]/25 text-center transition-all active:scale-[0.99]"
+                >
+                  获取服务
+                </button>
+                <a
+                  href={appendShareUserUuid('/CAA', uuid)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className="w-full h-12 px-6 inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-slate-700 font-bold transition-all hover:border-[#66CDB5]/60 hover:bg-teal-50/60 hover:text-teal-700 active:scale-[0.99]"
+                >
+                  <Sparkles size={17} className="text-[#4fb69e]" aria-hidden="true" />
+                  AI 注册向导
+                </a>
+              </div>
             )}
-          </motion.div>
+          </motion.nav>
         )}
       </AnimatePresence>
     </header>
