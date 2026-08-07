@@ -173,7 +173,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center px-6 py-4 sm:px-10 lg:px-16">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
       <div className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm" onClick={handleClose}></div>
 
       <AnimatePresence mode="wait">
@@ -185,37 +185,10 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="w-full max-w-4xl max-h-[calc(100dvh-2rem)] bg-white rounded-[1.5rem] md:rounded-[2rem] shadow-2xl shadow-slate-950/15 overflow-y-auto md:overflow-hidden relative z-10 flex flex-col md:flex-row border border-slate-100"
+            className="relative z-10 flex max-h-[calc(100dvh-2rem)] w-full max-w-[720px] flex-col overflow-y-auto rounded-[1.5rem] border border-slate-200/80 bg-white shadow-2xl shadow-slate-950/15"
           >
-            {/* Modal Aside */}
-            <div className="hidden md:flex md:w-[34%] bg-slate-50 md:p-10 flex-col justify-center relative overflow-hidden shrink-0 border-r border-slate-100">
-              <div className="absolute top-0 right-0 w-64 h-64 bg-[#66CDB5]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-
-              <div className="relative z-10">
-                <div className="text-[10px] font-bold tracking-widest text-[#66CDB5] uppercase mb-4 sm:mb-6">
-                  BANBU ONE SERVICE
-                </div>
-                <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-[1.2] mb-3 sm:mb-4">
-                  企业后台
-                  <br />
-                  <span className="text-[#66CDB5]">交给班步</span>
-                </h3>
-
-                <div className="space-y-3 sm:space-y-4 border-t border-slate-200 pt-5 sm:pt-8 mt-6 sm:mt-10">
-                  <div className="flex gap-3 text-sm font-medium text-slate-600">
-                    <Check size={18} className="text-[#66CDB5] shrink-0" />
-                    公司注册与后续托管衔接
-                  </div>
-                  <div className="flex gap-3 text-sm font-medium text-slate-600">
-                    <Check size={18} className="text-[#66CDB5] shrink-0" />
-                    财税、人事事项统一跟进
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* Modal Form */}
-            <div className="w-full md:w-[66%] p-7 sm:p-9 md:p-10 relative overflow-y-auto">
+            <div className="relative w-full overflow-y-auto p-6 sm:p-8">
               <button
                 type="button"
                 onClick={handleClose}
@@ -225,20 +198,19 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 <X size={20} />
               </button>
 
-              <h3 id="service-dialog-title" className="text-2xl font-extrabold text-slate-900 mt-2 sm:mt-0">
+              <div className="pr-10 text-[10px] font-bold uppercase tracking-[0.18em] text-[#4fb69e]">
+                班步一企通 · 服务咨询
+              </div>
+              <h3 id="service-dialog-title" className="mt-2 pr-10 text-2xl font-extrabold tracking-tight text-slate-900">
                 选择我需要的服务
               </h3>
-              <p className="mt-2 mb-7 text-sm leading-relaxed text-slate-500">
-                可多选，至少选择一项。提交后由顾问与您确认具体需求。
-              </p>
 
-              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+              <form onSubmit={handleSubmit} className="mt-7 grid gap-5" noValidate>
                 <fieldset>
                   <legend className="mb-3 text-sm font-semibold text-stone-700">
                     服务类型 <span className="text-[#42a98f]">*</span>
-                    <span className="ml-2 font-normal text-stone-400">可多选</span>
                   </legend>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {serviceOptions.map(option => {
                       const isSelected = formData.serviceTypes.includes(option.id);
 
@@ -248,10 +220,10 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                           type="button"
                           aria-pressed={isSelected}
                           onClick={() => toggleService(option.id)}
-                          className={`relative flex min-h-20 items-center rounded-xl border p-4 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/15 ${
+                          className={`relative flex min-h-[68px] items-center rounded-xl border px-4 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/15 ${
                             isSelected
-                              ? 'border-[#66cdb5]/55 bg-[#eef8f4] text-stone-700 shadow-[0_10px_22px_rgba(102,205,181,0.10)]'
-                              : 'border-stone-300/70 bg-white text-stone-600 hover:border-[#66cdb5]/34'
+                              ? 'border-[#66cdb5] bg-[#f5fbf9] text-stone-700'
+                              : 'border-stone-300/70 bg-white text-stone-600 hover:border-[#66cdb5]/50'
                           }`}
                         >
                           <div className={`mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
@@ -260,8 +232,8 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                             {isSelected && <Check size={12} className="text-white" aria-hidden="true" />}
                           </div>
                           <div>
-                            <div className="text-sm font-medium text-stone-700">{option.title}</div>
-                            <div className="mt-1 text-xs leading-5 text-stone-500">{option.description}</div>
+                            <div className="text-sm font-semibold text-stone-700">{option.title}</div>
+                            <div className="mt-0.5 text-xs leading-5 text-stone-500">{option.description}</div>
                           </div>
                         </button>
                       );
@@ -271,7 +243,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                 </fieldset>
 
                 <div className="border-t border-stone-200/80 pt-5">
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2">
                     <div>
                       <label htmlFor="service-contact-name" className={FIELD_LABEL_STYLE}>
                         您的称呼 <span className="text-[#42a98f]">*</span>
@@ -306,27 +278,26 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                       />
                       {errors.phone && <p className="mt-1.5 text-xs text-red-500">{errors.phone}</p>}
                     </div>
+                    {formData.serviceTypes.includes('hosting') && (
+                      <motion.div className="sm:col-span-2" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
+                        <label htmlFor="service-company-name" className={FIELD_LABEL_STYLE}>
+                          现有企业名称 <span className="font-normal text-stone-400">（选填）</span>
+                        </label>
+                        <input
+                          id="service-company-name"
+                          type="text"
+                          autoComplete="organization"
+                          placeholder="如已确定，可填写企业全称"
+                          className={INPUT_STYLE}
+                          value={formData.company}
+                          onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                        />
+                      </motion.div>
+                    )}
                   </div>
-
-                  {formData.serviceTypes.includes('hosting') && (
-                    <motion.div className="mt-4" initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}>
-                      <label htmlFor="service-company-name" className={FIELD_LABEL_STYLE}>
-                        现有企业名称 <span className="font-normal text-stone-400">（选填）</span>
-                      </label>
-                      <input
-                        id="service-company-name"
-                        type="text"
-                        autoComplete="organization"
-                        placeholder="如已确定，可填写企业全称"
-                        className={INPUT_STYLE}
-                        value={formData.company}
-                        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                      />
-                    </motion.div>
-                  )}
                 </div>
 
-                <div className="sticky -bottom-7 z-10 -mx-7 space-y-3 border-t border-stone-100 bg-white/95 px-7 pt-4 backdrop-blur sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:backdrop-blur-none">
+                <div className="sticky -bottom-6 z-10 -mx-6 flex flex-col gap-4 border-t border-stone-100 bg-white/95 px-6 pt-4 backdrop-blur sm:static sm:mx-0 sm:flex-row sm:items-center sm:justify-between sm:border-0 sm:bg-transparent sm:px-0 sm:pt-0 sm:backdrop-blur-none">
                   <div className="flex items-center gap-2 text-xs leading-5 text-stone-400">
                     <ShieldCheck size={15} className="shrink-0 text-[#57bba4]" aria-hidden="true" />
                     您的信息仅用于本次服务咨询与需求跟进
@@ -335,7 +306,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
                   <button
                     type="submit"
                     disabled={submitStatus === 'submitting'}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-[#66cdb5] bg-[#66cdb5] py-4 text-sm font-bold text-white shadow-xl shadow-[#66cdb5]/20 transition-all hover:-translate-y-0.5 hover:bg-[#57bea6] active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/20"
+                    className="flex h-12 w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-[#66cdb5] bg-[#66cdb5] px-6 text-sm font-bold text-white shadow-lg shadow-[#66cdb5]/15 transition-all hover:bg-[#57bea6] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/20 sm:w-[190px]"
                   >
                     {submitStatus === 'submitting' ? '提交中...' : submitStatus === 'error' ? '提交失败，请稍后重试' : (
                       <>
