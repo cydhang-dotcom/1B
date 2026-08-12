@@ -36,10 +36,13 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const shareUserUuid = useShareUserUuid();
   const [qrCodeUrl, setQrCodeUrl] = useState('/image-yqt/customer-service-qr.png');
-  const [qrLoading, setQrLoading] = useState(true);
+  const [qrLoading, setQrLoading] = useState(false);
 
   useEffect(() => {
-    if (!shareUserUuid) {
+    if (!isSuccess) return;
+    const needFetch = shareUserUuid && formData.serviceTypes.some(type => type !== 'hosting' || formData.serviceTypes.length > 1);
+    if (!needFetch) {
+      setQrCodeUrl('/image-yqt/customer-service-qr.png');
       setQrLoading(false);
       return;
     }
@@ -61,7 +64,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
         if (!controller.signal.aborted) setQrLoading(false);
       });
     return () => controller.abort();
-  }, [shareUserUuid]);
+  }, [isSuccess]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -102,6 +105,8 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   const handleRefill = () => {
     setIsSuccess(false);
+    setQrCodeUrl('/image-yqt/customer-service-qr.png');
+    setQrLoading(false);
     setErrors({});
     setSubmitStatus('idle');
   };
