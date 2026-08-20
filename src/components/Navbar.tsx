@@ -21,6 +21,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
     { name: "服务内容", href: "#services" },
     { name: "能力亮点", href: "#scenes" },
     { name: "服务路径", href: "#path" },
+    { name: "服务价格", href: "#pricing" },
   ];
 
   return (

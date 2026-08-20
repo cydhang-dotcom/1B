@@ -1,6 +1,43 @@
 import React from "react";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Info, Sparkles } from "lucide-react";
 import { useShareUserUuid, appendShareUserUuid } from '../hooks/useShareUserUuid';
+
+const pricingPlans = [
+  {
+    eyebrow: '单项服务',
+    name: '注册代理',
+    detail: '适合仅需完成企业注册的客户',
+    price: '600',
+    unit: '元 / 户次',
+    features: ['企业注册办理', '按单户单次计费', '选择服务包可全额减免'],
+  },
+  {
+    eyebrow: '年度服务包',
+    name: '班步一企通',
+    detail: '小规模纳税人',
+    price: '2,500',
+    unit: '元 / 年',
+    badge: '适合多数初创企业',
+    featured: true,
+    features: ['小规模纳税人年度服务', '企业财税事项持续跟进', '注册代理费全额减免'],
+  },
+  {
+    eyebrow: '年度服务包',
+    name: '班步一企通',
+    detail: '一般纳税人',
+    price: '3,000',
+    unit: '元 / 年',
+    features: ['一般纳税人年度服务', '企业财税事项持续跟进', '注册代理费全额减免'],
+  },
+  {
+    eyebrow: '基础申报',
+    name: '零申报服务',
+    detail: '适合暂无经营申报需求的企业',
+    price: '600',
+    unit: '元 / 年',
+    features: ['年度零申报服务', '按年度收取服务费', '不包含注册代理费减免'],
+  },
+];
 
 export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
   const uuid = useShareUserUuid();
@@ -8,8 +45,68 @@ export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
   return (
     <section className="py-16 md:py-24 lg:py-32 relative overflow-hidden bg-white border-t border-slate-100">
       <div className="max-w-7xl mx-auto px-5 md:px-8">
-        <div className="bg-[#f8fafc] rounded-[2rem] lg:rounded-[3rem] p-6 sm:p-12 lg:p-24 relative overflow-hidden border border-slate-100">
-          {/* Decorative graphic */}
+        <div id="pricing" className="relative isolate mb-16 scroll-mt-24 sm:mb-20 lg:mb-24 lg:scroll-mt-28">
+          <div className="pointer-events-none absolute -inset-x-8 top-32 -z-10 h-[30rem] rounded-[50%] bg-[#66CDB5]/10 blur-3xl" aria-hidden="true"></div>
+          <div className="mb-10">
+            <div>
+              <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl lg:text-[2.75rem]">
+                企业服务，<span className="text-[#66CDB5]">清晰定价</span>
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">从公司注册到年度财税托管，按企业实际阶段选择所需服务。</p>
+            </div>
+          </div>
+
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4 lg:items-stretch">
+            {pricingPlans.map((plan) => (
+              <article
+                key={`${plan.name}-${plan.detail}`}
+                className={`group relative flex min-h-[360px] flex-col rounded-[1.5rem] border p-6 transition-[transform,box-shadow,border-color] duration-300 hover:-translate-y-1 ${
+                  plan.featured
+                    ? 'border-2 border-[#66CDB5] bg-[#66CDB5]/10 shadow-[0_24px_60px_rgba(102,205,181,0.15)] backdrop-blur-xl'
+                    : 'border-white/90 bg-white/75 shadow-[0_14px_40px_rgba(46,98,86,0.055)] backdrop-blur-xl hover:border-[#66CDB5]/55 hover:bg-white/90 hover:shadow-[0_20px_50px_rgba(102,205,181,0.12)]'
+                }`}
+              >
+                {plan.badge && (
+                  <span className="absolute right-5 top-5 rounded-full bg-[#2f8c77] px-3 py-1.5 text-[11px] font-bold tracking-wide text-white shadow-[0_6px_18px_rgba(47,140,119,0.2)]">
+                    {plan.badge}
+                  </span>
+                )}
+
+                <div className="min-h-20">
+                  <div className="text-xs font-bold tracking-[0.12em] text-slate-600">{plan.eyebrow}</div>
+                  <h3 className="mt-4 text-xl font-extrabold tracking-tight text-slate-900">{plan.name}</h3>
+                  <p className="mt-2 min-h-10 text-sm leading-5 text-[#60736e]">{plan.detail}</p>
+                </div>
+
+                <div className={`mt-6 flex items-end gap-2 border-b pb-6 ${plan.featured ? 'border-[#66CDB5]/40' : 'border-slate-200/75'}`}>
+                  <span className="pb-1 text-sm font-bold text-[#60736e]">¥</span>
+                  <span className="text-[2.65rem] font-extrabold leading-none tracking-[-0.04em] text-slate-950">{plan.price}</span>
+                  <span className="pb-1 text-sm font-medium text-[#60736e]">/ {plan.unit.replace('元 / ', '')}</span>
+                </div>
+
+                <ul className="mt-6 grid gap-3.5">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2.5 text-sm leading-5 text-[#344b45]">
+                      <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${plan.featured ? 'bg-[#66CDB5] text-white' : 'bg-[#66CDB5]/15 text-[#419b86]'}`}>
+                        <Check size={12} strokeWidth={3} aria-hidden="true" />
+                      </span>
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+
+          <div className="mt-6 border-t border-slate-200 pt-5 text-sm text-slate-600">
+            <p className="flex items-center gap-2.5 font-medium text-slate-700">
+              <Info size={17} className="shrink-0 text-[#4aaf98]" aria-hidden="true" />
+              人事代理服务费 <strong className="ml-1 font-extrabold text-slate-950">+20 元 / 人 / 月</strong>
+            </p>
+          </div>
+        </div>
+
+        <div className="bg-[#f8fafc] rounded-[2rem] lg:rounded-[3rem] p-6 sm:p-12 lg:p-20 relative overflow-hidden border border-slate-100">
           <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#66CDB5]/5 rounded-full blur-3xl -translate-y-1/3 translate-x-1/3"></div>
 
           <div className="relative z-10 max-w-2xl">
