@@ -40,14 +40,14 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
           </div>
           <span className="font-bold text-lg md:text-xl tracking-tight text-slate-800">
             班步一企通{" "}
-            <span className="text-slate-500 font-medium hidden sm:inline">
+            <span className="text-slate-500 font-medium hidden xl:inline">
               · BANBU
             </span>
           </span>
         </a>
 
         {/* Desktop Nav */}
-        <nav aria-label="主导航" className="hidden lg:flex items-center gap-8">
+        <nav aria-label="主导航" className="hidden lg:flex items-center gap-6">
           {navLinks.map((link) => (
             <a
               key={link.name}
@@ -61,7 +61,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
             <div className="flex items-center gap-2">
               <button
                 onClick={onOpenModal}
-                className="h-10 w-[132px] inline-flex items-center justify-center bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-semibold rounded-full transition-all shadow-sm hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
+                className="h-10 w-[120px] inline-flex items-center justify-center bg-[#66CDB5] hover:bg-[#52ba9f] text-white text-sm font-semibold rounded-full transition-all shadow-sm hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/20"
               >
                 获取服务
               </button>
@@ -69,7 +69,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
                 href={appendShareUserUuid('/CAA', uuid)}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="h-10 w-[132px] inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white/85 text-sm font-semibold text-slate-700 transition-all hover:border-[#66CDB5]/60 hover:bg-teal-50/60 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/15"
+                className="h-10 w-[120px] inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white/85 text-sm font-semibold text-slate-700 transition-all hover:border-[#66CDB5]/60 hover:bg-teal-50/60 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/15"
               >
                 <Sparkles size={15} className="text-[#4fb69e]" aria-hidden="true" />
                 AI 注册向导
