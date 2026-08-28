@@ -39,7 +39,7 @@ const pricingPlans = [
   },
 ];
 
-export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
+export default function CTA({ onOpenModal }: { onOpenModal?: () => void }) {
   const uuid = useShareUserUuid();
 
   return (
@@ -120,13 +120,15 @@ export default function CTA({ onOpenModal }: { onOpenModal: () => void }) {
             </p>
 
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-              <button
-                onClick={onOpenModal}
-                className="group w-full sm:w-[188px] inline-flex items-center justify-center h-12 sm:h-14 rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-semibold text-base sm:text-lg transition-all gap-2 shadow-sm hover:shadow-md"
-              >
-                获取服务
-                <ArrowRight size={18} className="sm:w-5 sm:h-5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-              </button>
+              {onOpenModal && (
+                <button
+                  onClick={onOpenModal}
+                  className="group w-full sm:w-[188px] inline-flex items-center justify-center h-12 sm:h-14 rounded-full bg-[#66CDB5] hover:bg-[#52ba9f] text-white font-semibold text-base sm:text-lg transition-all gap-2 shadow-sm hover:shadow-md"
+                >
+                  获取服务
+                  <ArrowRight size={18} className="sm:w-5 sm:h-5 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+                </button>
+              )}
               <a href={appendShareUserUuid('/CAA', uuid)} target="_blank" rel="noopener noreferrer" className="w-full sm:w-[188px] inline-flex items-center justify-center gap-2 h-12 sm:h-14 rounded-full bg-white text-slate-700 font-semibold text-base sm:text-lg border border-slate-200 hover:border-[#66CDB5]/60 hover:bg-teal-50/50 hover:text-teal-700 transition-all">
                 <Sparkles size={18} className="text-[#4fb69e]" aria-hidden="true" />
                 AI 注册向导

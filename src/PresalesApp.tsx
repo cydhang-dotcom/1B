@@ -5,6 +5,7 @@ import Services from './components/Services';
 import Features from './components/Features';
 import Pathway from './components/Pathway';
 import Stats from './components/Stats';
+import CTA from './components/CTA';
 import Footer from './components/Footer';
 
 function useIosScrollFix() {
@@ -26,6 +27,7 @@ export default function PresalesApp() {
         <Features />
         <Pathway />
         <Stats />
+        <CTA />
       </main>
       <Footer />
     </div>
