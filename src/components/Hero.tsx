@@ -73,7 +73,7 @@ export default function Hero({ onOpenModal }: { onOpenModal?: () => void }) {
                 <ArrowRight size={18} className="transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
               </button>
               <a
-                href={appendShareUserUuid('/CAA', uuid)}
+                href={appendShareUserUuid('https://www.ibanbu.com/CAA', uuid)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center gap-2 h-[52px] sm:h-14 w-full sm:w-[188px] rounded-[16px] sm:rounded-full bg-white text-slate-700 font-semibold text-[16px] sm:text-[17px] border border-slate-200 hover:border-[#66CDB5]/60 hover:bg-teal-50/50 hover:text-teal-700 active:bg-teal-50 transition-all"

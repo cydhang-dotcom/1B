@@ -66,7 +66,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
                 获取服务
               </button>
               <a
-                href={appendShareUserUuid('/CAA', uuid)}
+                href={appendShareUserUuid('https://www.ibanbu.com/CAA', uuid)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="h-10 w-[120px] inline-flex items-center justify-center gap-1.5 rounded-full border border-slate-200 bg-white/85 text-sm font-semibold text-slate-700 transition-all hover:border-[#66CDB5]/60 hover:bg-teal-50/60 hover:text-teal-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66CDB5]/15"
@@ -122,7 +122,7 @@ export default function Navbar({ onOpenModal }: { onOpenModal?: () => void }) {
                   获取服务
                 </button>
                 <a
-                  href={appendShareUserUuid('/CAA', uuid)}
+                  href={appendShareUserUuid('https://www.ibanbu.com/CAA', uuid)}
                   target="_blank"
                   rel="noopener noreferrer"
                   onClick={() => setIsMobileMenuOpen(false)}

@@ -34,9 +34,9 @@ if (fs.existsSync(TARGET_DIR)) {
 
 // 3. 复制文件
 console.log('📋 步骤 3/3: 复制文件到目标目录...');
-const distDir = path.join(__dirname, '..', 'dist');
+const distDir = path.join(__dirname, '..', 'dist-www');
 if (!fs.existsSync(distDir)) {
-  console.error('❌ dist 目录不存在！');
+  console.error('❌ dist-www 目录不存在！');
   process.exit(1);
 }
 
