@@ -4,40 +4,37 @@
 
 ## [开发中]
 
-### 首页 & 售前咨询页
-- 重构 字体加载改为本地 FontSource 包，移除 Google Fonts 外部依赖
-- 新增 src/fonts.css 统一字体入口文件
-- 新增 @fontsource/inter 和 @fontsource/noto-serif-sc npm 依赖
-
-### 售前咨询页
-- 新增 售前咨询页面并配置多页面构建
-- 新增 渲染服务价格区块，使导航栏"服务价格"锚点可正常滚动定位
-- 调整 无弹窗上下文下隐藏服务价格区块中的"获取服务"按钮
+### 新企业注册信息采集页
+- 新增 新企业注册信息采集页及 registration.html 多页面构建入口
+- 新增 双栏步骤导航（企业侧/服务专员侧），企业侧按填写进度逐级解锁
+- 新增 完整办理流程总览，展开可见 14 个环节并标注责任方与关键控制点
+- 新增 名称申报、住所信息、联系与章程信息、股东及出资信息、主要人员信息、受益所有人信息等企业侧采集步骤
+- 新增 企业服务确认、经办人信息、选择申请机关、办理方式等服务专员填写步骤
+- 新增 法人委托书只读预览与打印，内容由经办人信息带出
+- 新增 提交前信息确认与填写完成汇总页
+- 新增 zod 表单校验与跨步骤字段定位，校验失败自动跳到出错步骤
+- 新增 开发环境示例数据预填，生产构建回到空表单
+- 新增 scripts/check-registration-schema.ts 数据结构校验脚本
+- 新增 打印样式，打印时仅输出法人委托书本体并按 A4 排版
+- 新增 react-hook-form、zod、@hookform/resolvers 依赖
+- 新增 SERVICE_CONFIRM_SAVE_PATH 企业服务确认独立保存接口路径（待接口方确认）
+- 调整 提交接口尚未接入，当前仅做前端校验与汇总，不发起网络请求
 
 ### 首页
-- 调整 按钮文案"托管我的企业"改为"获取服务"并新增右箭头图标
-- 调整 按钮文案"注册新的公司"改为"AI注册向导"并新增AI图标
-- 调整 AI注册向导按钮改为新窗口打开链接
-- 新增 服务价格方案展示
-- 优化 价格卡片透明感
-- 修复 导航栏服务价格链接溢出不显示问题
+- 调整 AI 注册向导按钮跳转地址改为绝对地址 https://www.ibanbu.com/CAA
 
-### 弹窗页
-- 新增 二维码根据 shareUserUuid 参数动态调用接口获取
-- 新增 二维码 loading 状态和 AbortController 请求管理
-- 调整 API 地址抽取为环境变量配置项
-- 新增 企业注册/企业托管多选 checkbox
-- 新增 企业托管选中后显示企业名称输入框
-- 修复 旧版 localStorage 无 serviceTypes 字段导致报错
-- 新增 提交时传递 shareUserUuid 享人ID和 serviceTypes 到后台
-- 优化 服务咨询弹窗布局（移除侧栏，改为单列结构）
-- 调整 提交接口 serviceName 改为 intentionName 并使用逗号分割
-- 调整 提交接口服务意向字段改为数字编码
-- 调整 二维码获取时机改为提交成功后按服务类型判断
+### 售前咨询页
+- 调整 AI 注册向导按钮跳转地址改为绝对地址 https://www.ibanbu.com/CAA
 
-### 配置
-- 新增 src/config/api.ts 统一管理 API 和文档服务地址
-- 新增 .env.development 和 .env.production 区分环境
-- 更新 .env.example 补充 API 配置项
-- 优化 构建脚本适配跨平台部署路径
-- 新增 TrustFormData 类型支持 serviceTypes 字段
+### 导航栏
+- 调整 桌面端与移动端 AI 注册向导链接改为绝对地址 https://www.ibanbu.com/CAA
+
+### 部署配置
+- 新增 DEPLOY_TARGET=biz 时以域名根目录为 base 打包，产物输出至 dist-biz
+- 新增 npm run build:biz 脚本
+- 调整 默认构建产物目录由 dist 改为 dist-www
+- 新增 deploy.sh 支持 biz.ibanbu.com 测试/预发/生产三环境部署
+- 新增 vpn.sh VPN 连接管理模块
+- 新增 npm run deploy:all 一键执行 www 与 biz 两条部署流程
+- 调整 本地部署脚本拷贝源由 dist 改为 dist-www
+- 更新 .gitignore 忽略 dist-www/ 与 dist-biz/

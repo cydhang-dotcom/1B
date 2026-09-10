@@ -41,6 +41,41 @@ body {
   scrollbar-width: none;
 }
 
+/**
+ * 打印法人委托书时只输出委托书本体：其余元素仅隐藏（保留布局），
+ * 委托书脱离文档流移到页面左上角，因此不能有定位祖先。
+ */
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm;
+  }
+
+  html,
+  body {
+    overflow: visible !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #attorney-print,
+  #attorney-print * {
+    visibility: visible;
+  }
+
+  #attorney-print {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+}
+
 .pattern-bg {
   background-color: #FAFAFA;
   background-image:
