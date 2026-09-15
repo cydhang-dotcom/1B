@@ -25,6 +25,13 @@ body {
   @apply bg-white text-slate-800 antialiased overflow-x-hidden;
 }
 
+/* 企业注册申请页：字号与字体栈对齐原型 企业注册服务申请系统-6.html */
+.registration-app {
+  font-family: "Inter", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 ::selection {
   background: rgba(102, 205, 181, 0.24);
 }
@@ -39,41 +46,6 @@ body {
 .no-scrollbar {
   -ms-overflow-style: none;
   scrollbar-width: none;
-}
-
-/**
- * 打印法人委托书时只输出委托书本体：其余元素仅隐藏（保留布局），
- * 委托书脱离文档流移到页面左上角，因此不能有定位祖先。
- */
-@media print {
-  @page {
-    size: A4;
-    margin: 20mm;
-  }
-
-  html,
-  body {
-    overflow: visible !important;
-  }
-
-  body * {
-    visibility: hidden;
-  }
-
-  #attorney-print,
-  #attorney-print * {
-    visibility: visible;
-  }
-
-  #attorney-print {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100%;
-    padding: 0;
-    border: 0;
-    box-shadow: none;
-  }
 }
 
 .pattern-bg {

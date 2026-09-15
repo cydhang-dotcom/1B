@@ -1,254 +1,403 @@
 /**
- * 注册信息采集表单 schema 自检。
- * 运行：npx tsx scripts/check-registration-schema.ts
+ * 注册申请校验规则自检：直接跑纯函数，不经过浏览器。
+ *   npx tsx scripts/check-registration-schema.ts
  */
-import assert from 'node:assert/strict';
-import { registrationSchema, type FormValues } from '../src/registration/schema';
+import { flatten } from '../src/registration/flat';
+import {
+  CONFIG,
+  clone,
+  initial,
+  uid,
+  type ApplicationData,
+} from '../src/registration/model';
+import {
+  roleDraftErrors,
+  sectionTouched,
+  setupComplete,
+  shareholderDraftErrors,
+  validate,
+} from '../src/registration/schema';
 
-const validForm: FormValues = {
-  tradeName: '数鲸云',
-  industry: '智能技术',
-  orgType: '有限责任公司',
-  registeredCapital: 100,
+let passed = 0;
+let failed = 0;
 
-  leaseContractNo: 'JQ-2026-001',
-  address: '中国（上海）自由贸易试验区新金桥路27号14号楼',
-  postalCode: '201206',
+function ok(label: string, condition: boolean) {
+  if (condition) {
+    passed += 1;
+  } else {
+    failed += 1;
+    console.error(`✗ ${label}`);
+  }
+}
 
-  contactPhone: '021-12345678',
-  articlesDate: '2026-08-01',
-  businessScope: '从事智能技术、信息技术领域内的技术开发、技术咨询与技术服务。',
-
-  shareholders: [
+/** 校验通过的完整申请 */
+function validData(): ApplicationData {
+  const data = initial();
+  const personId = uid();
+  data.basic = {
+    org: '有限责任公司',
+    orgOther: '',
+    intro: '从事企业服务',
+    service: '企业注册代办',
+    scope: '企业管理咨询',
+    capital: '100',
+    expert: false,
+    names: ['班步测试企业', '', ''],
+    regAddress: '上海市浦东新区某路 1 号',
+    regRecommend: false,
+    workAddress: '上海市浦东新区某路 2 号',
+    workRecommend: false,
+  };
+  data.people[personId] = {
+    name: '张三',
+    phone: '13800000000',
+    email: 'zhang@example.com',
+    education: '',
+    address: '上海市浦东新区某路 3 号',
+    files: [
+      { id: uid(), name: 'front.png', size: 10, type: 'image/png', data: 'data:image/png;base64,AA==', slot: 'idFront' },
+      { id: uid(), name: 'back.png', size: 10, type: 'image/png', data: 'data:image/png;base64,AA==', slot: 'idBack' },
+    ],
+  };
+  data.shareholders = [
     {
-      name: '张三',
+      id: uid(),
       type: '自然人',
-      idNumber: '310101199001011234',
-      mobile: '13800138000',
-      capital: 60,
-      certificateImages: [
-        { name: 'idcard-front.jpg', size: 200_000, type: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,AA==' },
-        { name: 'idcard-back.jpg', size: 180_000, type: 'image/jpeg', dataUrl: 'data:image/jpeg;base64,AA==' },
-      ],
+      personId,
+      name: '',
+      code: '',
+      ratio: '100',
+      amount: '100',
+      method: ['货币'],
+      files: [],
     },
-    {
-      name: '上海某某科技有限公司',
-      type: '企业法人',
-      idNumber: '91310115MA1K35QX7T',
-      mobile: '13900139000',
-      capital: 40,
-      certificateImages: [
-        { name: 'license.png', size: 300_000, type: 'image/png', dataUrl: 'data:image/png;base64,AA==' },
-      ],
-    },
-  ],
+  ];
+  data.roles = [
+    { id: uid(), personId, roles: ['法定代表人', '财务负责人', '联系人'] },
+  ];
+  data.setup = {
+    board: '不设董事会',
+    directors: '',
+    singleDirector: '一名董事',
+    supervisorBoard: '不设监事会',
+    supervisors: '',
+    singleSupervisor: '一名监事',
+    unanimous: false,
+    term: '长期',
+    termYears: '',
+    legacyTerm: '',
+    employees: '3',
+  };
+  data.confirm = { exemption: true, accurate: true };
+  return data;
+}
 
-  legalPerson: { name: '张三', idNumber: '310101199001011234', mobile: '13800138000' },
-  director: { name: '张三', idNumber: '310101199001011234', mobile: '13800138000' },
-  supervisor: { name: '李四', idNumber: '310101199002021234', mobile: '13700137000' },
-  financeManager: { name: '王五', idNumber: '310101199003031234', mobile: '13600136000' },
+const messagesFor = (data: ApplicationData, id: string): string[] =>
+  validate(data)
+    .filter((error) => error.id === id)
+    .map((error) => error.msg);
 
-  beneficiaries: [
-    { name: '张三', idNumber: '310101199001011234', benefitType: '直接持股 25% 以上', shareRatio: 60 },
-    { name: '李四', idNumber: '310101199002021234', benefitType: '实际控制人', shareRatio: null },
-  ],
+/* ------------------------------------------------------------ 基准：完整申请通过 */
 
-  agency: {
-    agentName: '赵六',
-    agentIdNumber: '310101199004041234',
-    agentMobile: '13500135000',
-    principalSign: '', // 亲笔签名，允许留空
-    principalDate: '2026-08-01',
-  },
+ok('完整申请没有报错', validate(validData()).length === 0);
 
-  serviceConfirm: {
-    basicService: true,
-    taxService: true,
-    hrService: false,
-    subsidyService: false,
-    taxType: '小规模纳税人',
-    startYear: '2026',
-    startMonth: '9',
-    durationMonths: '12',
-    standardFee: '2600',
-    paidAmount: '2600.50',
-    remark: '含首年财税托管。',
-  },
-};
+/* ------------------------------------------------------------------ 基本信息 */
 
-/** 深拷贝后覆盖指定路径，模拟一处填写错误 */
-const withOverride = (path: string, value: unknown): FormValues => {
-  const draft = JSON.parse(JSON.stringify(validForm)) as Record<string, any>;
-  const keys = path.split('.');
-  const last = keys.pop() as string;
-  const target = keys.reduce((acc, key) => acc[key], draft);
-  target[last] = value;
-  return draft as FormValues;
-};
+{
+  const data = validData();
+  data.basic.org = '';
+  ok('未选组织形式报错', messagesFor(data, 'org').includes('请选择企业组织形式'));
+}
+{
+  const data = validData();
+  data.basic.org = '其他';
+  ok('其他组织形式需填说明', messagesFor(data, 'orgOther').includes('请填写具体组织形式'));
+}
+{
+  const data = validData();
+  data.basic.capital = '100.5';
+  ok('注册资本必须是非负整数', messagesFor(data, 'capital').length === 1);
+}
+{
+  const data = validData();
+  data.basic.capital = '';
+  data.basic.expert = true;
+  ok('专家推荐时注册资金免填', messagesFor(data, 'capital').length === 0);
+}
+{
+  const data = validData();
+  data.basic.names = ['', '', ''];
+  ok('至多需要一个拟注册名称', messagesFor(data, 'name-0').includes('请至少填写一个拟注册名称'));
+}
+{
+  const data = validData();
+  data.basic.names = ['甲', '', '', ''];
+  ok('新增的第 4 个名称必填', messagesFor(data, 'name-3').length === 1);
+}
+{
+  const data = validData();
+  data.basic.names = ['甲', '', '', '丁'];
+  ok('第 4 个名称填了就不报错', messagesFor(data, 'name-3').length === 0);
+}
+{
+  const data = validData();
+  data.basic.names = Array.from({ length: CONFIG.nameMaximum + 1 }, (_, index) => `名称${index}`);
+  ok('名称数量有上限', messagesFor(data, 'name-0').some((msg) => msg.includes('最多')));
+}
+{
+  const data = validData();
+  data.basic.regAddress = '';
+  ok('注册地址必填或交给服务商', messagesFor(data, 'regAddress').includes('请填写注册地址，或选择服务商推荐'));
+}
+{
+  const data = validData();
+  data.basic.workAddress = '';
+  data.basic.workRecommend = true;
+  ok('选择服务商推荐后地址免填', messagesFor(data, 'workAddress').length === 0);
+}
 
-const messagesOf = (form: FormValues): string[] => {
-  const result = registrationSchema.safeParse(form);
-  if (result.success) return [];
-  return result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
-};
+/* -------------------------------------------------------------- 股东与出资 */
 
-let checked = 0;
-const expectPass = (name: string, form: FormValues) => {
-  assert.deepEqual(messagesOf(form), [], `应通过：${name}`);
-  checked += 1;
-};
-const expectFail = (name: string, form: FormValues, fragment: string) => {
-  const messages = messagesOf(form);
-  assert.ok(
-    messages.some((message) => message.includes(fragment)),
-    `应报错「${fragment}」：${name}，实际 ${JSON.stringify(messages)}`,
+{
+  const data = validData();
+  data.shareholders = [];
+  ok('至少需要一位股东', messagesFor(data, 'shareholders').includes('请添加至少 1 位股东'));
+}
+{
+  const data = validData();
+  data.shareholders[0].ratio = '0';
+  ok('出资比例需大于 0', messagesFor(data, 'share-' + data.shareholders[0].id).some((msg) => msg.includes('出资比例')));
+}
+{
+  const data = validData();
+  data.shareholders[0].ratio = '100.1';
+  ok('出资比例不超过 100', messagesFor(data, 'share-' + data.shareholders[0].id).some((msg) => msg.includes('出资比例')));
+}
+{
+  const data = validData();
+  data.shareholders[0].amount = '-1';
+  ok('出资金额不能为负', messagesFor(data, 'share-' + data.shareholders[0].id).some((msg) => msg.includes('出资金额')));
+}
+{
+  const data = validData();
+  data.shareholders[0].amount = '';
+  ok('出资金额选填', messagesFor(data, 'share-' + data.shareholders[0].id).length === 0);
+}
+{
+  const data = validData();
+  data.people[data.shareholders[0].personId!].files = [];
+  ok(
+    '自然人股东缺身份证照片时报错',
+    messagesFor(data, 'share-' + data.shareholders[0].id).some((msg) => msg.includes('身份证')),
   );
-  checked += 1;
-};
+}
+{
+  const data = validData();
+  const entityId = uid();
+  data.shareholders.push({
+    id: entityId,
+    type: '企业',
+    personId: null,
+    name: '某某有限公司',
+    code: '',
+    ratio: '50',
+    amount: '',
+    method: [],
+    files: [],
+  });
+  const messages = validate(data).filter((error) => error.id === `share-${entityId}`).map((error) => error.msg);
+  ok('企业股东缺信用代码报错', messages.some((msg) => msg.includes('统一社会信用代码')));
+  ok('企业股东缺营业执照报错', messages.some((msg) => msg.includes('营业执照')));
+}
+{
+  const data = validData();
+  const otherId = uid();
+  data.shareholders.push({
+    id: otherId,
+    type: '其他',
+    personId: null,
+    name: '',
+    code: '',
+    ratio: '10',
+    amount: '',
+    method: [],
+    files: [],
+  });
+  const messages = validate(data).filter((error) => error.id === `share-${otherId}`).map((error) => error.msg);
+  ok('其他类型股东需要说明', messages.some((msg) => msg.includes('股东说明')));
+  ok('其他类型股东不要求附件', !messages.some((msg) => msg.includes('营业执照')));
+}
 
-// 完整合规表单
-expectPass('完整表单', validForm);
+/* ------------------------------------------------------------------ 主要人员 */
 
-// 认缴出资合计必须等于注册资本
-expectFail('出资合计少于注册资本', withOverride('shareholders.0.capital', 50), '出资合计');
-expectPass('出资合计相等（浮点尾数）', withOverride('shareholders.1.capital', 39.999999));
+{
+  const data = validData();
+  data.roles = [];
+  const messages = validate(data).map((error) => error.msg);
+  ok('缺少法定代表人', messages.includes('请设置法定代表人'));
+  ok('缺少财务负责人', messages.includes('请设置财务负责人'));
+  ok('缺少联系人', messages.includes('请设置联系人'));
+  ok('总经理不强制', !messages.includes('请设置总经理'));
+}
+{
+  const data = validData();
+  data.roles[0].roles = [];
+  ok(
+    '人员必须至少有一个角色',
+    validate(data).some((error) => error.id === `role-${data.roles[0].id}` && error.msg.includes('请选择人员角色')),
+  );
+}
+{
+  const data = validData();
+  data.people[data.roles[0].personId!].files = [];
+  ok(
+    '人员缺身份证照片时报错',
+    validate(data).some((error) => error.id === `role-${data.roles[0].id}` && error.msg.includes('身份证')),
+  );
+}
+{
+  const data = validData();
+  data.roles.push({ id: uid(), personId: data.roles[0].personId, roles: ['总经理'] });
+  ok(
+    '同一人员重复添加时报错',
+    validate(data).some((error) => error.msg.includes('重复添加')),
+  );
+}
 
-// 证件号码按股东类型校验
-expectFail('自然人填统一社会信用代码', withOverride('shareholders.0.idNumber', '91310115MA1K35QX7T'), '身份证号');
-expectFail('企业法人填身份证号', withOverride('shareholders.1.idNumber', '310101199001011234'), '统一社会信用代码');
-expectFail('企业法人填 18 位纯数字', withOverride('shareholders.1.idNumber', '310101199001011200'), '统一社会信用代码');
-expectFail('企业法人信用代码含非法字符', withOverride('shareholders.1.idNumber', '91310115MA1K35QZ7T'), '统一社会信用代码');
+/* ------------------------------------------------------------------ 设立信息 */
 
-// 联系电话接受手机号与固话
-expectPass('联系电话用手机号', withOverride('contactPhone', '13800138000'));
-expectFail('联系电话格式错误', withOverride('contactPhone', '12345'), '手机号或固定电话');
+{
+  const data = validData();
+  data.setup.board = '设董事会';
+  data.setup.directors = '3.5';
+  ok('董事人数必须是非负整数', messagesFor(data, 'directors').includes('人数需为非负整数'));
+}
+{
+  const data = validData();
+  data.setup.directors = '3.5';
+  ok('不设董事会时不校验董事人数', messagesFor(data, 'directors').length === 0);
+}
+{
+  const data = validData();
+  data.setup.term = '固定年限';
+  data.setup.termYears = '0';
+  ok('固定年限需大于 0', messagesFor(data, 'termYears').includes('固定年限需填写大于 0 的整数年数'));
+}
+{
+  const data = validData();
+  data.setup.term = '固定年限';
+  data.setup.termYears = '20';
+  ok('固定年限填好后通过', messagesFor(data, 'termYears').length === 0);
+}
 
-// 章程决议日期不得晚于今天
-expectFail('章程决议日期在未来', withOverride('articlesDate', '2027-01-01'), '不能晚于今天');
-expectFail('章程决议日期为空', withOverride('articlesDate', ''), '请选择章程决议日期');
+/* -------------------------------------------------------------------- 确认 */
 
-// 受益所有人：持股类必须填持股比例
-expectFail('持股类缺持股比例', withOverride('beneficiaries.0.shareRatio', null), '请填写持股比例');
-expectFail('持股比例超 100', withOverride('beneficiaries.0.shareRatio', 120), '不能超过 100');
-expectPass('实际控制人无需持股比例', withOverride('beneficiaries.1.benefitType', '高级管理人员'));
+{
+  const data = validData();
+  data.confirm.accurate = false;
+  ok('必须勾选信息真实性确认', messagesFor(data, 'accurate').includes('请勾选信息真实性确认'));
+}
+{
+  const data = validData();
+  data.confirm.exemption = false;
+  ok('免申报承诺选填', validate(data).length === 0);
+}
 
-// 下拉项与必填
-expectFail('未选组织形式', withOverride('orgType', ''), '请选择组织形式');
-expectFail('未选行业表述', withOverride('industry', ''), '请选择行业表述');
-expectFail('未选受益类型', withOverride('beneficiaries.0.benefitType', ''), '请选择受益类型');
+/* --------------------------------------------------- 记录级校验与导航状态 */
 
-// 数字字段为空
-expectFail('注册资本为空', withOverride('registeredCapital', null), '请输入注册资本');
-expectFail('注册资本为零', withOverride('registeredCapital', 0), '注册资本必须大于 0');
+{
+  const data = validData();
+  const record = data.shareholders[0];
+  const person = clone(data.people[record.personId!]);
+  person.files = [];
+  ok('记录保存时允许暂时缺照片', shareholderDraftErrors(record, person).length === 0);
+  person.name = '';
+  ok('记录保存时姓名必填', shareholderDraftErrors(record, person).some((msg) => msg.includes('姓名')));
+}
+{
+  const data = validData();
+  const record = data.roles[0];
+  const person = clone(data.people[record.personId!]);
+  ok('记录保存时角色必填', roleDraftErrors({ ...record, roles: [] }, person, false).length > 0);
+  ok('重复人员被记录级校验拦下', roleDraftErrors(record, person, true).some((msg) => msg.includes('已添加')));
+}
+{
+  const data = initial();
+  ok('空申请的第一步未触碰', !sectionTouched(data, 0));
+  ok('空申请没有股东', !sectionTouched(data, 1));
+  ok('空申请的设立信息未完成', !setupComplete(data.setup));
+  const filled = validData();
+  ok('填写后的设立信息完成', setupComplete(filled.setup));
+  ok('填写后的确认步骤已触碰', sectionTouched(filled, 4));
+}
 
-// 至少一名股东 / 受益人
-expectFail('无股东', withOverride('shareholders', []), '至少添加一名股东');
-expectFail('无受益所有人', withOverride('beneficiaries', []), '至少添加一名受益所有人');
+/* -------------------------------------------------------------- 扁平化输出 */
 
-// 证件图片（环节 7 必填，可多张）
-expectFail('未上传证件图片', withOverride('shareholders.0.certificateImages', []), '请上传证件图片');
-expectFail(
-  '证件图片超过 5 MB',
-  withOverride('shareholders.1.certificateImages.0.size', 6 * 1024 * 1024),
-  '图片不能超过 5 MB',
-);
-expectFail(
-  '第二张证件图片超过 5 MB',
-  withOverride('shareholders.1.certificateImages.1', {
-    name: 'b.png',
-    size: 6 * 1024 * 1024,
-    type: 'image/png',
-    dataUrl: 'data:image/png;base64,AA==',
-  }),
-  '图片不能超过 5 MB',
-);
-expectFail(
-  '证件图片格式不支持',
-  withOverride('shareholders.1.certificateImages.0.type', 'application/pdf'),
-  '仅支持 JPG / PNG',
-);
-expectPass(
-  '证件图片为 PNG 且未超限',
-  withOverride('shareholders.1.certificateImages.0.type', 'image/png'),
-);
-expectFail(
-  '证件图片超过 5 张',
-  withOverride(
-    'shareholders.0.certificateImages',
-    Array.from({ length: 6 }, (_, i) => ({
-      name: `cert-${i}.jpg`,
-      size: 1000,
-      type: 'image/jpeg',
-      dataUrl: 'data:image/jpeg;base64,AA==',
-    })),
-  ),
-  '最多上传 5 张',
-);
+{
+  const flat = flatten(validData());
+  ok('扁平值全部是字符串', Object.values(flat).every((value) => typeof value === 'string'));
+  ok('企业名称按序号展开', flat['拟注册名称1'] === '班步测试企业' && flat['拟注册名称2'] === '');
+  ok('股东序号从 1 开始', flat['股东1类型'] === '自然人' && flat['股东1名称'] === '张三');
+  ok('股东出资字段完整', flat['股东1出资比例'] === '100' && flat['股东1出资形式'] === '货币');
+  ok('照片只写上传状态', flat['股东1身份证正面'] === '已上传' && flat['股东1身份证反面'] === '已上传');
+  ok('自然人股东不写信用代码', !('股东1统一社会信用代码' in flat));
+  ok('按角色派生姓名与电话', flat['法定代表人'] === '张三' && flat['法定代表人联系电话'] === '13800000000');
+  ok('总经理无人担任时留空', flat['总经理'] === '');
+  ok('出资比例合计', flat['出资比例合计'] === '100');
+  ok('汇总计数', flat['股东总数'] === '1' && flat['人员总数'] === '1' && flat['自然人股东数'] === '1');
+  ok('股东构成', flat['股东构成'] === '全部为自然人股东');
+  ok('设立信息进扁平值', flat['董事会'] === '不设董事会' && flat['员工人数'] === '3');
+  ok('确认项写成是/否', flat['信息真实性确认'] === '是' && flat['免申报受益所有人承诺'] === '是');
+  ok('元信息标记草稿状态', flat['_状态'] === '草稿' && flat['_版本'] === CONFIG.version);
+  ok('旧草稿迁移字段不进扁平值', !('legacyTerm' in flat) && !Object.keys(flat).some((key) => key.includes('legacy')));
+}
+{
+  const data = validData();
+  data.shareholders[0].amount = '';
+  data.shareholders[0].ratio = '';
+  const flat = flatten(data);
+  ok('比例未填完时合计留空', flat['出资比例合计'] === '');
+}
+{
+  const data = validData();
+  const entityId = uid();
+  data.shareholders.push({
+    id: entityId,
+    type: '企业',
+    personId: null,
+    name: '某某有限公司',
+    code: '91310000MA1K000000',
+    ratio: '50',
+    amount: '50',
+    method: ['货币'],
+    files: [],
+  });
+  const flat = flatten(data);
+  ok('企业股东写信用代码与营业执照', flat['股东2统一社会信用代码'] === '91310000MA1K000000' && flat['股东2营业执照'] === '未上传');
+  ok('企业股东不写身份证状态', !('股东2身份证正面' in flat));
+  ok('混股东时构成变化', flat['股东构成'] === '含企业股东' && flat['企业股东数'] === '1');
+  ok('合计含全部股东', flat['出资比例合计'] === '150');
+}
+{
+  const flat = flatten(initial());
+  ok('空申请也有固定键，值取空串', flat['组织形式'] === '' && flat['企业简介'] === '' && flat['法定代表人'] === '');
+  ok('空申请状态为草稿', flat['_状态'] === '草稿' && flat['_暂存时间'] === '');
+  ok('没有股东时合计留空', flat['出资比例合计'] === '');
+}
+{
+  const data = validData();
+  data.status = 'submitted';
+  data.submittedAt = '2026/9/14 10:00:00';
+  const flat = flatten(data);
+  ok('已提交状态写进扁平值', flat['_状态'] === '已提交' && flat['_提交时间'] === '2026/9/14 10:00:00');
+}
+{
+  const data = validData();
+  data.basic.org = '其他';
+  data.basic.orgOther = '外商投资合伙企业';
+  const flat = flatten(data);
+  ok('其他组织形式派生企业类型', flat['组织形式'] === '其他' && flat['企业类型'] === '外商投资合伙企业');
+}
 
-// 人员手机号
-expectFail('监事手机号错误', withOverride('supervisor.mobile', '12345678901'), '请输入 11 位手机号');
-
-// 监事不得兼任法定代表人 / 董事 / 财务负责人
-expectFail(
-  '监事与法定代表人同一人',
-  withOverride('supervisor.idNumber', validForm.legalPerson.idNumber),
-  '监事不得兼任',
-);
-expectFail(
-  '监事与财务负责人同一人',
-  withOverride('supervisor.idNumber', validForm.financeManager.idNumber),
-  '监事不得兼任',
-);
-expectPass(
-  '监事与法定代表人同名但不同号',
-  withOverride('supervisor.name', validForm.legalPerson.name),
-);
-const emptySupervisorId = messagesOf(withOverride('supervisor.idNumber', ''));
-assert.deepEqual(
-  emptySupervisorId,
-  ['supervisor.idNumber: 请输入 18 位身份证号'],
-  `监事证件号为空时只报必填、不报兼任，实际 ${JSON.stringify(emptySupervisorId)}`,
-);
-checked += 1;
-
-// 右栏「金桥镇服务专员填写」（环节 3 经办人 + 环节 11 委托书签署信息）
-// 全部可选：企业不应被服务专员尚未填写的字段卡住提交
-expectPass('右栏整体留空', withOverride('agency', {
-  agentName: '',
-  agentIdNumber: '',
-  agentMobile: '',
-  principalSign: '',
-  principalDate: '',
-}));
-expectPass('经办人姓名为空、号码照填', withOverride('agency.agentName', ''));
-expectFail('经办人身份证号格式错误', withOverride('agency.agentIdNumber', '12345'), '请输入 18 位身份证号');
-expectFail('经办人手机号格式错误', withOverride('agency.agentMobile', '12345678901'), '请输入 11 位手机号');
-expectFail('委托日期在未来', withOverride('agency.principalDate', '2027-01-01'), '不能晚于今天');
-expectPass('委托人签名留空', withOverride('agency.principalSign', ''));
-expectPass('委托日期留空', withOverride('agency.principalDate', ''));
-
-// 右栏「企业服务确认」（《企业服务委托单》第八节），同样全部可选
-expectPass('企业服务确认整体留空', withOverride('serviceConfirm', {
-  basicService: true,
-  taxService: false,
-  hrService: false,
-  subsidyService: false,
-  taxType: '',
-  startYear: '',
-  startMonth: '',
-  durationMonths: '',
-  standardFee: '',
-  paidAmount: '',
-  remark: '',
-}));
-expectPass('只有基础服务', withOverride('serviceConfirm.taxService', false));
-// 空值合法，非选项值报错；zod 的 union 不回传自定义文案，这里只断言报错落在该字段上
-expectFail('税务类型非选项内', withOverride('serviceConfirm.taxType', '个体户'), 'serviceConfirm.taxType');
-expectFail('托管起始年份非 4 位', withOverride('serviceConfirm.startYear', '26'), '请输入 4 位年份');
-expectFail('托管起始月份越界', withOverride('serviceConfirm.startMonth', '13'), '请输入 1-12 月');
-expectFail('服务时长非数字', withOverride('serviceConfirm.durationMonths', '一年'), '请输入月数');
-expectFail('标准服务费用格式错误', withOverride('serviceConfirm.standardFee', '2600元'), '请输入数字金额');
-expectFail('实付金额小数超两位', withOverride('serviceConfirm.paidAmount', '2600.123'), '请输入数字金额');
-expectPass('实付金额为整数', withOverride('serviceConfirm.paidAmount', '2600'));
-
-console.log(`registration schema 自检通过：${checked} 项`);
+console.log(`\n${passed} 项通过，${failed} 项失败`);
+if (failed > 0) process.exit(1);

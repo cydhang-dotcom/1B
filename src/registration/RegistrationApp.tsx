@@ -1,513 +1,768 @@
-import React, { useEffect, useState } from 'react';
-import { FormProvider, useForm, type FieldErrors, type FieldPath } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { ArrowLeft, ArrowRight, Check, ChevronDown, ListChecks, Send } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, Download, HelpCircle, Upload } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 
+import { RecordDialog, type EditTarget } from './dialogs';
+import { exportDraft, importDraftFile, loadDraft, nowStamp, storeDraft } from './draft';
+import { HelpDialog } from './help';
 import {
-  AddressStep,
-  BasicStep,
-  BeneficiaryStep,
-  CharterStep,
-  PersonnelStep,
-  ReviewStep,
-  ShareholderStep,
-} from './steps';
-import { AttorneyStep } from './attorney';
-import { AgentStep, AuthorityStep, MethodStep, ServiceConfirmStep } from './agency-steps';
-import { defaultValues, registrationSchema, type FormValues } from './schema';
-import { devDefaultValues } from './dev-defaults';
-import { ENTERPRISE_FLOW_COUNT, FLOW_STEPS, type FlowOwner } from './flow';
+  SHORT,
+  SUBS,
+  TITLES,
+  clone,
+  emptyPerson,
+  initial,
+  isPureNatural,
+  personOf,
+  uid,
+  type ApplicationData,
+  type ConfirmInfo,
+  type RoleRecord,
+  type Person,
+  type ShareType,
+  type Shareholder,
+  type ValidationError,
+} from './model';
+import { ReviewStep } from './review';
+import { sectionTouched, setupComplete, validate } from './schema';
+import { BasicStep, PersonnelStep, SetupStep, ShareholderStep } from './steps';
+import { Dialog, Field, PRIMARY_BUTTON, SECONDARY_BUTTON, TEXT_BUTTON } from './ui';
 
-/** 开发阶段预填示例数据，生产构建自动回到空表单 */
-const initialValues = import.meta.env.DEV ? devDefaultValues : defaultValues;
+type SectionState = 'blank' | 'partial' | 'complete';
 
-/** 企业侧 / 金桥镇服务专员侧，决定步骤归到左栏还是右栏菜单 */
-type StepGroup = 'enterprise' | 'agency';
-
-type StepConfig = {
-  key: string;
-  /** 对应 PDF 中的环节序号；企业侧信息确认不是 PDF 环节，故缺省 */
-  pdfStep?: number;
-  title: string;
-  group: StepGroup;
-  /** 该步骤负责校验的字段，用于「下一步」与提交失败时定位 */
-  fields: FieldPath<FormValues>[];
-  render: () => React.ReactNode;
-  /** 最终提交步骤，页脚显示「提交信息」 */
-  submit?: boolean;
-  /** 除所属栏外，同时挂到企业侧菜单，且不受填写进度限制（环节 11 只读，企业要打印） */
-  viewableByEnterprise?: boolean;
+const STATE_LABEL: Record<SectionState, string> = {
+  blank: '空白',
+  partial: '不完整',
+  complete: '全部填写完成',
 };
 
-/**
- * 步骤名与环节号均取自 PDF 第 2 页的环节一览，按环节号排列，保证与流程指引一一对应。
- * 两栏菜单是同一份列表按 group 过滤出来的，因此左右菜单里的先后顺序仍是流程顺序。
- */
-const STEPS: StepConfig[] = [
-  {
-    // 《企业服务委托单》第八节，不属于 PDF 的 14 个环节，因此没有环节号。
-    // 排在首位，右栏菜单里它就是第一项。
-    key: 'service-confirm',
-    title: '企业服务确认',
-    group: 'agency',
-    fields: ['serviceConfirm'],
-    render: () => <ServiceConfirmStep />,
-  },
-  {
-    key: 'basic',
-    pdfStep: 2,
-    title: '名称申报',
-    group: 'enterprise',
-    fields: ['tradeName', 'industry', 'orgType', 'registeredCapital'],
-    render: () => <BasicStep />,
-  },
-  {
-    key: 'agent',
-    pdfStep: 3,
-    title: '经办人信息',
-    group: 'agency',
-    fields: ['agency.agentName', 'agency.agentIdNumber', 'agency.agentMobile'],
-    render: () => <AgentStep />,
-  },
-  {
-    key: 'authority',
-    pdfStep: 4,
-    title: '选择申请机关',
-    group: 'agency',
-    fields: [],
-    render: () => <AuthorityStep />,
-  },
-  {
-    key: 'address',
-    pdfStep: 5,
-    title: '住所信息',
-    group: 'enterprise',
-    fields: ['leaseContractNo', 'address', 'postalCode'],
-    render: () => <AddressStep />,
-  },
-  {
-    key: 'charter',
-    pdfStep: 6,
-    title: '联系与章程信息',
-    group: 'enterprise',
-    fields: ['contactPhone', 'articlesDate', 'businessScope'],
-    render: () => <CharterStep />,
-  },
-  {
-    key: 'shareholders',
-    pdfStep: 7,
-    title: '股东及出资信息',
-    group: 'enterprise',
-    fields: ['shareholders'],
-    render: () => <ShareholderStep />,
-  },
-  {
-    key: 'personnel',
-    pdfStep: 8,
-    title: '人员信息',
-    group: 'enterprise',
-    fields: ['legalPerson', 'director', 'supervisor', 'financeManager'],
-    render: () => <PersonnelStep />,
-  },
-  {
-    key: 'beneficiaries',
-    pdfStep: 9,
-    title: '受益人信息',
-    group: 'enterprise',
-    fields: ['beneficiaries'],
-    render: () => <BeneficiaryStep />,
-  },
-  {
-    key: 'method',
-    pdfStep: 10,
-    title: '办理方式',
-    group: 'agency',
-    fields: [],
-    render: () => <MethodStep />,
-  },
-  {
-    // 环节 11 的材料：内容由环节 3 的经办人信息带出，本步只读预览 + 打印，故无需校验字段
-    key: 'attorney',
-    pdfStep: 11,
-    title: '法人委托书',
-    group: 'agency',
-    fields: [],
-    viewableByEnterprise: true,
-    render: () => <AttorneyStep />,
-  },
-  {
-    key: 'review',
-    title: '提交前确认',
-    group: 'enterprise',
-    fields: [],
-    submit: true,
-    render: () => <ReviewStep />,
-  },
-];
-
-/** 企业侧的第一步。右栏的「企业服务确认」占了 STEPS[0]，进度起点不能写死为 0 */
-const FIRST_ENTERPRISE_INDEX = STEPS.findIndex((step) => step.group === 'enterprise');
-
-/** 该步骤是否出现在这一栏的菜单里 */
-const inMenu = (step: StepConfig, group: StepGroup) =>
-  step.group === group || (group === 'enterprise' && step.viewableByEnterprise === true);
-
-/**
- * 同栏菜单内的前后步骤，用于「上一步 / 下一步」——不允许跨栏跳，避免企业被带到专员环节。
- * 环节 11 两栏都挂，因此按「从哪一栏进来的」决定前后是谁，而不是按步骤自己所属的栏。
- */
-const siblingIndexes = (group: StepGroup): number[] =>
-  STEPS.map((step, index) => ({ step, index }))
-    .filter(({ step }) => inMenu(step, group))
-    .map(({ index }) => index);
-
-const OWNER_BADGE: Record<FlowOwner, string> = {
-  企业: 'bg-[#e8f7f3] text-[#3f9d87]',
-  金桥: 'bg-stone-100 text-stone-500',
-  无需办理: 'bg-stone-100 text-stone-400',
-};
-
-/** 展开可见 PDF 的全部 14 个环节，标出哪些由企业在本页填写、哪些由金桥镇经办人办理 */
-function FlowOverview({
-  maxStep,
-  onJump,
+/** 章节导航：桌面端放在侧栏，窄屏放在正文顶部（标签改用简称） */
+function NavList({
+  labels,
+  step,
+  states,
+  onGo,
+  compact = false,
 }: {
-  maxStep: number;
-  onJump: (index: number, group: StepGroup) => void;
+  labels: readonly string[];
+  step: number;
+  states: SectionState[];
+  onGo: (index: number) => void;
+  compact?: boolean;
 }) {
   return (
-    <details className="group mb-6 rounded-2xl border border-stone-200/80 bg-white">
-      <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-2xl px-5 py-4 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/20">
-        <ListChecks size={17} className="shrink-0 text-[#4fb69e]" aria-hidden="true" />
-        <span className="flex-1">
-          查看完整办理流程
-          <span className="ml-2 font-normal text-stone-400">
-            共 {FLOW_STEPS.length} 个环节，本页填写其中 {ENTERPRISE_FLOW_COUNT} 个
+    <nav
+      className={compact ? 'grid grid-cols-2 gap-1.5' : 'mt-4 grid gap-1.5'}
+      aria-label="申请章节"
+    >
+      {labels.map((label, index) => (
+        <button
+          key={label}
+          type="button"
+          onClick={() => onGo(index)}
+          aria-current={index === step ? 'step' : undefined}
+          title={`${TITLES[index]}：${STATE_LABEL[states[index]]}`}
+          className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
+            index === step
+              ? 'border-[#66cdb5]/60 bg-[#e8f7f3] font-bold text-[#3f7d6d]'
+              : 'border-transparent text-stone-500 hover:bg-stone-100'
+          }`}
+        >
+          <span className="text-[10px] font-bold text-stone-400">{String(index + 1).padStart(2, '0')}</span>
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          <span
+            aria-label={STATE_LABEL[states[index]]}
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
+              states[index] === 'complete'
+                ? 'bg-[#66cdb5] text-white'
+                : states[index] === 'partial'
+                  ? 'bg-amber-100 text-amber-600'
+                  : 'bg-stone-200'
+            }`}
+          >
+            {states[index] === 'complete' ? <Check size={10} aria-hidden="true" /> : null}
           </span>
-        </span>
-        <ChevronDown
-          size={17}
-          className="shrink-0 text-stone-400 transition-transform group-open:rotate-180"
-          aria-hidden="true"
-        />
-      </summary>
-
-      <ol className="grid gap-1.5 border-t border-stone-200/70 px-4 py-4">
-        {FLOW_STEPS.map((item) => {
-          const index = item.formKey ? STEPS.findIndex((step) => step.key === item.formKey) : -1;
-          // 企业侧步骤要按填写进度解锁；专员侧步骤随时可看，不受进度限制
-          const jumpable = index >= 0 && (item.owner !== '企业' || index <= maxStep);
-          return (
-            <li
-              key={item.step}
-              className="flex items-start gap-3 rounded-xl px-2.5 py-2 transition-colors hover:bg-stone-50/70"
-            >
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-stone-100 text-[11px] font-bold text-stone-500">
-                {item.step}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-semibold text-stone-800">{item.title}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${OWNER_BADGE[item.owner]}`}
-                  >
-                    {item.owner}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-xs leading-5 text-stone-500">{item.keyPoint}</p>
-              </div>
-              {jumpable && (
-                <button
-                  type="button"
-                  onClick={() => onJump(index, item.owner === '企业' ? 'enterprise' : 'agency')}
-                  className="mt-0.5 shrink-0 rounded-full px-3 py-1 text-xs font-semibold text-[#3f9d87] transition-colors hover:bg-[#e8f7f3] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/20"
-                >
-                  {item.owner === '企业' ? '去填写' : '去查看'}
-                </button>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </details>
-  );
-}
-
-const hasPath = (source: unknown, path: string): boolean =>
-  path.split('.').reduce<unknown>(
-    (acc, key) =>
-      acc && typeof acc === 'object' ? (acc as Record<string, unknown>)[key] : undefined,
-    source,
-  ) != null;
-
-const PILL_BASE =
-  'shrink-0 rounded-full px-4 py-2 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/20';
-const PILL_CURRENT = 'bg-[#66cdb5] text-white shadow-sm';
-const PILL_DONE = 'bg-[#e8f7f3] text-[#3f9d87] hover:bg-[#dbf1eb]';
-const PILL_TODO = 'bg-stone-100 text-stone-400';
-/** 专员侧菜单：换一组配色，一眼能看出不是自己要填的 */
-const PILL_AGENCY_CURRENT = 'bg-[#3f7d6d] text-white shadow-sm';
-const PILL_AGENCY_IDLE = 'bg-[#eef7f4] text-[#3f7d6d] hover:bg-[#e2f0eb]';
-const NAV_ROW =
-  'no-scrollbar -mx-5 flex gap-2 overflow-x-auto px-5 pb-1 sm:mx-0 sm:px-0 lg:mx-0 lg:flex-col lg:gap-1.5 lg:overflow-visible lg:px-0 lg:pb-0';
-const NAV_PILL = `${PILL_BASE} lg:w-full lg:rounded-xl lg:px-4 lg:py-2.5 lg:text-left`;
-
-/**
- * 侧栏菜单：只负责选中步骤，内容统一在中间渲染。
- * 企业侧未走到的步骤禁用；专员侧随时可看，不受填写进度限制。
- */
-function StepMenu({
-  group,
-  label,
-  current,
-  maxStep,
-  onSelect,
-  className,
-}: {
-  group: StepGroup;
-  label: string;
-  current: number;
-  maxStep: number;
-  onSelect: (index: number) => void;
-  className?: string;
-}) {
-  const ownerMenu = group === 'enterprise';
-
-  return (
-    <nav aria-label={label} className={`mb-6 lg:sticky lg:top-6 lg:mb-0 lg:w-56 lg:shrink-0 ${className}`}>
-      <p className="mb-2 px-1 text-[10px] font-bold tracking-[0.18em] text-[#4fb69e] lg:px-4">{label}</p>
-      <div className={NAV_ROW}>
-        {STEPS.map((step, index) => {
-          if (!inMenu(step, group)) return null;
-          const disabled = ownerMenu && step.viewableByEnterprise !== true && index > maxStep;
-          const state = ownerMenu
-            ? index === current
-              ? PILL_CURRENT
-              : disabled
-                ? PILL_TODO
-                : PILL_DONE
-            : index === current
-              ? PILL_AGENCY_CURRENT
-              : PILL_AGENCY_IDLE;
-          return (
-            <button
-              key={step.key}
-              type="button"
-              disabled={disabled}
-              aria-current={index === current ? 'step' : undefined}
-              onClick={() => !disabled && onSelect(index)}
-              className={`${NAV_PILL} ${state}`}
-            >
-              {step.pdfStep ? `环节 ${step.pdfStep} · ${step.title}` : step.title}
-            </button>
-          );
-        })}
-      </div>
+        </button>
+      ))}
     </nav>
   );
 }
-const PRIMARY_BUTTON =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-full bg-[#66cdb5] px-7 text-sm font-bold text-white shadow-lg shadow-[#66cdb5]/20 transition-all hover:bg-[#57bea6] active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[#66cdb5]/25';
-const GHOST_BUTTON =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-full border border-stone-200 bg-white px-6 text-sm font-semibold text-stone-600 transition-colors hover:bg-stone-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-stone-200';
 
-function SuccessView({ data, onReset }: { data: FormValues; onReset: () => void }) {
-  const summary = [
-    { label: '拟申报名称', value: `${data.tradeName}（上海）${data.industry}${data.orgType}` },
-    { label: '注册资本', value: `${data.registeredCapital} 万元` },
-    { label: '股东数量', value: `${data.shareholders.length} 名` },
-    { label: '受益所有人', value: `${data.beneficiaries.length} 名` },
-    { label: '联系电话', value: data.contactPhone },
-    { label: '租赁合同编号', value: data.leaseContractNo },
-  ];
+const SHARE_TYPE_CARDS: Array<{ type: ShareType; icon: string; desc: string }> = [
+  { type: '自然人', icon: '♙', desc: '个人股东' },
+  { type: '企业', icon: '▦', desc: '企业法人股东' },
+  { type: '其他', icon: '◇', desc: '其他组织或主体' },
+];
 
-  return (
-    <section className="rounded-[1.75rem] border border-stone-200/80 bg-white p-6 shadow-[0_10px_36px_rgba(46,98,86,0.05)] sm:p-10">
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#e8f7f3] text-[#3f9d87]">
-          <Check size={26} strokeWidth={3} aria-hidden="true" />
-        </div>
-        <div>
-          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#4fb69e]">
-            COMPLETED
-          </div>
-          <h2 className="mt-1 text-xl font-extrabold tracking-tight text-stone-900 sm:text-2xl">
-            信息已填写完成
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-stone-500">
-            提交接口尚未接入，本次填写暂未发送到服务端。如需立即办理，请直接联系金桥镇服务专员。
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-7 grid gap-4 rounded-2xl border border-stone-200/80 bg-stone-50/40 p-5 sm:grid-cols-2">
-        {summary.map((item) => (
-          <div key={item.label} className="flex flex-col gap-0.5">
-            <span className="text-xs text-stone-500">{item.label}</span>
-            <span className="text-sm font-semibold text-stone-800">{item.value}</span>
-          </div>
-        ))}
-      </div>
-
-      <button type="button" className={`${PRIMARY_BUTTON} mt-7`} onClick={onReset}>
-        再填一份
-      </button>
-    </section>
-  );
-}
+type ModalState =
+  | { kind: 'type' }
+  | { kind: 'record'; target: EditTarget; error: string }
+  | { kind: 'verify' }
+  | { kind: 'help' }
+  | null;
 
 export default function RegistrationApp() {
-  const [current, setCurrent] = useState(FIRST_ENTERPRISE_INDEX);
-  /** 当前步骤是从哪一栏菜单进入的，决定「上一步 / 下一步」沿哪条链走 */
-  const [menu, setMenu] = useState<StepGroup>('enterprise');
-  const [maxStep, setMaxStep] = useState(FIRST_ENTERPRISE_INDEX);
-  const [submitted, setSubmitted] = useState<FormValues | null>(null);
+  const [data, setData] = useState<ApplicationData>(initial);
+  const [step, setStep] = useState(0);
+  const [dirty, setDirty] = useState(false);
+  const [attempted, setAttempted] = useState(false);
+  const [modal, setModal] = useState<ModalState>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const methods = useForm<FormValues>({
-    resolver: zodResolver(registrationSchema),
-    mode: 'onBlur',
-    defaultValues: initialValues,
-  });
-  const { trigger, handleSubmit, reset, formState } = methods;
+  // 短信验证是本地演示：验证码只在页面上显示，不发送也不校验真实短信
+  const [sms, setSms] = useState<{ phone: string; code: string; expires: number } | null>(null);
+  const [verifyPhone, setVerifyPhone] = useState('');
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifyError, setVerifyError] = useState('');
+
+  const errors = useMemo<ValidationError[]>(() => (attempted ? validate(data) : []), [attempted, data]);
 
   useEffect(() => {
+    let alive = true;
+    loadDraft()
+      .then((found) => {
+        if (alive && found) setData(found);
+      })
+      .catch(() => setToast('读取本地草稿失败，已从空白申请开始'))
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const guard = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [dirty]);
+
+  /** 任何填写动作都会让「信息确认」与「免申报承诺」失效，需要重新勾选 */
+  const update = (mutate: (draft: ApplicationData) => ApplicationData) => {
+    setData((current) => {
+      const next = mutate(current);
+      return {
+        ...next,
+        status: 'draft',
+        submittedAt: null,
+        confirm: { ...next.confirm, accurate: false, exemption: false },
+      };
+    });
+    setDirty(true);
+  };
+
+  const patchBasic = (patch: Partial<ApplicationData['basic']>) =>
+    update((draft) => ({ ...draft, basic: { ...draft.basic, ...patch } }));
+
+  const patchSetup = (patch: Partial<ApplicationData['setup']>) =>
+    update((draft) => ({ ...draft, setup: { ...draft.setup, ...patch } }));
+
+  const patchConfirm = (patch: Partial<ConfirmInfo>) => {
+    setData((current) => {
+      const next = { ...current.confirm, ...patch };
+      if (patch.exemption !== undefined) {
+        // 只有全部为自然人股东时免申报承诺才成立
+        next.exemption = patch.exemption && isPureNatural(current);
+        next.accurate = false;
+      }
+      return { ...current, confirm: next, status: 'draft', submittedAt: null };
+    });
+    setDirty(true);
+  };
+
+  const addName = () =>
+    update((draft) => ({ ...draft, basic: { ...draft.basic, names: [...draft.basic.names, ''] } }));
+
+  const removeName = (index: number) =>
+    update((draft) => ({
+      ...draft,
+      basic: { ...draft.basic, names: draft.basic.names.filter((_, at) => at !== index) },
+    }));
+
+  /* ------------------------------------------------------------ 记录编辑 */
+
+  const openRecord = (kind: 'share' | 'role', id: string | null = null, type: ShareType = '自然人') => {
+    const list: Array<Shareholder | RoleRecord> = kind === 'share' ? data.shareholders : data.roles;
+    const source = id ? (list.find((item) => item.id === id) ?? null) : null;
+    const record: Shareholder | RoleRecord = source
+      ? clone(source)
+      : kind === 'share'
+        ? { id: uid(), type, personId: null, name: '', code: '', ratio: '', amount: '', method: [], files: [] }
+        : { id: uid(), personId: null, roles: [] };
+    const person = record.personId ? clone(personOf(data, record)) : emptyPerson();
+    const shared = Boolean(
+      record.personId &&
+        [...data.shareholders, ...data.roles].some(
+          (item) => item.id !== record.id && item.personId === record.personId,
+        ),
+    );
+    setModal({
+      kind: 'record',
+      target: { kind, isNew: !source, record, person, linked: Boolean(record.personId) && (!source || shared) },
+      error: '',
+    });
+  };
+
+  /** 打开记录并按报错定位，用于错误摘要里的跳转 */
+  const openRecordWithError = (kind: 'share' | 'role', id: string, error: string) => {
+    openRecord(kind, id);
+    setModal((current) => (current?.kind === 'record' ? { ...current, error } : current));
+  };
+
+  const saveRecord = (
+    kind: 'share' | 'role',
+    payload: { record: Shareholder | RoleRecord; person: Person; linked: boolean; isNew: boolean; attachmentsDirty: boolean },
+  ) => {
+    const share = kind === 'share';
+    update((draft) => {
+      const natural = !share || (payload.record as Shareholder).type === '自然人';
+      const people = { ...draft.people };
+      let personId = payload.record.personId;
+
+      if (natural) {
+        if (!payload.linked) {
+          // 手动填写或关联后取消关联：写入（或新建）一条人员
+          personId = personId ?? uid();
+          people[personId] = clone(payload.person);
+        } else if (personId && payload.attachmentsDirty) {
+          // 关联人员时基础信息不可改，只有附件允许回写
+          people[personId] = { ...people[personId], files: clone(payload.person.files) };
+        }
+      }
+
+      const next = { ...payload.record, personId };
+      const replace = <T extends { id: string }>(list: T[]) =>
+        payload.isNew
+          ? [...list, next as unknown as T]
+          : list.map((item) => (item.id === next.id ? (next as unknown as T) : item));
+
+      const shareholders = share ? replace(draft.shareholders) : draft.shareholders;
+      const roles = share ? draft.roles : replace(draft.roles);
+
+      // 没人引用的人员不再保留，避免草稿里堆积孤儿数据
+      const referenced = new Set(
+        [...shareholders.map((item) => item.personId), ...roles.map((item) => item.personId)].filter(Boolean),
+      );
+
+      return {
+        ...draft,
+        shareholders,
+        roles,
+        people: Object.fromEntries(Object.entries(people).filter(([id]) => referenced.has(id))),
+      };
+    });
+    setModal(null);
+  };
+
+  const deleteRecord = (kind: 'share' | 'role') => {
+    if (modal?.kind !== 'record') return;
+    const { record } = modal.target;
+    if (!window.confirm('删除此条记录？其他模块中已关联的人员仍会保留。')) return;
+    update((draft) => {
+      const shareholders = kind === 'share' ? draft.shareholders.filter((item) => item.id !== record.id) : draft.shareholders;
+      const roles = kind === 'share' ? draft.roles : draft.roles.filter((item) => item.id !== record.id);
+      const referenced = new Set(
+        [...shareholders.map((item) => item.personId), ...roles.map((item) => item.personId)].filter(Boolean),
+      );
+      return {
+        ...draft,
+        shareholders,
+        roles,
+        people: Object.fromEntries(Object.entries(draft.people).filter(([id]) => referenced.has(id))),
+      };
+    });
+    setModal(null);
+    setToast('记录已删除');
+  };
+
+  /* -------------------------------------------------------------- 暂存 */
+
+  /** 暂存快照；patch 用于提交这类需要连同状态一起写盘的动作 */
+  const save = async (
+    quiet = false,
+    patch: Partial<ApplicationData> = {},
+  ): Promise<ApplicationData | null> => {
+    const stamp = patch.savedAt ?? nowStamp();
+    const snapshot: ApplicationData = { ...clone(data), ...patch, savedAt: stamp };
+    try {
+      await storeDraft(snapshot);
+    } catch (cause) {
+      setToast(cause instanceof Error ? cause.message : '暂存失败');
+      return null;
+    }
+    setData(snapshot);
+    setDirty(false);
+    if (!quiet) setToast(`草稿及附件已暂存 · ${stamp}`);
+    return snapshot;
+  };
+
+  const importDraft = async (file: File) => {
+    try {
+      const imported = await importDraftFile(file);
+      setData(imported);
+      setDirty(true);
+      setAttempted(false);
+      setStep(0);
+      setModal(null);
+      setToast('草稿已导入，暂存后写入当前浏览器');
+    } catch (cause) {
+      setToast(cause instanceof Error ? cause.message : '草稿导入失败');
+    }
+  };
+
+  /* -------------------------------------------------------------- 提交 */
+
+  const go = (target: number) => {
+    setStep(Math.max(0, Math.min(TITLES.length - 1, target)));
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [current, submitted]);
-
-  const goTo = (index: number) => {
-    setCurrent(index);
-    if (STEPS[index].group === 'enterprise') setMaxStep((prev) => Math.max(prev, index));
   };
 
-  const siblings = siblingIndexes(menu);
-  const at = siblings.indexOf(current);
-  const prevIndex = at > 0 ? siblings[at - 1] : null;
-  const nextIndex = at < siblings.length - 1 ? siblings[at + 1] : null;
-
-  const goNext = async () => {
-    if (nextIndex === null) return;
-    const valid = await trigger(STEPS[current].fields, { shouldFocus: true });
-    if (!valid) return;
-    goTo(nextIndex);
+  const submitStart = () => {
+    setAttempted(true);
+    const found = validate(data);
+    if (found.length) {
+      setErrorsOnFirst(found);
+      return;
+    }
+    go(TITLES.length - 1);
+    setSms(null);
+    setVerifyError('');
+    setModal({ kind: 'verify' });
   };
 
-  const goPrev = () => {
-    if (prevIndex !== null) goTo(prevIndex);
+  const setErrorsOnFirst = (found: ValidationError[]) => {
+    go(found[0].section);
+    setToast(`请先完善 ${found.length} 项信息`);
+    setTimeout(() => jumpError(found, 0), 60);
   };
 
-  const onSubmit = (data: FormValues) => {
-    // ponytail: 提交接口未接入 —— 当前只做前端校验与汇总，不发起网络请求。
-    // 接口确认后，在此 POST data（参考 components/TrustModal.tsx 的订阅接口写法），
-    // 并把 setSubmitted 移到请求成功的回调里。
-    // 注意：data.serviceConfirm 由「企业服务确认」步骤内的独立接口保存，不要并进这里的载荷。
-    setSubmitted(data);
+  const jumpError = (found: ValidationError[], index: number) => {
+    const target = found[index];
+    if (!target) return;
+    go(target.section);
+    if (target.record) {
+      openRecordWithError(target.record.kind, target.record.id, target.msg);
+      return;
+    }
+    document.getElementById(target.id)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  const onInvalid = (errors: FieldErrors<FormValues>) => {
-    const index = STEPS.findIndex((step) => step.fields.some((field) => hasPath(errors, field)));
-    if (index >= 0) goTo(index);
+  /** 只分享空白入口，链接里不含申请数据 */
+  const copyLink = async () => {
+    try {
+      const url = new URL(window.location.href);
+      url.hash = '';
+      await navigator.clipboard.writeText(url.href);
+      setToast('已复制页面入口；不包含申请数据，不能跨设备查看草稿');
+    } catch {
+      setToast('无法访问剪贴板，请复制浏览器地址');
+    }
   };
 
-  const handleReset = () => {
-    reset(initialValues);
-    setSubmitted(null);
-    setCurrent(FIRST_ENTERPRISE_INDEX);
-    setMenu('enterprise');
-    setMaxStep(FIRST_ENTERPRISE_INDEX);
+  const sendDemoCode = () => {
+    if (!/^1\d{10}$/.test(verifyPhone.trim())) {
+      setVerifyError('请输入有效的 11 位中国大陆手机号码');
+      return;
+    }
+    const values = new Uint32Array(1);
+    crypto.getRandomValues(values);
+    const code = String(100000 + (values[0] % 900000));
+    setSms({ phone: verifyPhone.trim(), code, expires: Date.now() + 300_000 });
+    setVerifyError('');
+    setVerifyCode('');
   };
 
-  /** 菜单与总览都从这里进：选定步骤的同时记下来源栏 */
-  const jumpTo = (index: number, group: StepGroup) => {
-    setMenu(group);
-    goTo(index);
+  const verifySubmit = async (found: ValidationError[]) => {
+    if (!sms) {
+      setVerifyError('请先获取演示验证码');
+      return;
+    }
+    if (
+      Date.now() > sms.expires ||
+      verifyPhone.trim() !== sms.phone ||
+      verifyCode.trim() !== sms.code
+    ) {
+      setVerifyError('手机号或验证码不匹配，或验证码已过期');
+      return;
+    }
+    if (found.length) {
+      setModal(null);
+      setErrorsOnFirst(found);
+      return;
+    }
+    // 状态与提交时间要一起写进草稿，否则刷新后提交记录会丢失
+    const stamp = nowStamp();
+    const saved = await save(true, {
+      status: 'submitted',
+      submittedAt: stamp,
+      savedAt: stamp,
+      submissionPhone: sms.phone,
+    });
+    if (!saved) return;
+    setModal(null);
+    setToast('演示提交已完成，申请已保存在当前浏览器');
   };
+
+  /* ------------------------------------------------------------ 导航状态 */
+
+  const sectionStates = TITLES.map((_, index) => {
+    if (!sectionTouched(data, index)) return 'blank' as SectionState;
+    if (index === 3 && !setupComplete(data.setup)) return 'partial' as SectionState;
+    return errors.some((error) => error.section === index) ? 'partial' : 'complete';
+  });
+  const completed = sectionStates.filter((state) => state === 'complete').length;
+  const visibleErrors = errors.filter((error) => error.section === step);
+  /** 落在具体元素上的报错，交给各步骤页内联显示 */
+  const fieldErrors = visibleErrors.reduce<Record<string, string>>(
+    (acc, error) => ({ ...acc, [error.id]: error.msg }),
+    {},
+  );
+  const errorAt = (id: string) => fieldErrors[id];
+
+  const recordsIn = (kind: 'share' | 'role') =>
+    Object.fromEntries(
+      errors
+        .filter((error) => error.section === (kind === 'share' ? 1 : 2) && error.record?.kind === kind)
+        .map((error) => [error.record!.id, error.msg]),
+    );
+
+  const status = dirty ? '填写中' : data.status === 'submitted' ? '已演示提交' : data.savedAt ? '已暂存' : '填写中';
+  const saveLabel = dirty
+    ? '有修改，尚未暂存'
+    : data.savedAt
+      ? `已暂存 ${data.savedAt}`
+      : '草稿尚未暂存';
+
+  if (loading) {
+    return <div className="flex min-h-screen items-center justify-center text-sm text-stone-400">正在载入本地草稿…</div>;
+  }
 
   return (
-    <div className="min-h-screen bg-[#fbfbfa]">
-      <header className="border-b border-stone-200/70 bg-white/85 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-4">
-          <div>
-            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#4fb69e]">
-              班步一企通 · 金桥镇
-            </div>
-            <h1 className="mt-1 text-lg font-extrabold tracking-tight text-stone-900 sm:text-xl">
-              新企业注册信息采集
-            </h1>
-          </div>
-          <span className="hidden text-xs text-stone-400 sm:block">
-            上海一网通办 · 企业登记在线
+    <div className="registration-app min-h-screen bg-stone-50 pb-32 text-stone-800">
+      <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between gap-4 border-b border-stone-200 bg-white px-[max(28px,calc((100vw_-_1224px)/2))]">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#66cdb5] text-sm font-black text-white">
+            b
           </span>
+          <span className="truncate text-sm font-bold">
+            班步一企通
+            <small className="ml-2 text-[10px] font-medium tracking-widest text-stone-400">BANBU ONEBIZ</small>
+          </span>
+          <span className="hidden border-l border-stone-200 pl-3 text-xs text-stone-500 sm:block">企业设立服务</span>
         </div>
+        <span className="hidden text-xs text-stone-500 sm:block">企业注册服务申请</span>
       </header>
 
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:py-10">
-        {submitted ? (
-          <SuccessView data={submitted} onReset={handleReset} />
-        ) : (
-          <FormProvider {...methods}>
-            {/* 两栏菜单只负责选中，内容统一在中间显示。
-                窄屏是顶部两行横滑胶囊（靠 order 把右栏提到内容之前），lg 起分列两侧并随页面滚动保持可见 */}
-            <div className="flex flex-col lg:flex-row lg:items-start lg:gap-8">
-              <StepMenu
-                group="enterprise"
-                label="用户填写步骤"
-                current={current}
-                maxStep={maxStep}
-                onSelect={(index) => jumpTo(index, 'enterprise')}
-                className="order-1"
-              />
+      <div className="mx-auto flex max-w-[1280px] gap-10 px-7 pt-[34px]">
+        <aside className="hidden w-[220px] shrink-0 self-start lg:sticky lg:top-[108px] lg:block">
+          <p className="text-[10px] font-bold tracking-[2px] text-[#42a98f]">COMPANY INCORPORATION</p>
+          <h2 className="mt-1 text-[19px] font-bold">开启您的企业旅程</h2>
+          <div className="mt-5 flex items-center justify-between text-xs text-stone-500">
+            <span>申请填写进度</span>
+            <span>
+              {completed} / {TITLES.length}
+            </span>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-200">
+            <div
+              className="h-full rounded-full bg-[#66cdb5] transition-all"
+              style={{ width: `${(completed / TITLES.length) * 100}%` }}
+            />
+          </div>
 
-              <div className="order-3 min-w-0 flex-1 lg:order-2">
-                <FlowOverview maxStep={maxStep} onJump={jumpTo} />
+          <NavList labels={TITLES} step={step} states={sectionStates} onGo={go} />
 
-                <form onSubmit={handleSubmit(onSubmit, onInvalid)} noValidate>
-                  {STEPS[current].render()}
+          <p className="mt-5 rounded-xl bg-white p-4 text-[11px] leading-5 text-stone-500">
+            <strong className="mb-1 block text-stone-700">按您的节奏，安心填写</strong>
+            可随时暂存，稍后继续。已有人员可直接复用，无需重复填写与上传。
+          </p>
+          <p className="mt-4 text-[11px] leading-5 text-stone-400">
+            企业申请人 · 企业设立服务人员
+            <br />
+            申请表版本 2026.09.14
+          </p>
+        </aside>
 
-                  <div className="mt-6 flex items-center gap-3">
-                    {prevIndex !== null && (
-                      <button type="button" className={GHOST_BUTTON} onClick={goPrev}>
-                        <ArrowLeft size={16} aria-hidden="true" />
-                        上一步
-                      </button>
-                    )}
-                    <div className="flex-1" />
-                    {/* 专员链末位（如右栏的环节 11）既无下一步也不是提交，就不放按钮 */}
-                    {nextIndex !== null ? (
-                      <button type="button" className={PRIMARY_BUTTON} onClick={goNext}>
-                        下一步
-                        <ArrowRight size={16} aria-hidden="true" />
-                      </button>
-                    ) : STEPS[current].submit ? (
-                      <button
-                        type="submit"
-                        className={PRIMARY_BUTTON}
-                        disabled={formState.isSubmitting}
-                      >
-                        <Send size={16} aria-hidden="true" />
-                        提交信息
-                      </button>
-                    ) : null}
-                  </div>
+        <main className="min-w-0 flex-1">
+          <div className="mb-5 lg:hidden">
+            <NavList labels={SHORT} step={step} states={sectionStates} onGo={go} compact />
+          </div>
 
-                  <p className="mt-4 text-xs leading-5 text-stone-400">
-                    本页面仅采集企业侧需提供的信息。右栏「服务专员填写步骤」中的企业服务确认、经办人信息、申请机关与办理方式由专员办理；环节 11
-                    的法人委托书可在左侧菜单中查看并打印。材料提交及五险一金 / 涉税 / 开户预约等环节，由专员在「上海企业登记在线」平台内完成。
-                  </p>
-                </form>
-              </div>
-
-              <StepMenu
-                group="agency"
-                label="服务专员填写步骤"
-                current={current}
-                maxStep={maxStep}
-                onSelect={(index) => jumpTo(index, 'agency')}
-                className="order-2 lg:order-3"
-              />
+          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold tracking-[2px] text-[#42a98f]">
+                APPLICATION / {String(step + 1).padStart(2, '0')}
+              </p>
+              <h1 className="mt-1 text-[29px] font-bold leading-[1.3] tracking-[-0.7px]">{TITLES[step]}</h1>
+              <p className="mt-1 text-[13px] text-stone-500">{SUBS[step]}</p>
             </div>
-          </FormProvider>
-        )}
-      </main>
+            <div className="text-right">
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-stone-500">{status}</span>
+              <p className="mt-1.5 text-[10px] font-bold tracking-widest text-stone-400">
+                STEP {String(step + 1).padStart(2, '0')} / {String(TITLES.length).padStart(2, '0')}
+              </p>
+            </div>
+          </div>
+
+          <div aria-live="polite">
+            {visibleErrors.length > 0 && (
+              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50/70 px-5 py-4">
+                <strong className="text-xs font-bold text-red-600">
+                  本章节有 {visibleErrors.length} 项需要完善
+                </strong>
+                <div className="mt-2 grid gap-1">
+                  {visibleErrors.map((error) => (
+                    <button
+                      key={`${error.id}-${error.msg}`}
+                      type="button"
+                      onClick={() => jumpError(errors, errors.indexOf(error))}
+                      className="text-left text-xs leading-5 text-red-500 hover:underline"
+                    >
+                      {error.msg} ↗
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {step === 0 && (
+            <BasicStep
+              basic={data.basic}
+              onChange={patchBasic}
+              errors={fieldErrors}
+              onAddName={addName}
+              onRemoveName={removeName}
+            />
+          )}
+          {step === 1 && (
+            <ShareholderStep
+              data={data}
+              onAdd={() => setModal({ kind: 'type' })}
+              onEdit={(id) => openRecord('share', id)}
+              recordErrors={recordsIn('share')}
+            />
+          )}
+          {step === 2 && (
+            <PersonnelStep
+              data={data}
+              onAdd={() => openRecord('role')}
+              onEdit={(id) => openRecord('role', id)}
+              recordErrors={recordsIn('role')}
+              roleError={errorAt('roles')}
+            />
+          )}
+          {step === 3 && (
+            <SetupStep
+              setup={data.setup}
+              onChange={patchSetup}
+              errors={fieldErrors}
+            />
+          )}
+          {step === 4 && (
+            <ReviewStep
+              data={data}
+              errors={fieldErrors}
+              onEditSection={go}
+              onConfirm={patchConfirm}
+              onExport={() => exportDraft(data)}
+            />
+          )}
+
+          <footer className="mt-8 flex flex-wrap justify-between gap-2 text-[11px] text-stone-400">
+            <span>班步一企通 · 企业注册服务申请</span>
+            <span>交互演示版 · 短信与提交未接入服务</span>
+          </footer>
+        </main>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-[1224px] flex-wrap items-center gap-x-[22px] gap-y-3 px-7 py-3.5">
+          <span role="status" className="text-xs font-semibold text-stone-500">
+            {saveLabel}
+          </span>
+          <span className="hidden text-[11px] text-stone-400 sm:block">带 * 的字段为必填项</span>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <button type="button" className={TEXT_BUTTON} onClick={() => setModal({ kind: 'help' })}>
+              <HelpCircle size={13} className="mr-1 inline" aria-hidden="true" />
+              帮助
+            </button>
+            {data.status === 'submitted' && /^https?:$/.test(window.location.protocol) && (
+              <button type="button" className={TEXT_BUTTON} onClick={() => void copyLink()}>
+                复制链接
+              </button>
+            )}
+            <button
+              type="button"
+              className={SECONDARY_BUTTON}
+              onClick={() => {
+                setToast(`草稿已导出 · ${data.basic.names[0] || '未命名'}`);
+                exportDraft(data);
+              }}
+            >
+              <Download size={14} aria-hidden="true" />
+              导出
+            </button>
+            <label className={`${SECONDARY_BUTTON} cursor-pointer`}>
+              <Upload size={14} aria-hidden="true" />
+              导入
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="sr-only"
+                onChange={(event) => {
+                  const picked = event.target.files?.[0];
+                  event.target.value = '';
+                  if (picked) void importDraft(picked);
+                }}
+              />
+            </label>
+            <button type="button" className={SECONDARY_BUTTON} onClick={() => void save()}>
+              暂存
+            </button>
+            <button type="button" className={SECONDARY_BUTTON} disabled={step === 0} onClick={() => go(step - 1)}>
+              <ArrowLeft size={14} aria-hidden="true" />
+              上一项
+            </button>
+            {step < TITLES.length - 1 && (
+              <button type="button" className={SECONDARY_BUTTON} onClick={() => go(step + 1)}>
+                下一项
+                <ArrowRight size={14} aria-hidden="true" />
+              </button>
+            )}
+            <button type="button" className={PRIMARY_BUTTON} onClick={submitStart}>
+              {step === TITLES.length - 1 ? '确认并提交' : '提交申请'}
+              <ArrowUpRight size={14} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {modal?.kind === 'type' && (
+        <Dialog
+          title="添加股东"
+          onClose={() => setModal(null)}
+          footer={
+            <button type="button" className={SECONDARY_BUTTON} onClick={() => setModal(null)}>
+              取消
+            </button>
+          }
+        >
+          <p className="mb-5 text-[13px] text-stone-500">选择股东类型，填写信息及出资安排。</p>
+          <div className="grid grid-cols-3 gap-3">
+            {SHARE_TYPE_CARDS.map((card) => (
+              <button
+                key={card.type}
+                type="button"
+                onClick={() => openRecord('share', null, card.type)}
+                className="rounded-xl border border-stone-200 bg-white px-2.5 py-[26px] text-center transition-colors hover:border-[#66cdb5] hover:bg-[#f7fcfb]"
+              >
+                <span className="block text-[27px] text-[#4fb69e]" aria-hidden="true">
+                  {card.icon}
+                </span>
+                <strong className="mt-2 block text-[15px] font-bold">{card.type}</strong>
+                <span className="mt-0.5 block text-[11px] text-stone-400">{card.desc}</span>
+              </button>
+            ))}
+          </div>
+        </Dialog>
+      )}
+
+      {modal?.kind === 'record' && (
+        <RecordDialog
+          target={modal.target}
+          data={data}
+          initialError={modal.error}
+          onClose={() => setModal(null)}
+          onSaved={(payload) => saveRecord(modal.target.kind, payload)}
+          onDelete={() => deleteRecord(modal.target.kind)}
+        />
+      )}
+
+      {modal?.kind === 'verify' && (
+        <Dialog
+          title="验证手机并提交"
+          error={verifyError}
+          onClose={() => setModal(null)}
+          footer={
+            <>
+              <button type="button" className={SECONDARY_BUTTON} onClick={() => setModal(null)}>
+                取消
+              </button>
+              <button type="button" className={PRIMARY_BUTTON} onClick={() => void verifySubmit(validate(data))}>
+                验证并演示提交
+              </button>
+            </>
+          }
+        >
+          <p className="mb-5 rounded-xl bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-700">
+            演示验证：不会发送短信，也不会将申请传给服务人员。
+          </p>
+          <div className="grid gap-4">
+            <Field
+              id="verifyPhone"
+              label="手机号码"
+              required
+              inputMode="tel"
+              value={verifyPhone}
+              placeholder="请输入中国大陆手机号码"
+              onChange={setVerifyPhone}
+            />
+            <div>
+              <div className="flex items-end gap-2.5">
+                <div className="flex-1">
+                  <Field
+                    id="verifyCode"
+                    label="验证码"
+                    required
+                    inputMode="numeric"
+                    value={verifyCode}
+                    placeholder="请输入 6 位演示验证码"
+                    onChange={setVerifyCode}
+                  />
+                </div>
+                <button type="button" className={SECONDARY_BUTTON} onClick={sendDemoCode}>
+                  获取演示验证码
+                </button>
+              </div>
+              {sms && (
+                <p className="mt-1.5 text-xs text-stone-400">
+                  演示验证码：{sms.code}（5 分钟内有效，未发送短信）
+                </p>
+              )}
+            </div>
+          </div>
+        </Dialog>
+      )}
+
+      {modal?.kind === 'help' && (
+        <HelpDialog
+          onClose={() => setModal(null)}
+          onExport={() => exportDraft(data)}
+          onImport={(file) => void importDraft(file)}
+        />
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          className="fixed bottom-24 left-1/2 z-40 -translate-x-1/2 rounded-full bg-stone-800 px-5 py-2.5 text-xs font-semibold text-white shadow-lg"
+        >
+          {toast}
+        </div>
+      )}
     </div>
   );
 }
