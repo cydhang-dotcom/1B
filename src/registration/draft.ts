@@ -1,14 +1,5 @@
 import { flatten, writeFlat } from './flat';
-import {
-  CONFIG,
-  PHOTO_SLOTS,
-  ROLES,
-  SHARE_TYPES,
-  clone,
-  listOf,
-  type ApplicationData,
-  type Attachment,
-} from './model';
+import { CONFIG, clone, emptyAuthorization, listOf, type ApplicationData } from './model';
 
 /** 草稿存储标识，同时作为导出文件里的 format 字段 */
 export const DRAFT_KEY = '1b_company_registration';
@@ -25,11 +16,29 @@ let dbPromise: Promise<IDBDatabase> | null = null;
 
 const getDB = (): Promise<IDBDatabase> => {
   if (!dbPromise) {
-    dbPromise = new Promise((resolve, reject) => {
+    dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(DRAFT_KEY, 1);
+      // 开库被别的标签页挡住时可能既不成功也不失败，超时后交给 localStorage 兜底，
+      // 否则 loadDraft 永远不返回，页面会一直停在「正在载入本地草稿…」
+      const timer = setTimeout(() => reject(new Error('本地数据库打开超时')), 3000);
+      const done = () => clearTimeout(timer);
       request.onupgradeneeded = () => request.result.createObjectStore(STORE);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error ?? new Error('无法打开本地数据库'));
+      request.onsuccess = () => {
+        done();
+        resolve(request.result);
+      };
+      request.onerror = () => {
+        done();
+        reject(request.error ?? new Error('无法打开本地数据库'));
+      };
+      request.onblocked = () => {
+        done();
+        reject(new Error('本地数据库被其他标签页占用'));
+      };
+    }).catch((cause) => {
+      // 失败不缓存，下次暂存还能重试开库
+      dbPromise = null;
+      throw cause;
     });
   }
   return dbPromise;
@@ -58,8 +67,8 @@ export async function storeDraft(snapshot: ApplicationData): Promise<void> {
 }
 
 /**
- * 旧草稿迁移：出资形式历史上是可以直接点选的字符串，设立期限历史上写作「20 年」。
- * 迁移只改结构不改内容，保证老草稿能继续打开。
+ * 旧草稿迁移：出资形式历史上是可以直接点选的字符串，设立期限历史上写作「20 年」，
+ * 委托书是后加的章节。迁移只改结构不改内容，保证老草稿能继续打开。
  */
 export function migrateDraft(draft: ApplicationData): ApplicationData {
   const next = clone(draft);
@@ -86,6 +95,14 @@ export function migrateDraft(draft: ApplicationData): ApplicationData {
       }
     }
   }
+  // 委托书章节是后加的：老草稿补一份空结构。历史上允许多份，本版只留一份，多余的丢掉
+  const auth = (next.authorization ?? {}) as Partial<ApplicationData['authorization']>;
+  const blank = emptyAuthorization();
+  next.authorization = {
+    trusteeName: typeof auth.trusteeName === 'string' ? auth.trusteeName : blank.trusteeName,
+    trusteeIdNumber: typeof auth.trusteeIdNumber === 'string' ? auth.trusteeIdNumber : blank.trusteeIdNumber,
+    files: Array.isArray(auth.files) ? auth.files.slice(0, 1) : blank.files,
+  };
   return next;
 }
 
@@ -128,7 +145,7 @@ export async function loadDraft(): Promise<ApplicationData | null> {
 
 export const nowStamp = (): string => new Date().toLocaleString('zh-CN', { hour12: false });
 
-/** 导出文件同时带原始结构与扁平值：前者供本系统再导入，后者供协议模板与外部程序直接取用 */
+/** 导出文件同时带原始结构与扁平值：前者是完整申请数据，后者供协议模板与外部程序直接取用 */
 export function exportDraft(data: ApplicationData): void {
   const payload = {
     format: DRAFT_KEY,
@@ -147,96 +164,3 @@ export function exportDraft(data: ApplicationData): void {
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
-/**
- * 导入的草稿来自本地文件，可能是任意内容，因此逐字段校验后才接受：
- * 附件必须是 dataURL，id 只允许字母数字与连字符（它会进 DOM 的 id 与事件参数）。
- */
-export function parseImported(value: unknown): ApplicationData {
-  const fail = (): never => {
-    throw new Error('草稿数据结构或附件格式不正确');
-  };
-  if (!value || typeof value !== 'object') fail();
-  const draft = value as ApplicationData;
-
-  const strings = (target: Record<string, unknown> | undefined, keys: string[]) => {
-    if (!target) fail();
-    keys.forEach((key) => {
-      if (typeof target[key] !== 'string') fail();
-    });
-  };
-  const identifier = (id: unknown) => {
-    if (typeof id !== 'string' || !/^[a-zA-Z0-9-]+$/.test(id)) fail();
-  };
-  const files = (list: Attachment[] | undefined) => {
-    if (!Array.isArray(list)) fail();
-    list.forEach((file) => {
-      identifier(file.id);
-      strings(file as unknown as Record<string, unknown>, ['name', 'type', 'data']);
-      if (file.slot !== undefined && !Object.hasOwn(PHOTO_SLOTS, file.slot)) fail();
-      if (!Number.isFinite(file.size) || file.size < 0) fail();
-      if (!/^data:[a-zA-Z0-9.+/=-]*;base64,[a-zA-Z0-9+/=\r\n]*$/.test(file.data)) fail();
-    });
-  };
-
-  strings(draft.basic as unknown as Record<string, unknown>, ['org', 'orgOther', 'intro', 'service', 'scope', 'capital', 'regAddress', 'workAddress']);
-  if (
-    !Array.isArray(draft.basic.names) ||
-    draft.basic.names.length < CONFIG.nameInitial ||
-    draft.basic.names.length > CONFIG.nameMaximum ||
-    draft.basic.names.some((name) => typeof name !== 'string')
-  ) {
-    fail();
-  }
-  ['expert', 'regRecommend', 'workRecommend'].forEach((key) => {
-    if (typeof draft.basic[key as 'expert'] !== 'boolean') fail();
-  });
-
-  strings(draft.setup as unknown as Record<string, unknown>, ['board', 'directors', 'singleDirector', 'supervisorBoard', 'supervisors', 'singleSupervisor', 'term', 'employees']);
-  migrateDraft(draft);
-  strings(draft.setup as unknown as Record<string, unknown>, ['termYears', 'legacyTerm']);
-  if (typeof draft.setup.unanimous !== 'boolean') fail();
-
-  if (!draft.people || Array.isArray(draft.people)) fail();
-  Object.entries(draft.people).forEach(([id, person]) => {
-    identifier(id);
-    strings(person as unknown as Record<string, unknown>, ['name', 'phone', 'email', 'education', 'address']);
-    files(person.files);
-  });
-
-  if (!Array.isArray(draft.shareholders) || !Array.isArray(draft.roles)) fail();
-  draft.shareholders.forEach((record) => {
-    identifier(record.id);
-    strings(record as unknown as Record<string, unknown>, ['type', 'name', 'code', 'ratio', 'amount']);
-    if (!Array.isArray(record.method) || record.method.some((item) => typeof item !== 'string')) fail();
-    if (!SHARE_TYPES.includes(record.type)) fail();
-    files(record.files);
-    if (record.type === '自然人' && !Object.hasOwn(draft.people, record.personId ?? '')) fail();
-  });
-  draft.roles.forEach((record) => {
-    identifier(record.id);
-    if (!Object.hasOwn(draft.people, record.personId ?? '')) fail();
-    if (!Array.isArray(record.roles) || record.roles.some((role) => !ROLES.includes(role))) fail();
-  });
-
-  ['accurate', 'exemption'].forEach((key) => {
-    if (typeof draft.confirm[key as 'accurate'] !== 'boolean') fail();
-  });
-  identifier(draft.id);
-  if (!['draft', 'submitted'].includes(draft.status)) fail();
-
-  return draft;
-}
-
-/** 导入文件 → 校验通过的数据；文件本身不合法时抛出可读错误 */
-export async function importDraftFile(file: File): Promise<ApplicationData> {
-  let parsed: { format?: string; data?: unknown };
-  try {
-    parsed = JSON.parse(await file.text());
-  } catch {
-    throw new Error('请选择由本申请系统导出的草稿文件');
-  }
-  if (parsed.format !== DRAFT_KEY || !parsed.data) {
-    throw new Error('请选择由本申请系统导出的草稿文件');
-  }
-  return parseImported(parsed.data);
-}

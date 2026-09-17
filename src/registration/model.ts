@@ -1,7 +1,7 @@
 /**
  * 企业注册服务申请系统的数据模型。
  *
- * 五个步骤：企业基本信息 → 股东及出资 → 企业主要人员 → 企业设立信息 → 信息确认并提交。
+ * 六个步骤：企业基本信息 → 股东及出资 → 企业主要人员 → 企业设立信息 → 委托书办理 → 信息确认并提交。
  * 整份申请是「一份文档」，股东与人员都是记录列表，因此这里用普通对象而非表单字段树。
  */
 
@@ -21,16 +21,24 @@ export const CONFIG = {
 } as const;
 
 /** 步骤标题 */
-export const TITLES = ['企业基本信息', '股东及出资', '企业主要人员', '企业设立信息', '信息确认并提交'] as const;
+export const TITLES = [
+  '企业基本信息',
+  '股东及出资',
+  '企业主要人员',
+  '企业设立信息',
+  '委托书办理',
+  '信息确认并提交',
+] as const;
 
 /** 窄屏导航用的短标题 */
-export const SHORT = ['基本信息', '股东出资', '主要人员', '设立信息', '确认提交'] as const;
+export const SHORT = ['基本信息', '股东出资', '主要人员', '设立信息', '委托书', '确认提交'] as const;
 
 export const SUBS = [
   '先从企业的名称、业务与注册地址开始。',
   '添加股东，明确每一份出资与持股关系。',
   '复用已有人员，为企业安排主要角色。',
   '按照拟设立企业的实际安排，填写治理与经营信息。',
+  '按步骤打印、签字盖章并上传法定代表人委托书。',
   '核对您的申请信息，确认后完成提交。',
 ] as const;
 
@@ -144,6 +152,15 @@ export type ConfirmInfo = {
   accurate: boolean;
 };
 
+export type Authorization = {
+  /** 参与打印的受托人姓名，取自「联系人」角色；数据里留空，显示时现取 */
+  trusteeName: string;
+  /** 同上，本版不收集，打印时留空白下划线 */
+  trusteeIdNumber: string;
+  /** 已签署扫描件；只保留一份，重新上传即替换 */
+  files: Attachment[];
+};
+
 export type ApplicationData = {
   basic: BasicInfo;
   /** 人员按 id 去重存放，股东与角色记录通过 personId 复用同一条 */
@@ -151,6 +168,7 @@ export type ApplicationData = {
   shareholders: Shareholder[];
   roles: RoleRecord[];
   setup: SetupInfo;
+  authorization: Authorization;
   confirm: ConfirmInfo;
   status: 'draft' | 'submitted';
   savedAt: string | null;
@@ -161,7 +179,7 @@ export type ApplicationData = {
 
 /** 校验结果：指明属于哪一步、落在页面上哪个元素、以及是否要打开某条记录 */
 export type ValidationError = {
-  /** 步骤序号 0-4 */
+  /** 步骤序号 0-5 */
   section: number;
   /** 页面上对应元素的 id */
   id: string;
@@ -213,6 +231,36 @@ export const companyCategory = (data: ApplicationData): string => {
   if (isPureNatural(data)) return '全部为自然人股东';
   return data.shareholders.some((s) => s.type === '其他') ? '含其他类型股东' : '含企业股东';
 };
+
+/* -------------------------------------------------------------------- 委托书 */
+
+/**
+ * 委托人没填、受托人也没确定时，公文纸上靠这串全角空格把下划线撑开。
+ * 确认页要显示「未填写」，因此那里传空串而不是它（trim 会把全角空格去掉）。
+ */
+export const EMPTY_FILL = '　　　　　　';
+
+export const emptyAuthorization = (): Authorization => ({
+  trusteeName: '',
+  trusteeIdNumber: '',
+  files: [],
+});
+
+/**
+ * 受托人 = 「联系人」角色的那个人，名字实时取，保证改了人员信息后委托书跟着变。
+ * 同一角色多人时取第一条，与原型一致。
+ */
+export const trusteeOf = (data: ApplicationData): Person =>
+  personOf(data, data.roles.find((record) => record.roles.includes('联系人')) ?? { personId: null });
+
+/** 公文纸上要显示的受托人姓名；没确定时用全角空格占位 */
+export const trusteeNameOf = (data: ApplicationData): string => {
+  const name = trusteeOf(data).name;
+  return has(name) ? name : EMPTY_FILL;
+};
+
+export const authorizationUploaded = (data: ApplicationData): boolean =>
+  (data.authorization?.files.length ?? 0) > 0;
 
 export const emptyPerson = (): Person => ({
   name: '',
@@ -266,6 +314,7 @@ export const initial = (): ApplicationData => ({
     legacyTerm: '',
     employees: '',
   },
+  authorization: emptyAuthorization(),
   confirm: { exemption: false, accurate: false },
   status: 'draft',
   savedAt: null,

@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   CONFIG,
   SHARE_TYPES,
+  authorizationUploaded,
   has,
   companyCategory,
   filesOf,
@@ -255,7 +256,7 @@ export function validate(data: ApplicationData): ValidationError[] {
     ...setupErrors(data.setup),
     ...(data.confirm.accurate
       ? []
-      : [{ section: 4, id: 'accurate', msg: '请勾选信息真实性确认' }]),
+      : [{ section: 5, id: 'accurate', msg: '请勾选信息真实性确认' }]),
   ];
 }
 
@@ -305,6 +306,9 @@ export function sectionTouched(data: ApplicationData, section: number): boolean 
       return data.roles.length > 0;
     case 3:
       return Object.values(data.setup).some((value) => (typeof value === 'boolean' ? value : has(value)));
+    case 4:
+      // 委托书这一步只有「传没传」一个信号；不参与提交拦截，故 validate 里没有对应规则
+      return authorizationUploaded(data);
     default:
       return data.confirm.accurate || (isPureNatural(data) && data.confirm.exemption);
   }

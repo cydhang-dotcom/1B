@@ -16,9 +16,11 @@ import {
   CONFIG,
   ROLES,
   companyCategory,
+  emptyAuthorization,
   has,
   personOf,
   titleOf,
+  trusteeOf,
   type ApplicationData,
   type Attachment,
   type PhotoSlot,
@@ -129,6 +131,16 @@ export function flatten(data: ApplicationData): FlatValues {
   flat['固定年限'] = setup.termYears;
   flat['员工人数'] = setup.employees;
   // setup.legacyTerm 只是旧草稿的迁移暂存处，不属于业务数据，不写进扁平值
+
+  /* -------------------------------------------------------------- 委托书 */
+
+  // 老草稿或手搓对象可能还没有这一段，缺的时候按空委托书取值
+  const authorization = data.authorization ?? emptyAuthorization();
+  // 姓名走 trusteeOf 而不是 trusteeNameOf：后者没确定时会返回全角空格，违反「空值写 ''」
+  flat['受托人姓名'] = trusteeOf(data).name;
+  flat['受托人身份证号'] = authorization.trusteeIdNumber;
+  flat['委托书已上传'] = authorization.files.length ? '已上传' : '未上传';
+  flat['委托书份数'] = String(authorization.files.length);
 
   /* ---------------------------------------------------------------- 确认 */
 

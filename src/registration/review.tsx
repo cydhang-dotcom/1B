@@ -1,59 +1,62 @@
-import { ArrowUpRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { formatSize, slotLabel } from './files';
+import { formatSize, openAttachment } from './files';
 import {
+  authorizationUploaded,
   companyCategory,
   filesOf,
   has,
   isPureNatural,
   personOf,
   titleOf,
+  trusteeOf,
   type ApplicationData,
   type Attachment,
   type Person,
 } from './model';
-import { Checkbox, Panel, TEXT_BUTTON } from './ui';
+import { Checkbox, Panel, attachmentState } from './ui';
 import type { ErrorMap } from './steps';
 
-/** 一条「标签 + 值」的核对行，空值显示为破折号 */
+/**
+ * 类名与 DOM 结构对齐 企业注册服务申请系统-6.html；
+ * 样式在 design.css，改动前先改原型。
+ */
+
+/** 一条「标签 + 值」的核对行，空值显示为未填写，对应原型 row() */
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex gap-4 border-b border-stone-100 py-2.5 last:border-0">
-      <dt className="w-28 shrink-0 text-xs text-stone-400">{label}</dt>
-      <dd className="min-w-0 flex-1 whitespace-pre-line break-words text-sm text-stone-700">
-        {value === null || value === undefined || value === '' ? <span className="text-stone-300">—</span> : value}
-      </dd>
+    <div className="review-line">
+      <dt>{label}</dt>
+      <dd>{value === null || value === undefined || value === '' ? <span className="muted">未填写</span> : value}</dd>
     </div>
   );
 }
 
+/** 已上传附件：点开预览或下载，对应原型 reviewFiles() */
 function AttachmentList({ files }: { files: Attachment[] }) {
   if (!files.length) return null;
   return (
-    <ul className="mt-2 flex flex-wrap gap-2">
+    <div className="review-files">
       {files.map((file) => (
-        <li
-          key={file.id}
-          className="rounded-lg border border-stone-200 bg-stone-50 px-2.5 py-1.5 text-[11px] text-stone-500"
-        >
-          {file.slot ? `${slotLabel(file.slot)} · ` : ''}
-          {file.name} · {formatSize(file.size)}
-        </li>
+        <button key={file.id} type="button" onClick={() => openAttachment(file)}>
+          ▧ {file.name} · {formatSize(file.size)}
+        </button>
       ))}
-    </ul>
+    </div>
   );
 }
 
+/** 自然人的联系信息与附件，对应原型 personSummary() */
 function PersonBlock({ person, files }: { person: Person; files: Attachment[] }) {
   return (
     <>
-      <dl>
+      <dl className="review-block">
         <Row label="联系电话" value={person.phone} />
         <Row label="电子邮箱" value={person.email} />
         <Row label="学历" value={person.education} />
         <Row label="居住地址" value={person.address} />
       </dl>
+      {attachmentState(files)}
       <AttachmentList files={files} />
     </>
   );
@@ -77,30 +80,28 @@ export function ReviewStep({
   const submitted = data.status === 'submitted';
 
   const edit = (section: number) => (
-    <button type="button" className={`${TEXT_BUTTON} inline-flex items-center gap-1`} onClick={() => onEditSection(section)}>
-      修改
-      <ArrowUpRight size={13} aria-hidden="true" />
+    <button type="button" className="text" onClick={() => onEditSection(section)}>
+      修改 ↗
     </button>
   );
 
   return (
-    <div className="grid gap-5">
+    <>
       {submitted && (
-        <div className="rounded-2xl border border-[#66cdb5]/40 bg-[#e8f7f3] px-5 py-4">
-          <h2 className="text-sm font-bold text-[#3f7d6d]">✓ 演示提交已完成</h2>
-          <p className="mt-1.5 text-xs leading-6 text-[#3f7d6d]/80">
-            此申请仅保存在当前浏览器，尚未发送给服务人员。
-            <br />
+        <div className="success-box">
+          <h2>✓ 演示提交已完成</h2>
+          <p>此申请仅保存在当前浏览器，尚未发送给服务人员。</p>
+          <p>
             提交时间：{data.submittedAt} · 验证手机：{data.submissionPhone}
           </p>
-          <button type="button" className={`${TEXT_BUTTON} mt-1.5`} onClick={onExport}>
+          <button type="button" className="text" onClick={onExport}>
             导出完整申请资料 ↓
           </button>
         </div>
       )}
 
-      <Panel title="企业基本信息" number="01" action={edit(0)}>
-        <dl>
+      <Panel title="企业基本信息" action={edit(0)}>
+        <dl className="review-block">
           <Row label="组织形式" value={basic.org === '其他' ? basic.orgOther : basic.org} />
           <Row label="企业简介" value={basic.intro} />
           <Row label="主营服务简介" value={basic.service} />
@@ -118,75 +119,68 @@ export function ReviewStep({
         </dl>
       </Panel>
 
-      <Panel title="股东及出资" subtitle={`${data.shareholders.length} 位股东`} number="02" action={edit(1)}>
+      <Panel title="股东及出资" subtitle={`${data.shareholders.length} 位股东`} action={edit(1)}>
         {data.shareholders.length === 0 ? (
-          <p className="text-sm text-stone-400">尚未添加股东</p>
+          <span className="muted">尚未添加股东</span>
         ) : (
-          <div className="grid gap-3">
-            {data.shareholders.map((record) => {
-              const person = personOf(data, record);
-              const files = filesOf(record, person);
-              return (
-                <div key={record.id} className="rounded-xl border border-stone-200/80 bg-stone-50/40 p-4">
-                  <h3 className="flex flex-wrap items-center gap-2 text-sm font-bold text-stone-800">
-                    {titleOf(record, person) || '未填写'}
-                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-stone-500">
-                      {record.type}
-                    </span>
-                  </h3>
-                  {record.type === '自然人' ? (
-                    <PersonBlock person={person} files={files} />
-                  ) : (
-                    <>
-                      <dl>
-                        {record.type === '企业' ? (
-                          <Row label="统一社会信用代码" value={record.code} />
-                        ) : (
-                          <Row label="股东说明" value={record.name} />
-                        )}
-                      </dl>
-                      <AttachmentList files={files} />
-                    </>
-                  )}
-                  <dl>
-                    <Row label="出资比例" value={has(record.ratio) ? `${record.ratio} %` : ''} />
-                    <Row label="出资金额" value={has(record.amount) ? `${record.amount} 万元` : ''} />
-                    <Row label="出资形式" value={record.method.join('、')} />
-                  </dl>
-                </div>
-              );
-            })}
-          </div>
+          data.shareholders.map((record) => {
+            const person = personOf(data, record);
+            const files = filesOf(record, person);
+            return (
+              <div key={record.id} className="review-person">
+                <h3>
+                  {titleOf(record, person) || '未填写'} <span className="tag">{record.type}</span>
+                </h3>
+                {record.type === '自然人' ? (
+                  <PersonBlock person={person} files={files} />
+                ) : (
+                  <>
+                    <dl className="review-block">
+                      {record.type === '企业' ? (
+                        <Row label="统一社会信用代码" value={record.code} />
+                      ) : (
+                        <Row label="股东说明" value={record.name} />
+                      )}
+                    </dl>
+                    <AttachmentList files={files} />
+                  </>
+                )}
+                <dl className="review-block">
+                  <Row label="出资比例" value={has(record.ratio) ? `${record.ratio} %` : ''} />
+                  <Row label="出资金额" value={has(record.amount) ? `${record.amount} 万元` : ''} />
+                  <Row label="出资形式" value={record.method.join('、')} />
+                </dl>
+              </div>
+            );
+          })
         )}
       </Panel>
 
-      <Panel title="企业主要人员" number="03" action={edit(2)}>
+      <Panel title="企业主要人员" action={edit(2)}>
         {data.roles.length === 0 ? (
-          <p className="text-sm text-stone-400">尚未添加人员</p>
+          <span className="muted">尚未添加人员</span>
         ) : (
-          <div className="grid gap-3">
-            {data.roles.map((record) => {
-              const person = personOf(data, record);
-              return (
-                <div key={record.id} className="rounded-xl border border-stone-200/80 bg-stone-50/40 p-4">
-                  <h3 className="flex flex-wrap items-center gap-2 text-sm font-bold text-stone-800">
-                    {person.name || '未填写'}
-                    {record.roles.map((role) => (
-                      <span key={role} className="rounded-full bg-white px-2 py-0.5 text-[10px] font-bold text-stone-500">
-                        {role}
-                      </span>
-                    ))}
-                  </h3>
-                  <PersonBlock person={person} files={person.files} />
-                </div>
-              );
-            })}
-          </div>
+          data.roles.map((record) => {
+            const person = personOf(data, record);
+            return (
+              <div key={record.id} className="review-person">
+                <h3>
+                  {person.name}{' '}
+                  {record.roles.map((role) => (
+                    <span key={role} className="tag">
+                      {role}
+                    </span>
+                  ))}
+                </h3>
+                <PersonBlock person={person} files={person.files} />
+              </div>
+            );
+          })
         )}
       </Panel>
 
-      <Panel title="企业设立信息" number="04" action={edit(3)}>
-        <dl>
+      <Panel title="企业设立信息" action={edit(3)}>
+        <dl className="review-block">
           <Row label="董事会" value={setup.board} />
           {setup.board === '设董事会' ? (
             <Row label="董事人数" value={setup.directors} />
@@ -216,62 +210,75 @@ export function ReviewStep({
         </dl>
       </Panel>
 
-      <Panel title="免申报受益所有人信息承诺" subtitle="选填；不作承诺也可继续提交。" number="05">
+      <Panel
+        title="委托书办理"
+        subtitle={
+          authorizationUploaded(data)
+            ? `已上传 ${data.authorization.files.length} 份委托书`
+            : '尚未上传已签署委托书'
+        }
+        action={edit(4)}
+      >
+        <dl className="review-block">
+          <Row label="受托人姓名" value={trusteeOf(data).name} />
+          <Row label="受托人身份证号" value={data.authorization.trusteeIdNumber} />
+        </dl>
+        {authorizationUploaded(data) ? (
+          <AttachmentList files={data.authorization.files} />
+        ) : (
+          <span className="muted">尚未上传已签署的委托书</span>
+        )}
+      </Panel>
+
+      <Panel title="免申报受益所有人信息承诺" subtitle="选填；不作承诺也可继续提交。" number="06">
         {natural ? (
-          <div className="grid gap-3">
-            <Checkbox
-              id="exemption"
-              checked={confirm.exemption}
-              onChange={(exemption) => onConfirm({ exemption })}
-            >
+          <div className="exemption-option">
+            <Checkbox id="exemption" checked={confirm.exemption} onChange={(exemption) => onConfirm({ exemption })}>
               我确认本企业股东均为自然人，申请免申报受益所有人信息，并同意由服务人员核验适用条件。
             </Checkbox>
-            {confirm.exemption && (
-              <p className="rounded-xl bg-[#e8f7f3] px-4 py-2.5 text-xs font-semibold text-[#3f7d6d]">
-                已作出承诺 · 适用条件待核验
-              </p>
-            )}
+            {confirm.exemption && <div className="exemption-status">已作出承诺 · 适用条件待核验</div>}
           </div>
         ) : (
-          <p className="text-xs leading-6 text-stone-400">
+          <p className="exemption-unavailable">
             {data.shareholders.length
               ? '本申请含企业或其他类型股东，不作免申报承诺。'
               : '填写股东信息后，可按实际情况选择是否作出承诺。'}
           </p>
         )}
-        <p className="mt-3 text-xs leading-5 text-stone-400">不满足条件或不作承诺时，无需填写受益所有人信息。</p>
-        <details className="mt-3 rounded-xl bg-stone-50 px-4 py-3">
-          <summary className="cursor-pointer text-xs font-semibold text-stone-600">查看承诺条件</summary>
-          <div className="mt-3 grid gap-2 text-xs text-stone-500">
-            <div className="flex flex-wrap justify-between gap-2">
-              <span>股东构成：{companyCategory(data)}</span>
-              <span className={natural ? 'font-semibold text-[#3f9d87]' : ''}>
-                {natural ? '全部为自然人' : data.shareholders.length ? '不满足股东类型条件' : '待填写'}
-              </span>
-            </div>
-            <div className="flex flex-wrap justify-between gap-2">
-              <span>
-                注册资本：
-                {basic.expert ? '专家推荐，金额待定' : basic.capital ? `${basic.capital} 万元` : '未填写'}
-              </span>
-              <span>门槛待确认</span>
-            </div>
-            <div className="flex flex-wrap justify-between gap-2">
-              <span>出资比例、控制权及其他条件</span>
-              <span>待核验</span>
-            </div>
-            <p className="text-[11px] leading-5 text-stone-400">
-              本页按项目业务规则记录承诺，不自动认定免申报资格。
-            </p>
+        <div className="exemption-help">不满足条件或不作承诺时，无需填写受益所有人信息。</div>
+        <details className="exemption-details">
+          <summary>查看承诺条件</summary>
+          <div className="condition">
+            <span>股东构成：{companyCategory(data)}</span>
+            <span className={natural ? 'yes' : ''}>
+              {natural ? '全部为自然人' : data.shareholders.length ? '不满足股东类型条件' : '待填写'}
+            </span>
           </div>
+          <div className="condition">
+            <span>
+              注册资本：
+              {basic.expert ? '专家推荐，金额待定' : basic.capital ? `${basic.capital} 万元` : '未填写'}
+            </span>
+            <span>门槛待确认</span>
+          </div>
+          <div className="condition">
+            <span>出资比例、控制权及其他条件</span>
+            <span>待核验</span>
+          </div>
+          <div className="hint">本页按项目业务规则记录承诺，不自动认定免申报资格。</div>
         </details>
       </Panel>
 
-      <Panel title="信息确认" number="06">
-        <Checkbox id="accurate" checked={confirm.accurate} onChange={(accurate) => onConfirm({ accurate })} error={errors.accurate}>
+      <Panel title="信息确认" number="07">
+        <Checkbox
+          id="accurate"
+          checked={confirm.accurate}
+          onChange={(accurate) => onConfirm({ accurate })}
+          error={errors.accurate ?? ''}
+        >
           我已核对本次申请信息，确认所填内容及提供的资料真实、完整，并同意服务人员就申请事项与我联系。
         </Checkbox>
       </Panel>
-    </div>
+    </>
   );
 }

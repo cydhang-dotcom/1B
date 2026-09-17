@@ -32,6 +32,20 @@ export async function readFiles(list: FileList | File[]): Promise<Attachment[]> 
   );
 }
 
+/** 打开附件：图片在新标签页预览，其他格式走下载 */
+export function openAttachment(file: Attachment): void {
+  if (isPreviewableImage(file.type)) {
+    window.open(file.data, '_blank', 'noopener');
+    return;
+  }
+  const anchor = document.createElement('a');
+  anchor.href = file.data;
+  anchor.download = file.name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 /** 某个证件位置上的附件 */
 export const slotFile = (files: Attachment[], slot: PhotoSlot): Attachment | undefined =>
   files.find((file) => file.slot === slot);

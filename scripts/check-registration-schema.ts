@@ -2,6 +2,7 @@
  * 注册申请校验规则自检：直接跑纯函数，不经过浏览器。
  *   npx tsx scripts/check-registration-schema.ts
  */
+import { migrateDraft } from '../src/registration/draft';
 import { flatten } from '../src/registration/flat';
 import {
   CONFIG,
@@ -303,6 +304,36 @@ ok('完整申请没有报错', validate(validData()).length === 0);
   ok('免申报承诺选填', validate(data).length === 0);
 }
 
+/* ---------------------------------------------------------------- 委托书 */
+
+{
+  const data = validData();
+  ok('未上传委托书不影响提交', validate(data).length === 0);
+}
+{
+  // 老草稿没有 authorization，迁移要能补出来，并且历史的多份附件收敛成一份
+  const legacy = validData() as Partial<ApplicationData>;
+  delete legacy.authorization;
+  const migrated = migrateDraft(legacy as ApplicationData);
+  ok('老草稿补出委托书结构', Array.isArray(migrated.authorization.files));
+  ok('老草稿补出的委托书未上传', migrated.authorization.files.length === 0);
+}
+{
+  // 委托日期改为线下手写，模型里不再留自动生成的日期
+  ok('委托书结构里没有自动日期', !('entrustDate' in initial().authorization));
+}
+{
+  const data = validData();
+  const files = [1, 2, 3].map((n) => ({
+    id: uid(),
+    name: `委托书${n}.png`,
+    size: 10,
+    type: 'image/png',
+    data: 'data:image/png;base64,AA==',
+  }));
+  ok('迁移把多份委托书收敛成一份', migrateDraft({ ...data, authorization: { ...data.authorization, files } }).authorization.files.length === 1);
+}
+
 /* --------------------------------------------------- 记录级校验与导航状态 */
 
 {
@@ -328,7 +359,24 @@ ok('完整申请没有报错', validate(validData()).length === 0);
   ok('空申请的设立信息未完成', !setupComplete(data.setup));
   const filled = validData();
   ok('填写后的设立信息完成', setupComplete(filled.setup));
-  ok('填写后的确认步骤已触碰', sectionTouched(filled, 4));
+  ok('填写后的确认步骤已触碰', sectionTouched(filled, 5));
+  // 委托书只看传没传，且不参与提交拦截
+  ok('空申请的委托书未触碰', !sectionTouched(data, 4));
+  const signed = { id: uid(), name: '委托书.png', size: 10, type: 'image/png', data: 'data:image/png;base64,AA==' };
+  ok(
+    '上传后委托书章节已触碰',
+    sectionTouched({ ...data, authorization: { ...data.authorization, files: [signed] } }, 4),
+  );
+  ok(
+    '未上传委托书不影响提交校验',
+    !validate(validData()).some((error) => error.section === 4),
+  );
+  ok(
+    '信息真实性确认归属第 6 步',
+    validate({ ...validData(), confirm: { exemption: false, accurate: false } }).some(
+      (error) => error.id === 'accurate' && error.section === 5,
+    ),
+  );
 }
 
 /* -------------------------------------------------------------- 扁平化输出 */
@@ -336,6 +384,14 @@ ok('完整申请没有报错', validate(validData()).length === 0);
 {
   const flat = flatten(validData());
   ok('扁平值全部是字符串', Object.values(flat).every((value) => typeof value === 'string'));
+  ok(
+    '委托书扁平值取联系人且不含日期',
+    flat['受托人姓名'] === '张三' &&
+      flat['委托书已上传'] === '未上传' &&
+      flat['委托书份数'] === '0' &&
+      !('委托日期' in flat),
+  );
+  ok('未确定受托人时姓名留空而非全角空格', flatten(initial())['受托人姓名'] === '');
   ok('企业名称按序号展开', flat['拟注册名称1'] === '班步测试企业' && flat['拟注册名称2'] === '');
   ok('股东序号从 1 开始', flat['股东1类型'] === '自然人' && flat['股东1名称'] === '张三');
   ok('股东出资字段完整', flat['股东1出资比例'] === '100' && flat['股东1出资形式'] === '货币');

@@ -1,10 +1,11 @@
-import { ArrowLeft, ArrowRight, ArrowUpRight, Check, Download, HelpCircle, Upload } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { AuthorizationStep } from './authorization';
 import { RecordDialog, type EditTarget } from './dialogs';
-import { exportDraft, importDraftFile, loadDraft, nowStamp, storeDraft } from './draft';
+import { exportDraft, loadDraft, nowStamp, storeDraft } from './draft';
 import { HelpDialog } from './help';
 import {
+  CONFIG,
   SHORT,
   SUBS,
   TITLES,
@@ -25,7 +26,12 @@ import {
 import { ReviewStep } from './review';
 import { sectionTouched, setupComplete, validate } from './schema';
 import { BasicStep, PersonnelStep, SetupStep, ShareholderStep } from './steps';
-import { Dialog, Field, PRIMARY_BUTTON, SECONDARY_BUTTON, TEXT_BUTTON } from './ui';
+import { Dialog, Field } from './ui';
+
+/**
+ * 类名与 DOM 结构对齐 企业注册服务申请系统-6.html；
+ * 样式在 design.css，改动前先改原型。
+ */
 
 type SectionState = 'blank' | 'partial' | 'complete';
 
@@ -35,57 +41,8 @@ const STATE_LABEL: Record<SectionState, string> = {
   complete: '全部填写完成',
 };
 
-/** 章节导航：桌面端放在侧栏，窄屏放在正文顶部（标签改用简称） */
-function NavList({
-  labels,
-  step,
-  states,
-  onGo,
-  compact = false,
-}: {
-  labels: readonly string[];
-  step: number;
-  states: SectionState[];
-  onGo: (index: number) => void;
-  compact?: boolean;
-}) {
-  return (
-    <nav
-      className={compact ? 'grid grid-cols-2 gap-1.5' : 'mt-4 grid gap-1.5'}
-      aria-label="申请章节"
-    >
-      {labels.map((label, index) => (
-        <button
-          key={label}
-          type="button"
-          onClick={() => onGo(index)}
-          aria-current={index === step ? 'step' : undefined}
-          title={`${TITLES[index]}：${STATE_LABEL[states[index]]}`}
-          className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors ${
-            index === step
-              ? 'border-[#66cdb5]/60 bg-[#e8f7f3] font-bold text-[#3f7d6d]'
-              : 'border-transparent text-stone-500 hover:bg-stone-100'
-          }`}
-        >
-          <span className="text-[10px] font-bold text-stone-400">{String(index + 1).padStart(2, '0')}</span>
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          <span
-            aria-label={STATE_LABEL[states[index]]}
-            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold ${
-              states[index] === 'complete'
-                ? 'bg-[#66cdb5] text-white'
-                : states[index] === 'partial'
-                  ? 'bg-amber-100 text-amber-600'
-                  : 'bg-stone-200'
-            }`}
-          >
-            {states[index] === 'complete' ? <Check size={10} aria-hidden="true" /> : null}
-          </span>
-        </button>
-      ))}
-    </nav>
-  );
-}
+/** 窄屏下导航标签换成简称，断点与原型一致 */
+const NARROW = 760;
 
 const SHARE_TYPE_CARDS: Array<{ type: ShareType; icon: string; desc: string }> = [
   { type: '自然人', icon: '♙', desc: '个人股东' },
@@ -108,6 +65,8 @@ export default function RegistrationApp() {
   const [modal, setModal] = useState<ModalState>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [narrow, setNarrow] = useState(() => window.innerWidth <= NARROW);
+  const barRef = useRef<HTMLDivElement>(null);
 
   // 短信验证是本地演示：验证码只在页面上显示，不发送也不校验真实短信
   const [sms, setSms] = useState<{ phone: string; code: string; expires: number } | null>(null);
@@ -115,7 +74,13 @@ export default function RegistrationApp() {
   const [verifyCode, setVerifyCode] = useState('');
   const [verifyError, setVerifyError] = useState('');
 
-  const errors = useMemo<ValidationError[]>(() => (attempted ? validate(data) : []), [attempted, data]);
+  /**
+   * 导航上的「完成 / 未完成」始终按真实校验结果算，与用户点没点过提交无关。
+   * 否则填一个字段就先冒出一个 ✓，一点提交又整排退回未完成。
+   */
+  const allErrors = useMemo<ValidationError[]>(() => validate(data), [data]);
+  /** 页面上要显示的报错：点过提交之后才提示，避免刚打开就满屏红字 */
+  const errors = useMemo<ValidationError[]>(() => (attempted ? allErrors : []), [attempted, allErrors]);
 
   useEffect(() => {
     let alive = true;
@@ -148,6 +113,31 @@ export default function RegistrationApp() {
     return () => window.removeEventListener('beforeunload', guard);
   }, [dirty]);
 
+  useEffect(() => {
+    const onResize = () => setNarrow(window.innerWidth <= NARROW);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // 底部操作栏是 fixed 定位，高度写进 --actionbar-height 让正文留白与 toast 让位
+  useEffect(() => {
+    const node = barRef.current;
+    if (!node) return;
+    const sync = () =>
+      document.documentElement.style.setProperty(
+        '--actionbar-height',
+        `${Math.ceil(node.getBoundingClientRect().height)}px`,
+      );
+    sync();
+    const observer = new ResizeObserver(sync);
+    observer.observe(node);
+    window.addEventListener('resize', sync);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', sync);
+    };
+  }, [loading]);
+
   /** 任何填写动作都会让「信息确认」与「免申报承诺」失效，需要重新勾选 */
   const update = (mutate: (draft: ApplicationData) => ApplicationData) => {
     setData((current) => {
@@ -167,6 +157,9 @@ export default function RegistrationApp() {
 
   const patchSetup = (patch: Partial<ApplicationData['setup']>) =>
     update((draft) => ({ ...draft, setup: { ...draft.setup, ...patch } }));
+
+  const patchAuthorization = (patch: Partial<ApplicationData['authorization']>) =>
+    update((draft) => ({ ...draft, authorization: { ...draft.authorization, ...patch } }));
 
   const patchConfirm = (patch: Partial<ConfirmInfo>) => {
     setData((current) => {
@@ -307,20 +300,6 @@ export default function RegistrationApp() {
     return snapshot;
   };
 
-  const importDraft = async (file: File) => {
-    try {
-      const imported = await importDraftFile(file);
-      setData(imported);
-      setDirty(true);
-      setAttempted(false);
-      setStep(0);
-      setModal(null);
-      setToast('草稿已导入，暂存后写入当前浏览器');
-    } catch (cause) {
-      setToast(cause instanceof Error ? cause.message : '草稿导入失败');
-    }
-  };
-
   /* -------------------------------------------------------------- 提交 */
 
   const go = (target: number) => {
@@ -388,11 +367,7 @@ export default function RegistrationApp() {
       setVerifyError('请先获取演示验证码');
       return;
     }
-    if (
-      Date.now() > sms.expires ||
-      verifyPhone.trim() !== sms.phone ||
-      verifyCode.trim() !== sms.code
-    ) {
+    if (Date.now() > sms.expires || verifyPhone.trim() !== sms.phone || verifyCode.trim() !== sms.code) {
       setVerifyError('手机号或验证码不匹配，或验证码已过期');
       return;
     }
@@ -419,7 +394,7 @@ export default function RegistrationApp() {
   const sectionStates = TITLES.map((_, index) => {
     if (!sectionTouched(data, index)) return 'blank' as SectionState;
     if (index === 3 && !setupComplete(data.setup)) return 'partial' as SectionState;
-    return errors.some((error) => error.section === index) ? 'partial' : 'complete';
+    return allErrors.some((error) => error.section === index) ? 'partial' : 'complete';
   });
   const completed = sectionStates.filter((state) => state === 'complete').length;
   const visibleErrors = errors.filter((error) => error.section === step);
@@ -438,101 +413,107 @@ export default function RegistrationApp() {
     );
 
   const status = dirty ? '填写中' : data.status === 'submitted' ? '已演示提交' : data.savedAt ? '已暂存' : '填写中';
-  const saveLabel = dirty
-    ? '有修改，尚未暂存'
-    : data.savedAt
-      ? `已暂存 ${data.savedAt}`
-      : '草稿尚未暂存';
+  const saveLabel = dirty ? '有修改，尚未暂存' : data.savedAt ? `已暂存 ${data.savedAt}` : '草稿尚未暂存';
+  const shareable = data.status === 'submitted' && /^https?:$/.test(window.location.protocol);
 
   if (loading) {
-    return <div className="flex min-h-screen items-center justify-center text-sm text-stone-400">正在载入本地草稿…</div>;
+    return <div className="registration-app muted">正在载入本地草稿…</div>;
   }
 
   return (
-    <div className="registration-app min-h-screen bg-stone-50 pb-32 text-stone-800">
-      <header className="sticky top-0 z-30 flex h-[76px] items-center justify-between gap-4 border-b border-stone-200 bg-white px-[max(28px,calc((100vw_-_1224px)/2))]">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#66cdb5] text-sm font-black text-white">
-            b
-          </span>
-          <span className="truncate text-sm font-bold">
+    <div className="registration-app">
+      <header className="topbar">
+        <div className="brand">
+          <div className="brandmark">b</div>
+          <div className="brandname">
             班步一企通
-            <small className="ml-2 text-[10px] font-medium tracking-widest text-stone-400">BANBU ONEBIZ</small>
-          </span>
-          <span className="hidden border-l border-stone-200 pl-3 text-xs text-stone-500 sm:block">企业设立服务</span>
+            <small>BANBU ONEBIZ</small>
+          </div>
+          <div className="bar-divider" />
+          <span className="bar-title">企业设立服务</span>
         </div>
-        <span className="hidden text-xs text-stone-500 sm:block">企业注册服务申请</span>
+        <span className="header-caption">企业注册服务申请</span>
       </header>
 
-      <div className="mx-auto flex max-w-[1280px] gap-10 px-7 pt-[34px]">
-        <aside className="hidden w-[220px] shrink-0 self-start lg:sticky lg:top-[108px] lg:block">
-          <p className="text-[10px] font-bold tracking-[2px] text-[#42a98f]">COMPANY INCORPORATION</p>
-          <h2 className="mt-1 text-[19px] font-bold">开启您的企业旅程</h2>
-          <div className="mt-5 flex items-center justify-between text-xs text-stone-500">
+      <div className="shell">
+        <aside className="sidebar">
+          <div className="eyebrow">COMPANY INCORPORATION</div>
+          <div className="side-title">开启您的企业旅程</div>
+          <div className="progress-label">
             <span>申请填写进度</span>
             <span>
               {completed} / {TITLES.length}
             </span>
           </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-200">
-            <div
-              className="h-full rounded-full bg-[#66cdb5] transition-all"
-              style={{ width: `${(completed / TITLES.length) * 100}%` }}
-            />
+          <div className="progress">
+            <div style={{ width: `${(completed / TITLES.length) * 100}%` }} />
           </div>
-
-          <NavList labels={TITLES} step={step} states={sectionStates} onGo={go} />
-
-          <p className="mt-5 rounded-xl bg-white p-4 text-[11px] leading-5 text-stone-500">
-            <strong className="mb-1 block text-stone-700">按您的节奏，安心填写</strong>
-            可随时暂存，稍后继续。已有人员可直接复用，无需重复填写与上传。
-          </p>
-          <p className="mt-4 text-[11px] leading-5 text-stone-400">
+          <nav className="nav" aria-label="申请章节">
+            {TITLES.map((title, index) => (
+              <button
+                key={title}
+                type="button"
+                className={index === step ? 'active' : undefined}
+                aria-current={index === step ? 'step' : undefined}
+                title={`${title}：${STATE_LABEL[sectionStates[index]]}`}
+                onClick={() => go(index)}
+              >
+                <span className="nav-no">{String(index + 1).padStart(2, '0')}</span>
+                <span className="nav-text">
+                  <span className="desktop-title">{narrow ? SHORT[index] : title}</span>
+                </span>
+                <span className={`state ${sectionStates[index]}`} aria-label={STATE_LABEL[sectionStates[index]]}>
+                  {sectionStates[index] === 'complete' ? '✓' : ''}
+                </span>
+              </button>
+            ))}
+          </nav>
+          <div className="side-note">
+            <strong>按您的节奏，安心填写</strong>可随时暂存，稍后继续。
+            <br />
+            已有人员可直接复用，
+            <br />
+            无需重复填写与上传。
+          </div>
+          <div className="side-bottom">
             企业申请人 · 企业设立服务人员
             <br />
-            申请表版本 2026.09.14
-          </p>
+            申请表版本 {CONFIG.version.replaceAll('-', '.')}
+          </div>
         </aside>
 
-        <main className="min-w-0 flex-1">
-          <div className="mb-5 lg:hidden">
-            <NavList labels={SHORT} step={step} states={sectionStates} onGo={go} compact />
-          </div>
-
-          <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <main className="main">
+          <div className="intro">
             <div>
-              <p className="text-[10px] font-bold tracking-[2px] text-[#42a98f]">
+              <div className="eyebrow" id="chapterLabel">
                 APPLICATION / {String(step + 1).padStart(2, '0')}
-              </p>
-              <h1 className="mt-1 text-[29px] font-bold leading-[1.3] tracking-[-0.7px]">{TITLES[step]}</h1>
-              <p className="mt-1 text-[13px] text-stone-500">{SUBS[step]}</p>
+              </div>
+              <h1 id="pageTitle">{TITLES[step]}</h1>
+              <p id="pageSubtitle">{SUBS[step]}</p>
             </div>
-            <div className="text-right">
-              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-stone-500">{status}</span>
-              <p className="mt-1.5 text-[10px] font-bold tracking-widest text-stone-400">
+            <div>
+              <span className="badge" id="appStatus">
+                {status}
+              </span>
+              <div className="step-count" id="stepCount">
                 STEP {String(step + 1).padStart(2, '0')} / {String(TITLES.length).padStart(2, '0')}
-              </p>
+              </div>
             </div>
           </div>
 
-          <div aria-live="polite">
+          <div id="errorSummary" aria-live="polite">
             {visibleErrors.length > 0 && (
-              <div className="mb-4 rounded-2xl border border-red-200 bg-red-50/70 px-5 py-4">
-                <strong className="text-xs font-bold text-red-600">
-                  本章节有 {visibleErrors.length} 项需要完善
-                </strong>
-                <div className="mt-2 grid gap-1">
-                  {visibleErrors.map((error) => (
-                    <button
-                      key={`${error.id}-${error.msg}`}
-                      type="button"
-                      onClick={() => jumpError(errors, errors.indexOf(error))}
-                      className="text-left text-xs leading-5 text-red-500 hover:underline"
-                    >
-                      {error.msg} ↗
-                    </button>
-                  ))}
-                </div>
+              <div className="errors-box">
+                <strong>本章节有 {visibleErrors.length} 项需要完善</strong>
+                {visibleErrors.map((error) => (
+                  <button
+                    key={`${error.id}-${error.msg}`}
+                    type="button"
+                    onClick={() => jumpError(errors, errors.indexOf(error))}
+                  >
+                    {error.msg} ↗
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -563,14 +544,11 @@ export default function RegistrationApp() {
               roleError={errorAt('roles')}
             />
           )}
-          {step === 3 && (
-            <SetupStep
-              setup={data.setup}
-              onChange={patchSetup}
-              errors={fieldErrors}
-            />
-          )}
+          {step === 3 && <SetupStep setup={data.setup} onChange={patchSetup} errors={fieldErrors} />}
           {step === 4 && (
+            <AuthorizationStep data={data} onPatch={patchAuthorization} onToast={setToast} />
+          )}
+          {step === 5 && (
             <ReviewStep
               data={data}
               errors={fieldErrors}
@@ -580,71 +558,45 @@ export default function RegistrationApp() {
             />
           )}
 
-          <footer className="mt-8 flex flex-wrap justify-between gap-2 text-[11px] text-stone-400">
+          <footer className="page-footer">
             <span>班步一企通 · 企业注册服务申请</span>
             <span>交互演示版 · 短信与提交未接入服务</span>
           </footer>
         </main>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1224px] flex-wrap items-center gap-x-[22px] gap-y-3 px-7 py-3.5">
-          <span role="status" className="text-xs font-semibold text-stone-500">
-            {saveLabel}
-          </span>
-          <span className="hidden text-[11px] text-stone-400 sm:block">带 * 的字段为必填项</span>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <button type="button" className={TEXT_BUTTON} onClick={() => setModal({ kind: 'help' })}>
-              <HelpCircle size={13} className="mr-1 inline" aria-hidden="true" />
+      <div className="bottom-nav" ref={barRef} aria-label="申请操作栏">
+        <div className="actionbar-inner">
+          <div className="action-meta">
+            <span className="save-label" role="status">
+              {saveLabel}
+            </span>
+            <span id="bottomHint">带 * 的字段为必填项</span>
+          </div>
+          <div className="utility-actions">
+            <button type="button" id="helpBtn" onClick={() => setModal({ kind: 'help' })}>
               帮助
             </button>
-            {data.status === 'submitted' && /^https?:$/.test(window.location.protocol) && (
-              <button type="button" className={TEXT_BUTTON} onClick={() => void copyLink()}>
+            {shareable && (
+              <button type="button" id="copyBtn" onClick={() => void copyLink()}>
                 复制链接
               </button>
             )}
-            <button
-              type="button"
-              className={SECONDARY_BUTTON}
-              onClick={() => {
-                setToast(`草稿已导出 · ${data.basic.names[0] || '未命名'}`);
-                exportDraft(data);
-              }}
-            >
-              <Download size={14} aria-hidden="true" />
-              导出
-            </button>
-            <label className={`${SECONDARY_BUTTON} cursor-pointer`}>
-              <Upload size={14} aria-hidden="true" />
-              导入
-              <input
-                type="file"
-                accept=".json,application/json"
-                className="sr-only"
-                onChange={(event) => {
-                  const picked = event.target.files?.[0];
-                  event.target.value = '';
-                  if (picked) void importDraft(picked);
-                }}
-              />
-            </label>
-            <button type="button" className={SECONDARY_BUTTON} onClick={() => void save()}>
+            <button type="button" id="saveBtn" onClick={() => void save()}>
               暂存
             </button>
-            <button type="button" className={SECONDARY_BUTTON} disabled={step === 0} onClick={() => go(step - 1)}>
-              <ArrowLeft size={14} aria-hidden="true" />
-              上一项
+          </div>
+          <div className="step-actions">
+            <button type="button" id="prevBtn" disabled={step === 0} onClick={() => go(step - 1)}>
+              ← 上一项
             </button>
             {step < TITLES.length - 1 && (
-              <button type="button" className={SECONDARY_BUTTON} onClick={() => go(step + 1)}>
-                下一项
-                <ArrowRight size={14} aria-hidden="true" />
+              <button type="button" id="nextBtn" onClick={() => go(step + 1)}>
+                下一项 →
               </button>
             )}
-            <button type="button" className={PRIMARY_BUTTON} onClick={submitStart}>
-              {step === TITLES.length - 1 ? '确认并提交' : '提交申请'}
-              <ArrowUpRight size={14} aria-hidden="true" />
+            <button type="button" className="primary" id="submitBtn" onClick={submitStart}>
+              {step === TITLES.length - 1 ? '确认并提交 ↗' : '提交申请 ↗'}
             </button>
           </div>
         </div>
@@ -655,25 +607,25 @@ export default function RegistrationApp() {
           title="添加股东"
           onClose={() => setModal(null)}
           footer={
-            <button type="button" className={SECONDARY_BUTTON} onClick={() => setModal(null)}>
-              取消
-            </button>
+            <>
+              <div />
+              <button type="button" onClick={() => setModal(null)}>
+                取消
+              </button>
+            </>
           }
         >
-          <p className="mb-5 text-[13px] text-stone-500">选择股东类型，填写信息及出资安排。</p>
-          <div className="grid grid-cols-3 gap-3">
+          <p className="muted" style={{ margin: '0 0 20px', fontSize: 13 }}>
+            选择股东类型，填写信息及出资安排。
+          </p>
+          <div className="type-cards">
             {SHARE_TYPE_CARDS.map((card) => (
-              <button
-                key={card.type}
-                type="button"
-                onClick={() => openRecord('share', null, card.type)}
-                className="rounded-xl border border-stone-200 bg-white px-2.5 py-[26px] text-center transition-colors hover:border-[#66cdb5] hover:bg-[#f7fcfb]"
-              >
-                <span className="block text-[27px] text-[#4fb69e]" aria-hidden="true">
+              <button key={card.type} type="button" className="type-card" onClick={() => openRecord('share', null, card.type)}>
+                <div style={{ fontSize: 27, color: 'var(--teal)' }} aria-hidden="true">
                   {card.icon}
-                </span>
-                <strong className="mt-2 block text-[15px] font-bold">{card.type}</strong>
-                <span className="mt-0.5 block text-[11px] text-stone-400">{card.desc}</span>
+                </div>
+                <strong>{card.type}</strong>
+                <span>{card.desc}</span>
               </button>
             ))}
           </div>
@@ -694,72 +646,68 @@ export default function RegistrationApp() {
       {modal?.kind === 'verify' && (
         <Dialog
           title="验证手机并提交"
-          error={verifyError}
           onClose={() => setModal(null)}
           footer={
             <>
-              <button type="button" className={SECONDARY_BUTTON} onClick={() => setModal(null)}>
-                取消
-              </button>
-              <button type="button" className={PRIMARY_BUTTON} onClick={() => void verifySubmit(validate(data))}>
-                验证并演示提交
-              </button>
+              <div />
+              <div>
+                <button type="button" onClick={() => setModal(null)}>
+                  取消
+                </button>
+                <button type="button" className="primary" id="verifySubmit" onClick={() => void verifySubmit(validate(data))}>
+                  验证并演示提交
+                </button>
+              </div>
             </>
           }
         >
-          <p className="mb-5 rounded-xl bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-700">
+          <div className="note warm" style={{ marginBottom: 22 }}>
             演示验证：不会发送短信，也不会将申请传给服务人员。
-          </p>
-          <div className="grid gap-4">
-            <Field
-              id="verifyPhone"
-              label="手机号码"
-              required
-              inputMode="tel"
-              value={verifyPhone}
-              placeholder="请输入中国大陆手机号码"
-              onChange={setVerifyPhone}
-            />
-            <div>
-              <div className="flex items-end gap-2.5">
-                <div className="flex-1">
-                  <Field
-                    id="verifyCode"
-                    label="验证码"
-                    required
-                    inputMode="numeric"
-                    value={verifyCode}
-                    placeholder="请输入 6 位演示验证码"
-                    onChange={setVerifyCode}
-                  />
-                </div>
-                <button type="button" className={SECONDARY_BUTTON} onClick={sendDemoCode}>
+          </div>
+          <div className="dialog-error" role="alert">
+            {verifyError}
+          </div>
+          <div className="grid">
+            <div className="full">
+              <Field
+                id="verifyPhone"
+                label="手机号码"
+                required
+                type="tel"
+                inputMode="tel"
+                value={verifyPhone}
+                placeholder="请输入中国大陆手机号码"
+                onChange={setVerifyPhone}
+              />
+            </div>
+            <div className="field full">
+              <label htmlFor="verifyCode">
+                验证码<span className="req">*</span>
+              </label>
+              <div className="verification">
+                <input
+                  id="verifyCode"
+                  inputMode="numeric"
+                  value={verifyCode}
+                  placeholder="请输入 6 位演示验证码"
+                  onChange={(event) => setVerifyCode(event.target.value)}
+                />
+                <button type="button" onClick={sendDemoCode}>
                   获取演示验证码
                 </button>
               </div>
-              {sms && (
-                <p className="mt-1.5 text-xs text-stone-400">
-                  演示验证码：{sms.code}（5 分钟内有效，未发送短信）
-                </p>
-              )}
+              <div className="hint">{sms && `演示验证码：${sms.code}（5 分钟内有效，未发送短信）`}</div>
             </div>
           </div>
         </Dialog>
       )}
 
       {modal?.kind === 'help' && (
-        <HelpDialog
-          onClose={() => setModal(null)}
-          onExport={() => exportDraft(data)}
-          onImport={(file) => void importDraft(file)}
-        />
+        <HelpDialog onClose={() => setModal(null)} />
       )}
 
       {toast && (
-        <div
-          role="status"
-          className="fixed bottom-24 left-1/2 z-40 -translate-x-1/2 rounded-full bg-stone-800 px-5 py-2.5 text-xs font-semibold text-white shadow-lg"
-        >
+        <div className="toast" role="status">
           {toast}
         </div>
       )}

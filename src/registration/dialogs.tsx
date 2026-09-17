@@ -1,7 +1,6 @@
-import { Plus } from 'lucide-react';
 import { useState } from 'react';
 
-import { assignSlot, formatSize, isPreviewableImage, readFiles, replaceSlot } from './files';
+import { assignSlot, formatSize, openAttachment, readFiles, replaceSlot } from './files';
 import {
   CONTRIBUTION_METHODS,
   EDUCATION_OPTIONS,
@@ -17,17 +16,12 @@ import {
   type Shareholder,
 } from './model';
 import { roleDraftErrors, shareholderDraftErrors } from './schema';
-import {
-  ChoiceMulti,
-  Dialog,
-  Field,
-  MODAL_SUBTITLE,
-  PhotoSlots,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-  TEXT_BUTTON,
-  TextArea,
-} from './ui';
+import { ChoiceMulti, ContributionField, Dialog, Field, PhotoSlots } from './ui';
+
+/**
+ * 类名与 DOM 结构对齐 企业注册服务申请系统-6.html；
+ * 样式在 design.css，改动前先改原型。
+ */
 
 /** 打开弹窗时要编辑的记录；linked 表示基础信息来自已有人员，只读 */
 export type EditTarget = {
@@ -60,23 +54,18 @@ function ReuseRow({
 }) {
   if (!people.length) return null;
   return (
-    <div className="mb-4 rounded-xl bg-stone-50 px-4 py-3">
-      <p className="mb-2 text-xs font-semibold text-stone-500">复用已有人员</p>
-      <div className="flex flex-wrap gap-2">
+    <div className="reuse">
+      <div className="reuse-title">复用已有人员</div>
+      <div className="choice-row">
         {people.map((person) => (
           <button
             key={person.id}
             type="button"
             aria-pressed={person.id === activeId}
             onClick={() => onPick(person.id)}
-            className={`rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors ${
-              person.id === activeId
-                ? 'border-[#66cdb5] bg-[#66cdb5] text-white'
-                : 'border-stone-300/70 bg-white text-stone-600 hover:border-[#66cdb5]/60'
-            }`}
+            className={`choice${person.id === activeId ? ' selected' : ''}`}
           >
-            {person.name || '未命名'}
-            {person.phone && <span className="ml-1 font-normal opacity-70">{person.phone.slice(-4)}</span>}
+            {person.name || '未命名'} <span className="muted">{person.phone && person.phone.slice(-4)}</span>
           </button>
         ))}
       </div>
@@ -171,11 +160,12 @@ export function RecordDialog({
     try {
       const [attachment] = await readFiles([file]);
       const current = draft.files;
-      const next = slot === null
-        ? [...current, attachment]
-        : replace
-          ? replaceSlot(current, attachment, slot)
-          : [...current, { ...attachment, slot }];
+      const next =
+        slot === null
+          ? [...current, attachment]
+          : replace
+            ? replaceSlot(current, attachment, slot)
+            : [...current, { ...attachment, slot }];
       withFiles(next);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '无法读取文件');
@@ -211,32 +201,31 @@ export function RecordDialog({
     });
   };
 
-  const title = `${target.isNew ? '添加' : '编辑'}${
-    kind === 'share' ? `${share!.type}股东` : '企业主要人员'
-  }`;
+  const title = `${target.isNew ? '添加' : '编辑'}${kind === 'share' ? `${share!.type}股东` : '企业主要人员'}`;
 
   return (
     <Dialog
       title={title}
       error={error}
+      blockEscape={draft.busy > 0}
       onClose={onClose}
       footer={
         <>
-          {!target.isNew && (
-            <button
-              type="button"
-              className="mr-auto rounded-full px-3 py-1.5 text-xs font-semibold text-red-500 transition-colors hover:bg-red-50"
-              onClick={onDelete}
-            >
-              删除记录
+          <div>
+            {!target.isNew && (
+              <button type="button" className="text danger" onClick={onDelete}>
+                删除记录
+              </button>
+            )}
+          </div>
+          <div>
+            <button type="button" onClick={onClose}>
+              取消
             </button>
-          )}
-          <button type="button" className={SECONDARY_BUTTON} onClick={onClose}>
-            取消
-          </button>
-          <button type="button" className={PRIMARY_BUTTON} disabled={draft.busy > 0} onClick={save}>
-            保存
-          </button>
+            <button type="button" className="primary" disabled={draft.busy > 0} onClick={save}>
+              保存记录
+            </button>
+          </div>
         </>
       }
     >
@@ -244,11 +233,9 @@ export function RecordDialog({
         <>
           <ReuseRow people={people} activeId={draft.linked ? record.personId : null} onPick={pickPerson} />
           {draft.linked && (
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#e8f7f3] px-4 py-2.5">
-              <span className="text-xs leading-5 text-[#3f7d6d]">
-                已关联人员，基础信息只读；照片可修改，保存后同步到关联记录。
-              </span>
-              <button type="button" className={TEXT_BUTTON} onClick={detach}>
+            <div className="read-only-note">
+              <span>已关联人员，基础信息只读；照片可修改，保存后同步到关联记录。</span>
+              <button type="button" className="text" onClick={detach}>
                 改为手动填写
               </button>
             </div>
@@ -257,7 +244,7 @@ export function RecordDialog({
       )}
 
       {natural ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid">
           <Field
             id="p-name"
             label="姓名"
@@ -279,23 +266,30 @@ export function RecordDialog({
           />
           <Field
             id="p-email"
-            label="电子邮箱（选填）"
+            label={
+              <>
+                电子邮箱 <span className="optional">选填</span>
+              </>
+            }
             inputMode="text"
             value={draft.person.email}
             disabled={draft.linked}
             placeholder="例如 name@example.com"
             onChange={(email) => draft.setPerson({ ...draft.person, email })}
           />
-          <div className={`sm:col-span-2${draft.linked ? ' pointer-events-none opacity-60' : ''}`}>
-            <ChoiceMulti
-              id="p-education"
-              label="学历（选填）"
-              options={EDUCATION_OPTIONS}
-              value={has(draft.person.education) ? [draft.person.education] : []}
-              onChange={(values) => draft.setPerson({ ...draft.person, education: values.at(-1) ?? '' })}
-            />
-          </div>
-          <div className="sm:col-span-2">
+          <ChoiceMulti
+            id="p-education"
+            className="full"
+            label={
+              <>
+                学历 <span className="optional">选填</span>
+              </>
+            }
+            options={EDUCATION_OPTIONS}
+            value={has(draft.person.education) ? [draft.person.education] : []}
+            onChange={(values) => draft.setPerson({ ...draft.person, education: values.at(-1) ?? '' })}
+          />
+          <div className="full">
             <Field
               id="p-address"
               label="居住地址"
@@ -308,38 +302,47 @@ export function RecordDialog({
           </div>
         </div>
       ) : share!.type === '企业' ? (
-        <div className="grid gap-4">
-          <Field
-            id="r-name"
-            label="企业名称"
-            required
-            value={share!.name}
-            placeholder="请输入企业全称"
-            onChange={(name) => draft.setRecord({ ...share!, name })}
-          />
-          <Field
-            id="r-code"
-            label="统一社会信用代码（证件号码）"
-            required
-            value={share!.code}
-            placeholder="请输入企业证件号码"
-            onChange={(code) => draft.setRecord({ ...share!, code })}
-          />
+        <div className="grid">
+          <div className="full">
+            <Field
+              id="r-name"
+              label="企业名称"
+              required
+              value={share!.name}
+              placeholder="请输入企业全称"
+              onChange={(name) => draft.setRecord({ ...share!, name })}
+            />
+          </div>
+          <div className="full">
+            <Field
+              id="r-code"
+              label="统一社会信用代码（证件号码）"
+              required
+              value={share!.code}
+              placeholder="请输入企业证件号码"
+              onChange={(code) => draft.setRecord({ ...share!, code })}
+            />
+          </div>
         </div>
       ) : (
-        <TextArea
-          id="r-name"
-          label="股东说明"
-          value={share!.name}
-          placeholder="请输入股东名称、类型或相关说明"
-          onChange={(name) => draft.setRecord({ ...share!, name })}
-        />
+        // 原型这里用手写的 .field，既不占整行也没有报错位
+        <div className="field">
+          <label htmlFor="r-name">
+            股东说明<span className="req">*</span>
+          </label>
+          <textarea
+            id="r-name"
+            value={share!.name}
+            placeholder="请输入股东名称、类型或相关说明"
+            onChange={(event) => draft.setRecord({ ...share!, name: event.target.value })}
+          />
+        </div>
       )}
 
       {kind === 'share' ? (
         <>
-          <h3 className={MODAL_SUBTITLE}>出资信息</h3>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <h3 className="modal-subtitle">出资信息</h3>
+          <div className="grid">
             <Field
               id="r-ratio"
               label="出资比例（%）"
@@ -351,29 +354,36 @@ export function RecordDialog({
             />
             <Field
               id="r-amount"
-              label="出资金额（万元，选填）"
+              label={
+                <>
+                  出资金额（万元）<span className="optional">选填</span>
+                </>
+              }
               type="number"
               value={share!.amount}
               placeholder="请输入金额"
               onChange={(amount) => draft.setRecord({ ...share!, amount })}
             />
-            <div className="sm:col-span-2">
-              <ChoiceMulti
-                id="r-method"
-                label="出资形式（选填，可多选）"
-                options={CONTRIBUTION_METHODS}
-                value={share!.method}
-                onChange={(method) => draft.setRecord({ ...share!, method })}
-              />
-            </div>
+            <ContributionField
+              id="r-method"
+              label={
+                <>
+                  出资形式 <span className="optional">选填，可多选</span>
+                </>
+              }
+              options={CONTRIBUTION_METHODS}
+              value={share!.method}
+              onChange={(method) => draft.setRecord({ ...share!, method })}
+            />
           </div>
         </>
       ) : (
         <>
-          <h3 className={MODAL_SUBTITLE}>人员角色 *</h3>
+          <h3 className="modal-subtitle">
+            人员角色<span className="req">*</span>
+          </h3>
           <ChoiceMulti
             id="r-roles"
-            label="人员角色"
             options={ROLES}
             value={role!.roles}
             hint="可多选；兼任限制待确认。"
@@ -382,88 +392,70 @@ export function RecordDialog({
         </>
       )}
 
-      <h3 className={MODAL_SUBTITLE}>
+      <h3 className="modal-subtitle">
         {natural ? '身份证照片' : share!.type === '企业' ? '加盖企业公章的营业执照' : '股东资料'}
-        {natural || share!.type === '企业' ? ' *' : ''}
+        {(natural || share!.type === '企业') && <span className="req">*</span>}
       </h3>
-      <p className="mb-3 text-xs leading-5 text-stone-400">
+      <div className="hint">
         {natural
           ? '请分别上传身份证正面（人像面）和反面（国徽面）。'
           : share!.type === '企业'
             ? '请上传加盖企业公章的营业执照。'
             : '可按需上传资料。'}
         {natural || share!.type === '企业' ? '可先保存记录，提交前需补齐。' : ''}
-      </p>
+      </div>
 
       {natural || share!.type === '企业' ? (
-        <PhotoSlots
-          slots={natural ? (['idFront', 'idBack'] as PhotoSlot[]) : (['license'] as PhotoSlot[])}
-          files={draft.files}
-          onUpload={(file, slot) => void read(file, slot)}
-          onReplace={(file, slot) => void read(file, slot, true)}
-          onRemove={(id) => withFiles(draft.files.filter((item) => item.id !== id))}
-          onAssign={(id, slot) => withFiles(assignSlot(draft.files, id, slot))}
-          onPreview={(file) => {
-            if (isPreviewableImage(file.type)) window.open(file.data, '_blank', 'noopener');
-            else download(file);
-          }}
-        />
+        <>
+          <PhotoSlots
+            slots={natural ? (['idFront', 'idBack'] as PhotoSlot[]) : (['license'] as PhotoSlot[])}
+            files={draft.files}
+            onUpload={(file, slot) => void read(file, slot)}
+            onReplace={(file, slot) => void read(file, slot, true)}
+            onRemove={(id) => withFiles(draft.files.filter((item) => item.id !== id))}
+            onAssign={(id, slot) => withFiles(assignSlot(draft.files, id, slot))}
+            onPreview={openAttachment}
+          />
+          {!draft.files.length && <div className="photo-missing" style={{ marginTop: 10 }}>没有照片</div>}
+        </>
       ) : (
-        <div>
-          <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-stone-300/70 bg-white px-4 py-2 text-xs font-semibold text-stone-600 hover:border-[#66cdb5]/60">
-            <Plus size={14} aria-hidden="true" />
-            上传附件
-            <input
-              type="file"
-              multiple
-              className="sr-only"
-              aria-label="上传附件"
-              onChange={(event) => {
-                const picked = [...(event.target.files ?? [])];
-                event.target.value = '';
-                picked.forEach((file) => void read(file, null));
-              }}
-            />
-          </label>
-          {draft.files.length > 0 && (
-            <ul className="mt-3 grid gap-2">
-              {draft.files.map((file) => (
-                <li key={file.id} className="flex items-center gap-3 rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-600">
-                  <span className="min-w-0 flex-1 truncate">
-                    {file.name} · {formatSize(file.size)}
-                  </span>
-                  <button
-                    type="button"
-                    className="font-semibold text-red-500"
-                    onClick={() => withFiles(draft.files.filter((item) => item.id !== file.id))}
-                  >
-                    删除
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {(natural || share!.type === '企业') && !draft.files.length && (
-        <p className="mt-3 text-xs font-semibold text-amber-600">没有照片</p>
-      )}
-
-      {natural && (
-        <p className="mt-4 text-xs leading-5 text-stone-400">
-          未指定位置的附件可在上方列表中归位；删除照片不影响已保存的记录。
-        </p>
+        <>
+          <input
+            style={{ marginTop: 12 }}
+            type="file"
+            multiple
+            aria-label="上传附件"
+            onChange={(event) => {
+              const picked = [...(event.target.files ?? [])];
+              event.target.value = '';
+              picked.forEach((file) => void read(file, null));
+            }}
+          />
+          {/* 原型 fileList() 即使没有附件也留着这个容器 */}
+          <div className="file-list">
+            {draft.files.map((file) => (
+              <div key={file.id} className="file">
+                <span className="file-info">
+                  {file.name}
+                  <small>
+                    {formatSize(file.size)} · <span className="uploaded">已载入，保存记录后生效</span>
+                  </small>
+                </span>
+                <button type="button" onClick={() => openAttachment(file)}>
+                  预览
+                </button>
+                <button
+                  type="button"
+                  className="text danger"
+                  onClick={() => withFiles(draft.files.filter((item) => item.id !== file.id))}
+                >
+                  删除
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </Dialog>
   );
-}
-
-function download(file: Attachment) {
-  const anchor = document.createElement('a');
-  anchor.href = file.data;
-  anchor.download = file.name;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
 }
