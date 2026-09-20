@@ -29,20 +29,31 @@ const serviceOptions: Array<{
 const FIELD_LABEL_STYLE = "mb-2 block text-sm font-semibold text-stone-700";
 const INPUT_STYLE = "h-12 w-full rounded-xl border border-stone-300/70 bg-stone-50/35 px-4 text-stone-800 outline-none transition-all placeholder-stone-400 hover:border-stone-400 focus:border-[#66cdb5] focus:bg-white focus:ring-4 focus:ring-[#66cdb5]/10";
 
+/**
+ * 联系客服二维码的**兜底图**：固定绝对地址，不用 `import` 的本地图，也不用根相对路径。
+ * 根相对路径（`/image-yqt/...`）跟着当前域名走，页面被放到别的域名或子路径下打开就 404；
+ * 这张图只在 www 上有一份，所以地址写死。
+ *
+ * 只有一种情况会看不到它：带 `?shareUserUuid=` 打开、且提交过表单时，会去服务端取
+ * **该分享人的专属企微码**（见下面的 effect）；取不到（接口挂了 / 没返回 perShareEwmFile）
+ * 就继续显示这张兜底图，所以那个请求失败不会把二维码弄成空白。
+ */
+const CUSTOMER_SERVICE_QR_URL = 'https://www.ibanbu.com/image-yqt/customer-service-qr.png';
+
 export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const [isSuccess, setIsSuccess] = useState(() => loadSubmissionState()?.submitted ?? false);
   const [formData, setFormData] = useState(() => loadSubmissionState()?.formData ?? DEFAULT_FORM_DATA);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const shareUserUuid = useShareUserUuid();
-  const [qrCodeUrl, setQrCodeUrl] = useState('/image-yqt/customer-service-qr.png');
+  const [qrCodeUrl, setQrCodeUrl] = useState(CUSTOMER_SERVICE_QR_URL);
   const [qrLoading, setQrLoading] = useState(false);
 
   useEffect(() => {
     if (!isSuccess) return;
     const needFetch = shareUserUuid && formData.serviceTypes.some(type => type !== 'hosting' || formData.serviceTypes.length > 1);
     if (!needFetch) {
-      setQrCodeUrl('/image-yqt/customer-service-qr.png');
+      setQrCodeUrl(CUSTOMER_SERVICE_QR_URL);
       setQrLoading(false);
       return;
     }
@@ -105,7 +116,7 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
 
   const handleRefill = () => {
     setIsSuccess(false);
-    setQrCodeUrl('/image-yqt/customer-service-qr.png');
+    setQrCodeUrl(CUSTOMER_SERVICE_QR_URL);
     setQrLoading(false);
     setErrors({});
     setSubmitStatus('idle');
