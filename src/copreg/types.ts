@@ -187,8 +187,8 @@ export interface RegistrationDetails {
 
 /**
  * 页面步骤，编号与各步骤页眉上标出的「第 N 步」一致。
- * 协议确认与在线支付合并成了一个页面（payment）；企业注册登记信息改到 registration.html 填写，
- * copreg 里不再有填报页。所以序号是 5 个。
+ * 协议确认与在线支付合并成了一个页面（payment）；企业注册申报资料填报（fill_details）
+ * 与办理进度都在本页内，不再有独立的 registration.html。所以序号是 6 个。
  */
 export type ProcessStep =
   | 'survey'       // 第 1 步 初步业务信息调研
@@ -196,7 +196,8 @@ export type ProcessStep =
   | 'agreement'    // 已废弃：协议确认与支付合并到 payment，没有任何入口会走到这里
   | 'payment'      // 第 3 步 协议确认与在线支付
   | 'group'        // 第 4 步 专属服务群（含 AI 助手）
-  | 'progress';    // 第 5 步 客服核验与交付团队办理进度
+  | 'fill_details' // 第 5 步 企业注册申报资料填报与初审
+  | 'progress';    // 第 6 步 客服核验与交付团队办理进度
 
 /** 进度页的「资料审核」演示分支：资料齐全转交交付 / 资料有误提示补正 */
 export type ReviewBranch = 'complete' | 'incomplete';

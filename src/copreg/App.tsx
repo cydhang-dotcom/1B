@@ -20,16 +20,21 @@ import { ProposalStep } from './components/ProposalStep';
 import { AgreementAndPaymentStep } from './components/AgreementAndPaymentStep';
 import { ServiceGroupStep, INITIAL_CHAT_MESSAGES } from './components/ServiceGroupStep';
 import { ProgressAndReviewStep, INITIAL_TIMELINE_NODES } from './components/ProgressAndReviewStep';
+import { RegistrationDetailsStep } from './components/RegistrationDetailsStep';
+import { STORAGE_KEY as REGISTRATION_STORAGE_KEY } from './registration/defaultData';
 import { buildPlan } from './plan';
 import { addonsOf, quoteFor } from './components/proposalQuote';
 import { applyPlanSuggestion, generatePlanReport, PlanSuggestion } from './planGenerate';
 import {
+  clearPlanConfirm,
   clearPlanDraft,
   clearPlanReport,
   loadPlanDraft,
+  savePlanConfirm,
   savePlanForm,
   savePlanReport
 } from './planDraft';
+import { isPlanConfirmStale, planConfirmWithSelection, type PlanConfirm } from './serviceConfirm';
 
 /**
  * 空问卷：所有字段留空，等用户从零填写。
@@ -58,8 +63,9 @@ const emptySurvey = (): SurveyData => ({
 /**
  * 空注册资料。
  *
- * copreg 里已经没有填这张表的页面了 —— 企业注册登记信息统一在 registration.html 填写，
- * 由 src/shared/registrationBridge.ts 映射成这个结构。所以这里始终是空壳，等桥接层接上。
+ * 这张表是给「办理进度」页看的摘要（企业名称、法定代表人、收件地址、材料清单），
+ * 由第 5 步「企业注册申报资料填报」在提交时回写（见 RegistrationDetailsStep 的 handleVerifySuccess）。
+ * 还没提交时保持空壳，进度页对空值显示占位，不编造。
  *
  * docs 保留：那份清单是「要交哪些材料」的产品规格，不是用户数据；每条状态回到 pending。
  */
@@ -83,16 +89,11 @@ const emptyRegistrationDetails = (): RegistrationDetails => ({
 });
 
 export default function App() {
-  // 上次提交留下的本地存档（见 planDraft.ts，分「填写的」「返回的」两份键）：
-  // 有「填写的」就直接从第 2 步开始 —— 问卷答案与选过的套餐都还在，
+  // 上次留下的本地存档（见 planDraft.ts，分「填写的」「返回的」「确认凭据」三份键）：
+  // 有「填写的」就从第 2 步开始 —— 问卷答案与选过的套餐都还在；
+  // 有「确认凭据」再往前一步，直接落到第 3 步（协议与支付），不必重新验证手机号；
   // 有「返回的」再把服务端诊断叠上去。只在首帧读一次，之后一切以 state 为准。
   const [planDraft] = useState(loadPlanDraft);
-
-  const [currentStep, setCurrentStep] = useState<ProcessStep>(planDraft ? 'proposal' : 'survey');
-  const [unlockedSteps, setUnlockedSteps] = useState<ProcessStep[]>(['survey', 'proposal']);
-
-  // Core Survey state —— 有存档用存档，没有就从空问卷开始，用户填什么就是什么
-  const [survey, setSurvey] = useState<SurveyData>(() => planDraft?.survey ?? emptySurvey());
 
   // Proposal / Plan state (defaults to bundle_small: 小规模纳税人)
   // 空问卷生成的只是占位方案（行业内容全空，价格按套餐给），问卷提交时会重新生成；
@@ -106,6 +107,26 @@ export default function App() {
         )
       : buildPlan(emptySurvey(), quoteFor('bundle_small'))
   );
+
+  // 确认凭据（confirm-proposal 返回的 recordId/status + 当时那套选择）：有它就能直接进第 3 步。
+  // 改套餐 / 换自选项 / 重新提交问卷都会把它作废，见下面的 clearPlanConfirm 调用点。
+  //
+  // 首帧这里还要再判一次「是否仍是这套方案」：正常路径下写过 form 就会顺带清凭据，
+  // 但两次 localStorage 写入之间崩溃、或存档被手改过，都可能留下「新问卷 + 旧凭据」，
+  // 那会把人直接送进一份与自己填的问卷不符的支付页。
+  const initialConfirm =
+    planDraft?.confirm && !isPlanConfirmStale(planDraft.confirm, plan) ? planDraft.confirm : null;
+  const [planConfirm, setPlanConfirm] = useState<PlanConfirm | null>(initialConfirm);
+
+  const [currentStep, setCurrentStep] = useState<ProcessStep>(
+    initialConfirm ? 'payment' : planDraft ? 'proposal' : 'survey'
+  );
+  const [unlockedSteps, setUnlockedSteps] = useState<ProcessStep[]>(
+    initialConfirm ? ['survey', 'proposal', 'payment'] : ['survey', 'proposal']
+  );
+
+  // Core Survey state —— 有存档用存档，没有就从空问卷开始，用户填什么就是什么
+  const [survey, setSurvey] = useState<SurveyData>(() => planDraft?.survey ?? emptySurvey());
 
   // Payment order state —— 订单号等支付成功后再生成，这里只留空壳
   const [order, setOrder] = useState<PaymentOrder>({
@@ -123,8 +144,24 @@ export default function App() {
   // Service Group chat state —— 服务群保留为演示态，不随「从 0 填写」清空
   const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_CHAT_MESSAGES);
 
-  // 登记信息（法定代表人、住所等）：copreg 不再负责采集，等 registration.html 通过桥接层送过来
+  // 登记信息（法定代表人、住所等）：第 5 步填报提交时回写（见 RegistrationDetailsStep），
+  // 进度页与支付页的「服务进度状态与办理清单」都读它
   const [details, setDetails] = useState<RegistrationDetails>(emptyRegistrationDetails);
+
+  /**
+   * 申报资料是否已提交。第 5 步把整份申报表存进 localStorage（键见 registration/defaultData），
+   * 提交状态就写在那份存档里 —— 刷新后据此恢复，否则支付页的清单会退回「第 1 步待填报」。
+   */
+  const [isDetailsSubmitted, setIsDetailsSubmitted] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(REGISTRATION_STORAGE_KEY);
+      if (!saved) return false;
+      const parsed = JSON.parse(saved) as { status?: string };
+      return parsed.status === 'submitted';
+    } catch {
+      return false;
+    }
+  });
 
   // Timeline / Delivery progress state
   const [timeline, setTimeline] = useState<TimelineNode[]>(INITIAL_TIMELINE_NODES);
@@ -161,6 +198,23 @@ export default function App() {
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
+  // 确认凭据也留一份镜像：方案页切套餐时要在回调里判「凭据是否已过期」，
+  // 用 state 会被闭包锁在上一次渲染的值上
+  const planConfirmRef = useRef(planConfirm);
+  useEffect(() => {
+    planConfirmRef.current = planConfirm;
+  }, [planConfirm]);
+
+  // 凭据里没记「是为哪套选择确认的」（手写的、或早于这次改动的版本写进去的，只有服务端
+  // 给的 recordId/status）：这种凭据照样认，但要把当前选择补记上去 ——
+  // 不补的话以后改套餐也判断不出过期，用户会拿着一份旧确认进支付页。
+  useEffect(() => {
+    if (!planConfirm) return;
+    const filled = planConfirmWithSelection(planConfirm, plan);
+    if (filled === planConfirm) return; // 已经有注解，不用动
+    setPlanConfirm(filled);
+    savePlanConfirm(filled);
+  }, [planConfirm, plan]);
 
   // Helper to unlock step
   const unlockStep = (step: ProcessStep) => {
@@ -188,6 +242,10 @@ export default function App() {
     // 上一次成功返回的诊断结果对应的是上一份问卷，这次已经提交了新问卷，先作废；
     // 本次成功后再写新的（写不进去也不拦人，只是下次进来要重新生成）
     clearPlanReport();
+    // 确认凭据同理：它是为上一份问卷 + 上一套选项确认的，新问卷一提交就不再代表当前方案。
+    // 不清掉的话，用户改完问卷反而会被直接送进支付页，支付的是旧方案
+    clearPlanConfirm();
+    setPlanConfirm(null);
 
     let suggestion: PlanSuggestion | null = null;
     try {
@@ -225,9 +283,19 @@ export default function App() {
   };
 
   // Step 2: Confirm Proposal -> Go to Payment (Merged Agreement & Payment)
-  const handleProposalProceed = (phone?: string) => {
+  // confirm 只在这次点击真的调了确认接口、且服务端返回 SUCCESS 时非空；
+  // 已经确认过再点一次（ProposalStep 里判断凭据仍然有效）传的是 null，不重复保存也不重复下单
+  const handleProposalProceed = (phone: string | undefined, confirm: PlanConfirm | null) => {
     if (phone) {
       setOrder(prev => ({ ...prev, contactPhone: phone }));
+    }
+    if (confirm) {
+      setPlanConfirm(confirm);
+      if (!savePlanConfirm(confirm)) {
+        // 凭据存不下不拦人（本次已经确认成功，能正常进支付），但要说清楚后果：
+        // 下次进来会回到第 2 步，重新确认会在服务端多出一份委托单
+        setNotice('确认结果本地保存失败，下次进入需要重新确认（可能产生重复委托单）');
+      }
     }
     unlockStep('payment');
     setCurrentStep('payment');
@@ -246,8 +314,16 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Proceed from Service Group to Progress —— 资料填报已移出 copreg，服务群之后直接看办理进度
-  const handleProceedToProgress = () => {
+  // Proceed from Service Group to Fill Details —— 服务群之后就是填报企业注册申报资料
+  const handleProceedToFillDetails = () => {
+    unlockStep('fill_details');
+    setCurrentStep('fill_details');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // Step 5: Submit details for review -> 跳转到「服务进度状态与办理清单」页
+  const handleSubmitForReview = () => {
+    setIsDetailsSubmitted(true);
     unlockStep('progress');
     setCurrentStep('progress');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -337,6 +413,8 @@ export default function App() {
     currentProgressPct = 60;
   } else if (currentStep === 'group') {
     currentProgressPct = 80;
+  } else if (currentStep === 'fill_details') {
+    currentProgressPct = 92;
   } else if (currentStep === 'progress') {
     currentProgressPct = 100;
   }
@@ -367,6 +445,7 @@ export default function App() {
             onReset={() => {
               // 重置问卷 = 第 1 步的存档作废，否则刷新一下又跳回第 2 步、看的还是上一份问卷的方案
               clearPlanDraft();
+              setPlanConfirm(null);
               setPlanSuggestion(null);
             }}
           />
@@ -377,6 +456,7 @@ export default function App() {
             plan={plan}
             survey={survey}
             report={planSuggestion}
+            confirm={planConfirm}
             contactPhone={order.contactPhone}
             onUpdatePlan={(newPlan) => {
               // 方案页切套餐 / 勾加购会按本地模板重建一份方案，别把服务端给的行业诊断丢掉
@@ -391,6 +471,12 @@ export default function App() {
                 tier: merged.selectedTier,
                 addons: addonsOf(merged.items)
               });
+              // 方案改过（档位 / 自选项与确认时不同）→ 那份确认凭据作废：它代表的已经不是
+              // 页面上这份方案了，继续用会把人送进一份与价格不符的支付页
+              if (planConfirmRef.current && isPlanConfirmStale(planConfirmRef.current, merged)) {
+                clearPlanConfirm();
+                setPlanConfirm(null);
+              }
             }}
             onProceed={handleProposalProceed}
             onBack={() => {
@@ -418,9 +504,11 @@ export default function App() {
           <AgreementAndPaymentStep
             plan={plan}
             order={order}
+            isDetailsSubmitted={isDetailsSubmitted}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
             onProceedToGroup={handleProceedToGroup}
+            onProceedToFillDetails={handleProceedToFillDetails}
             onBack={() => {
               setCurrentStep('proposal');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -434,9 +522,21 @@ export default function App() {
             order={order}
             messages={messages}
             onSendMessage={handleSendMessage}
-            onProceedToProgress={handleProceedToProgress}
+            onProceedToFillDetails={handleProceedToFillDetails}
             onBackToPayment={() => {
               setCurrentStep('payment');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
+
+        {currentStep === 'fill_details' && (
+          <RegistrationDetailsStep
+            details={details}
+            onUpdateDetails={setDetails}
+            onSubmitForReview={handleSubmitForReview}
+            onBackToGroup={() => {
+              setCurrentStep('group');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />

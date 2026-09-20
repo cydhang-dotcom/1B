@@ -171,8 +171,10 @@ export const ProgressAndReviewStep: React.FC<ProgressAndReviewStepProps> = ({
   );
 
   /**
-   * 企业名称、法定代表人、收件地址都来自 registration.html 的登记表（经 src/shared/registrationBridge.ts 映射），
-   * 桥接层还没接上时这些字段是空的 —— 直接渲染会出现「法定代表人：【】」，所以给个占位。
+   * 企业名称、法定代表人、收件地址来自第 5 步「企业注册申报资料填报」提交时回写的摘要
+   * （见 RegistrationDetailsStep 的 handleVerifySuccess）。没提交就进不来这一页，但摘要里
+   * 仍可能有个别字段是空的（例如申报表没填经营地址）——直接渲染会出现「法定代表人：【】」，
+   * 所以空值统一给个占位，不编造。
    */
   const pendingSync = '待同步';
 

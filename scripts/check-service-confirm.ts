@@ -2,15 +2,22 @@
  * 「确认并前往支付」确认接口的纯函数自检：不联网、不碰 React。
  *   npx tsx scripts/check-service-confirm.ts
  *
- * 覆盖四件事：请求体组得对不对（三个顶层字段 formData / proposalResult / phoneNumber、深拷贝），
+ * 覆盖五件事：请求体组得对不对（三个顶层字段 formData / proposalResult / phoneNumber、深拷贝），
  * 自选项的派生与存档读回（含旧版 id 字符串数组的迁移），**本地存档与请求体是否同一形状同一批数据**，
+ * 响应收口与本地确认凭据（status 与 recordId 的校验、过期判断、存档往返），
  * 以及各种失败都被翻译成能直接展示的中文提示 —— 确认接口失败要拦人，提示说不清用户就只能反复点。
  */
 import {
+  SERVICE_CONFIRM_SUCCESS_STATUS,
   SERVICE_CONFIRM_TIMEOUT_MS,
   ServiceConfirmMissingProposalError,
   ServiceConfirmNotConfiguredError,
   confirmServicePlan,
+  isPlanConfirmStale,
+  parseConfirmResult,
+  parsePlanConfirm,
+  planConfirmOf,
+  planConfirmWithSelection,
   serviceConfirmRequestOf,
   type ServiceConfirmEndpoint,
   type ServiceConfirmInput,
@@ -258,6 +265,104 @@ const ENDPOINT: ServiceConfirmEndpoint = {
   ok('空加购项是空数组而不是缺字段', JSON.stringify(serviceConfirmRequestOf(input({ plan: planOf('standard') })).formData.addons) === '[]');
 }
 
+/* ------------------------------------------------ 确认结果（响应收口） */
+
+{
+  // 真实响应长这样：{"recordId":"VHpX5NqoXLHwPyMnVeBzCN","status":"SUCCESS"}
+  const result = parseConfirmResult({ recordId: 'VHpX5NqoXLHwPyMnVeBzCN', status: 'SUCCESS' });
+  ok('成功响应收成 { recordId, status }', result.recordId === 'VHpX5NqoXLHwPyMnVeBzCN' && result.status === 'SUCCESS');
+  ok('recordId 前后空白被去掉', parseConfirmResult({ recordId: ' R1 ', status: 'SUCCESS' }).recordId === 'R1');
+  ok('状态大小写与空白被归一', parseConfirmResult({ recordId: 'R1', status: ' success ' }).status === 'SUCCESS');
+
+  const badPayloads: [string, Record<string, unknown>][] = [
+    ['status 是别的值', { recordId: 'R1', status: 'FAIL' }],
+    ['没给 status', { recordId: 'R1' }],
+    ['没给 recordId', { status: 'SUCCESS' }],
+    ['recordId 是空白串', { recordId: '   ', status: 'SUCCESS' }],
+    ['recordId 不是字符串', { recordId: 123, status: 'SUCCESS' }],
+  ];
+  for (const [label, payload] of badPayloads) {
+    let error: Error | null = null;
+    try {
+      parseConfirmResult(payload);
+    } catch (cause) {
+      error = cause as Error;
+    }
+    ok(`200 但确认不成功时抛错：${label}`, error instanceof Error && error.message !== '');
+  }
+
+  let failMessage = '';
+  try {
+    parseConfirmResult({ recordId: 'R1', status: 'FAIL' });
+  } catch (cause) {
+    failMessage = (cause as Error).message;
+  }
+  ok('失败提示带上服务端给的状态值', failMessage.includes('FAIL'));
+}
+
+/* -------------------------------------------------- 本地确认凭据与过期 */
+
+{
+  const plan = planOf('standard', ['addon-bank', 'addon-tax']);
+  const request = serviceConfirmRequestOf(input({ plan }));
+  const confirm = planConfirmOf({ recordId: 'R1', status: 'SUCCESS' }, request);
+
+  ok(
+    '凭据 = 服务端结果 + 这次提交的选择',
+    confirm.recordId === 'R1' && confirm.status === 'SUCCESS' && confirm.tier === 'standard' && confirm.addonIds.join(',') === 'addon-bank,addon-tax'
+  );
+  ok('凭据与当前方案一致时不算过期', !isPlanConfirmStale(confirm, plan));
+  ok('档位改了就过期', isPlanConfirmStale(confirm, planOf('bundle_general')));
+  ok('加了一项自选就过期', isPlanConfirmStale(confirm, planOf('standard', ['addon-bank', 'addon-tax', 'addon-social'])));
+  ok('去掉一项自选也过期', isPlanConfirmStale(confirm, planOf('standard', ['addon-bank'])));
+  ok('只是勾选顺序不同不算过期', !isPlanConfirmStale({ ...confirm, addonIds: ['addon-tax', 'addon-bank'] }, plan));
+  ok('bundle 档的空自选与空自选一致', !isPlanConfirmStale({ ...confirm, tier: 'bundle_small', addonIds: [] }, planOf('bundle_small')));
+
+  // 存档往返：写进 localStorage 再读回来必须一字不差，否则刷新后就认不出这份确认了
+  ok('凭据写进存档再读回来不变', JSON.stringify(parsePlanConfirm(JSON.parse(JSON.stringify(confirm)))) === JSON.stringify(confirm));
+}
+
+/* -------------------------------------------- 存档里的确认凭据（读回收口） */
+
+{
+  const base = { recordId: 'R1', status: 'SUCCESS', tier: 'standard', addonIds: ['addon-bank'] };
+
+  ok('缺 status 的存档不作数', parsePlanConfirm({ recordId: 'R1', tier: 'standard', addonIds: [] }) === null);
+  ok('status 不是 SUCCESS 的存档不作数', parsePlanConfirm({ ...base, status: 'FAIL' }) === null);
+  ok('没有单据号的存档不作数', parsePlanConfirm({ ...base, recordId: '' }) === null);
+  ok('单据号不是字符串的存档不作数', parsePlanConfirm({ ...base, recordId: 123 }) === null);
+  ok('乱七八糟的存档一律返回 null', [undefined, null, 'x', 42, [], { recordId: 'R1' }].every((value) => parsePlanConfirm(value) === null));
+
+  ok('手改的脏 id 被过滤掉', JSON.stringify(parsePlanConfirm({ ...base, addonIds: ['addon-bank', 'addon-hack', 7] })?.addonIds) === '["addon-bank"]');
+  ok('重复 id 只留一个', JSON.stringify(parsePlanConfirm({ ...base, addonIds: ['addon-bank', 'addon-bank'] })?.addonIds) === '["addon-bank"]');
+
+  // 附加的选择信息只是「注解」，注解有问题不该把一份真实有效的确认作废掉：
+  // 服务端只返回 recordId / status，手写或老版本写进去的凭据就没有这两个注解
+  const bare = parsePlanConfirm({ recordId: 'VHpX5NqoXLHwPyMnVeBzCN', status: 'SUCCESS' });
+  ok('只有服务端两个字段的凭据也算有效（手写 / 老版本）', bare !== null && bare.recordId === 'VHpX5NqoXLHwPyMnVeBzCN');
+  ok('它没有档位与自选项注解', bare?.tier === undefined && bare?.addonIds === undefined);
+  ok('认不出的档位当作没记，而不是作废', parsePlanConfirm({ ...base, tier: 'bundle_huge' })?.tier === undefined);
+  ok('缺 addonIds 当作没记', parsePlanConfirm({ recordId: 'R1', status: 'SUCCESS', tier: 'standard' })?.addonIds === undefined);
+
+  const plan = planOf('bundle_small');
+  ok('没记档位就不比档位（否则「明明有凭据却不跳第三步」）', !isPlanConfirmStale(bare as never, plan));
+  ok('记了档位且对不上才算过期', isPlanConfirmStale({ ...base, tier: 'standard' }, plan));
+  ok('记了自选项且对不上才算过期', isPlanConfirmStale({ recordId: 'R1', status: 'SUCCESS', addonIds: ['addon-bank'] }, plan));
+  ok('什么都没记 → 不算过期', !isPlanConfirmStale({ recordId: 'R1', status: 'SUCCESS' }, plan));
+
+  // 首帧补记：缺注解的凭据会被补上当前选择，之后过期判断就能生效
+  const standardPlan = planOf('standard', ['addon-bank']);
+  const filled = planConfirmWithSelection(bare as never, standardPlan);
+  ok(
+    '缺注解的凭据被补上当前档位与自选项',
+    filled.tier === 'standard' && filled.addonIds?.join(',') === 'addon-bank' && filled.recordId === 'VHpX5NqoXLHwPyMnVeBzCN'
+  );
+  ok('补记不会丢掉服务端字段', filled.status === 'SUCCESS');
+  ok('补记之后改档位就判得出过期', isPlanConfirmStale(filled, planOf('bundle_small')));
+  ok('补记之后同一套选择仍不算过期', !isPlanConfirmStale(filled, standardPlan));
+  ok('已有注解的凭据原样返回（同一引用，调用方不必回写）', planConfirmWithSelection(filled, planOf('bundle_small')) === filled);
+}
+
 /* ------------------------------------------------------------------ 端点 */
 
 const jsonResponse = (body: unknown, status = 200) =>
@@ -315,7 +420,8 @@ const realFetch = globalThis.fetch;
   globalThis.fetch = (async (target: string, options: RequestInit) => {
     url = String(target);
     init = options;
-    return jsonResponse({ delegateNo: 'WT-1' });
+    // 真实响应：{"recordId":"VHpX5NqoXLHwPyMnVeBzCN","status":"SUCCESS"}
+    return jsonResponse({ recordId: 'VHpX5NqoXLHwPyMnVeBzCN', status: 'SUCCESS' });
   }) as unknown as typeof fetch;
 
   const payload = await confirmServicePlan(
@@ -340,12 +446,12 @@ const realFetch = globalThis.fetch;
   );
   ok('请求体里的 formData 没有多余字段（services 已去掉）', Object.keys(body.formData as Record<string, unknown>).sort().join(',') === 'addons,survey,tier');
   ok('请求体里的 proposalResult 是诊断结果', (body.proposalResult as Record<string, unknown>).taxpayerIdentity === '小规模纳税人');
-  ok('响应体原样交回调用方', (payload as { delegateNo?: string }).delegateNo === 'WT-1');
+  ok('成功响应被收成 { recordId, status } 交回调用方', payload.recordId === 'VHpX5NqoXLHwPyMnVeBzCN' && payload.status === 'SUCCESS');
 
   // 两边都有斜杠也只留一个，别拼出 //api
   globalThis.fetch = (async (target: string) => {
     url = String(target);
-    return jsonResponse({});
+    return jsonResponse({ recordId: 'R1', status: 'SUCCESS' });
   }) as unknown as typeof fetch;
   await confirmServicePlan({ host: 'https://caa001.ibanbu.com/', path: 'api/company-plan/confirm-proposal' }, serviceConfirmRequestOf(input()));
   ok('host 尾斜杠 + path 无前导斜杠也拼得对', url === 'https://caa001.ibanbu.com/api/company-plan/confirm-proposal');
@@ -419,8 +525,20 @@ const failureOf = async (fetchImpl: typeof fetch, timeoutMs?: number): Promise<s
   const emptyJson = (async () => jsonResponse(null)) as unknown as typeof fetch;
   ok('响应是 null 也按格式异常处理', (await failureOf(emptyJson)) === '确认方案返回格式异常，请稍后重试');
 
-  const okJson = (async () => jsonResponse({ code: '0' })) as unknown as typeof fetch;
-  ok('{} 这种合法对象算成功（后端只回一个 code 也是成功）', (await failureOf(okJson)) === '');
+  // 200 且 JSON 合法，但业务上没成功：必须也算失败，否则用户会带着一个空壳确认进支付页
+  const noStatus = (async () => jsonResponse({ code: '0' })) as unknown as typeof fetch;
+  ok('只回一个 code 的响应不再算成功', (await failureOf(noStatus)) === '确认方案未返回状态，请稍后重试');
+
+  const failedStatus = (async () => jsonResponse({ recordId: 'R1', status: 'FAIL' })) as unknown as typeof fetch;
+  ok('status 不是 SUCCESS 时按失败处理并带上状态值', (await failureOf(failedStatus)) === '确认方案未成功（FAIL）');
+
+  const success = (async () => jsonResponse({ recordId: 'R1', status: 'SUCCESS' })) as unknown as typeof fetch;
+  ok('status=SUCCESS 且给了单据号才算成功', (await failureOf(success)) === '');
+
+  const noRecordId = (async () => jsonResponse({ status: 'SUCCESS' })) as unknown as typeof fetch;
+  ok('SUCCESS 但没给单据号也算失败（没凭据就续不上）', (await failureOf(noRecordId)) === '确认方案未返回单据号，请稍后重试');
+
+  ok('成功状态常量就是服务端给的 SUCCESS', SERVICE_CONFIRM_SUCCESS_STATUS === 'SUCCESS');
 }
 
 console.log(`\n${passed} 项通过，${failed} 项失败`);

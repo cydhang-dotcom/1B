@@ -13,7 +13,10 @@ import { COMPANY_PLAN_HOST, CONFIRM_PROPOSAL_PATH } from '../../config/api';
 import {
   ServiceConfirmEndpoint,
   confirmServicePlan,
-  serviceConfirmRequestOf
+  isPlanConfirmStale,
+  planConfirmOf,
+  serviceConfirmRequestOf,
+  type PlanConfirm
 } from '../serviceConfirm';
 import { PlanSuggestion } from '../planGenerate';
 import {
@@ -43,8 +46,10 @@ interface ProposalStepProps {
   survey: SurveyData;
   /** 第 1 步「返回的」那份诊断结果（App 的 planSuggestion）：确认时原样提交给服务端 */
   report: PlanSuggestion | null;
+  /** 已存下的确认凭据（App 的 planConfirm）；与当前方案一致时不再重复确认 */
+  confirm: PlanConfirm | null;
   contactPhone?: string;
-  onProceed: (phone?: string) => void;
+  onProceed: (phone: string | undefined, confirm: PlanConfirm | null) => void;
   onBack: () => void;
   onUpdatePlan?: (newPlan: RegistrationPlan) => void;
 }
@@ -59,6 +64,7 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
   plan,
   survey,
   report,
+  confirm,
   contactPhone,
   onProceed,
   onBack,
@@ -161,22 +167,23 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
     setSmsError('');
     setConfirmError('');
     setIsConfirming(true);
+    let record: PlanConfirm | null = null;
     try {
       // 第 1 步的两份存档（问卷 + 套餐选择、诊断返回）连同手机号一起提交；
-      // 套餐、加购与服务清单都取方案页当前这份 activePlan，和页面上的价格是同一份
-      await confirmServicePlan(
-        CONFIRM_ENDPOINT,
-        serviceConfirmRequestOf({
-          survey,
-          plan: activePlan,
-          report,
-          mobile: phone.trim(),
-          smsCodeId,
-          smsValidCode: smsCode.trim()
-        })
-      );
+      // 套餐、加购、服务清单与确认凭据都取方案页当前这份 activePlan，和页面上的价格是同一份
+      const request = serviceConfirmRequestOf({
+        survey,
+        plan: activePlan,
+        report,
+        mobile: phone.trim(),
+        smsCodeId,
+        smsValidCode: smsCode.trim()
+      });
+      const result = await confirmServicePlan(CONFIRM_ENDPOINT, request);
+      // 服务端结果 + 这次提交的选择，一起交给 App 落本地：下次进来直接进第 3 步
+      record = planConfirmOf(result, request);
     } catch (error) {
-      // 确认没落库就不往下走：接口失败 / 路径还没配都停在这一步，弹窗不关，用户可以直接重试
+      // 确认没落库就不往下走：接口失败 / 未成功 / 路径没配都停在这一步，弹窗不关，可直接重试
       setConfirmError(error instanceof Error ? error.message : '确认方案失败，请稍后重试');
       return;
     } finally {
@@ -188,7 +195,18 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
       onUpdatePlan(activePlan);
     }
     showToast('手机号验证通过');
-    onProceed(phone);
+    onProceed(phone, record);
+  };
+
+  /**
+   * 已经确认过（本地有凭据，且凭据与当前方案一致）时走这里：直接进第 3 步，不再调确认接口。
+   * 再调一次会在服务端多出一份委托单，而用户什么都没改，没有任何理由重发。
+   */
+  const handleConfirmedProceed = () => {
+    if (onUpdatePlan) {
+      onUpdatePlan(activePlan);
+    }
+    onProceed(undefined, null);
   };
 
   // Handler to switch tier
@@ -224,6 +242,10 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
   const activePlan = (plan.selectedTier === selectedTier && JSON.stringify(plan.selectedAddons || []) === JSON.stringify(selectedAddons))
     ? plan
     : buildPlan(survey, quoteFor(selectedTier, selectedAddons));
+
+  // 本地那份确认凭据是否仍然代表这套方案：档位或自选项改过就作废（App 会把它清掉，
+  // 这里再判一次是为了「改回原样后没重新确认」也不至于拿旧凭据进支付页）
+  const alreadyConfirmed = confirm !== null && !isPlanConfirmStale(confirm, activePlan);
 
   // 基础核心服务项目（固定高度，不因下方增值服务勾选而增减行，避免上下抖动）
   const basePackageItems = activePlan.items.filter(item => !item.id.startsWith('addon-'));
@@ -812,6 +834,11 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
           </button>
 
           <div className="flex items-center gap-2.5">
+            {alreadyConfirmed && (
+              <span className="hidden sm:inline text-[11px] text-slate-400" title={confirm?.recordId}>
+                已确认 · 单号 {confirm?.recordId}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setShowReportModal(true)}
@@ -824,10 +851,14 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
             <button
               type="button"
               id="btn-confirm-proposal-proceed"
-              onClick={openPhoneModal}
+              onClick={alreadyConfirmed ? handleConfirmedProceed : openPhoneModal}
               className="px-6 py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <span>确认方案（¥ {formatMoney(activePlan.finalPrice)}）</span>
+              <span>
+                {alreadyConfirmed
+                  ? '已确认，前往支付'
+                  : `确认方案（¥ ${formatMoney(activePlan.finalPrice)}）`}
+              </span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -903,11 +934,15 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
                 type="button"
                 onClick={() => {
                   setShowReportModal(false);
-                  openPhoneModal();
+                  if (alreadyConfirmed) {
+                    handleConfirmedProceed();
+                  } else {
+                    openPhoneModal();
+                  }
                 }}
                 className="px-6 py-2 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-semibold shadow-xs cursor-pointer"
               >
-                确认方案
+                {alreadyConfirmed ? '已确认，前往支付' : '确认方案'}
               </button>
             </div>
           </div>

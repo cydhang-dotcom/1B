@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "check:entry": "vite build --ssr scripts/check-copreg-entry.tsx --outDir node_modules/.cache/copreg-entry --emptyOutDir --logLevel warn && node node_modules/.cache/copreg-entry/check-copreg-entry.js",
     "deploy": "node scripts/build-and-deploy.js",
     "deploy:all": "npm run deploy && ./deploy.sh prod"
   },

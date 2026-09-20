@@ -33,7 +33,6 @@ export default defineConfig(({mode}) => {
         input: {
           main: 'index.html',
           presales: 'presales.html',
-          registration: 'registration.html',
           copreg: 'copreg.html',
         },
       },

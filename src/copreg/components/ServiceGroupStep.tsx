@@ -72,8 +72,8 @@ interface ServiceGroupStepProps {
   order: PaymentOrder;
   messages: ChatMessage[];
   onSendMessage: (text: string) => void;
-  /** 服务群之后的下一步：办理进度。资料填报已移到 registration.html，不再经过 copreg 的页面 */
-  onProceedToProgress: () => void;
+  /** 服务群之后的下一步：企业注册申报资料填报（第 5 步，页面内的独立填报模块） */
+  onProceedToFillDetails: () => void;
   onBackToPayment?: () => void;
 }
 
@@ -82,7 +82,7 @@ export const ServiceGroupStep: React.FC<ServiceGroupStepProps> = ({
   order,
   messages,
   onSendMessage,
-  onProceedToProgress,
+  onProceedToFillDetails,
   onBackToPayment
 }) => {
   const [inputText, setInputText] = useState('');
@@ -141,21 +141,21 @@ export const ServiceGroupStep: React.FC<ServiceGroupStepProps> = ({
                     当前待办事项
                   </span>
                   <h3 className="font-bold text-slate-800 text-xs sm:text-sm">
-                    查看企业开办办理进度与交付节点
+                    填写企业注册申报资料（独立填报模块）
                   </h3>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                  资料申报、市监网申、股东电子签名、执照刻制与顺丰专递进度，均在办理进度页实时同步。
+                  进入独立资料填报模块，依据市监准则申报法定名称、股东出资、主要人员任命并上传经营场所证明。
                 </p>
               </div>
             </div>
 
             <button
               type="button"
-              onClick={onProceedToProgress}
+              onClick={onProceedToFillDetails}
               className="w-full sm:w-auto px-5 py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white font-medium text-xs shadow-xs transition-colors flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
             >
-              <span>查看办理进度</span>
+              <span>进入资料填报模块</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -252,7 +252,7 @@ export const ServiceGroupStep: React.FC<ServiceGroupStepProps> = ({
                               </span>
                               <button
                                 type="button"
-                                onClick={onProceedToProgress}
+                                onClick={onProceedToFillDetails}
                                 className="text-[11px] font-semibold text-white bg-[#36B39E] hover:bg-[#2AA894] px-2.5 py-0.5 rounded-full cursor-pointer transition-colors"
                               >
                                 立即办理
@@ -414,10 +414,10 @@ export const ServiceGroupStep: React.FC<ServiceGroupStepProps> = ({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={onProceedToProgress}
+              onClick={onProceedToFillDetails}
               className="px-6 py-2 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <span>查看办理进度与交付节点</span>
+              <span>进入申报资料填报模块</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

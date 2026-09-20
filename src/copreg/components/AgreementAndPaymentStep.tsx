@@ -31,6 +31,8 @@ import {
   FileEdit
 } from 'lucide-react';
 
+import { STORAGE_KEY as REGISTRATION_STORAGE_KEY } from '../registration/defaultData';
+
 /**
  * 支付成功时现场生成订单号：REG + 年月日 + 时间戳后 6 位。
  * 真实环境订单号应由后端下单接口下发，这里没有后端，所以用支付时刻本地生成，
@@ -48,8 +50,12 @@ interface AgreementAndPaymentStepProps {
   onPaymentSuccess?: () => void;
   onPaid?: (orderData: Partial<PaymentOrder>) => void;
   onBack: () => void;
-  /** 支付后的下一步：专属服务群。资料填报已移到 registration.html，不再经过 copreg 的页面 */
+  /** 申报资料是否已提交，决定清单里第一项的完成态与「查看/修改申报资料」入口 */
+  isDetailsSubmitted?: boolean;
+  /** 支付后的下一步：专属服务群 */
   onProceedToGroup?: () => void;
+  /** 直接进入第 5 步「企业注册申报资料填报」，或提交后回来看/改 */
+  onProceedToFillDetails?: () => void;
 }
 
 export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = ({
@@ -59,9 +65,26 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   onPaymentSuccess,
   onPaid,
   onBack,
-  onProceedToGroup
+  isDetailsSubmitted,
+  onProceedToGroup,
+  onProceedToFillDetails
 }) => {
   const isPaid = order?.status === 'paid';
+
+  // 填报状态以持久化的那份申报存档为准：App 的 state 只在本次会话里有效，
+  // 刷新后它从 localStorage 恢复，这里再兜一层，保证清单不会退回「待填报」
+  const [localSubmitted] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(REGISTRATION_STORAGE_KEY);
+      if (!saved) return false;
+      const parsed = JSON.parse(saved) as { status?: string };
+      return parsed.status === 'submitted';
+    } catch {
+      return false;
+    }
+  });
+
+  const effectiveSubmitted = Boolean(isDetailsSubmitted || localSubmitted);
 
   const formatMoney = (val?: number | null) => {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -80,6 +103,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   const [showWecomModal, setShowWecomModal] = useState(false);
 
   // Payment method
+  // 支付方式：目前只有微信（支付方式选择区里支付宝那一项先注释掉了），所以 'alipay'
+  // 这一支暂时选不到；收银台与实付金额那几处三元判断都保留着它，接入支付宝时不用改。
   const [payMethod, setPayMethod] = useState<'wechat' | 'alipay'>(
     order.paymentMethod === 'alipay' ? 'alipay' : 'wechat'
   );
@@ -143,20 +168,25 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   const checklistItems = [
     {
       title: '企业注册申报资料在线填报与合规初审',
-      desc: '在线登记企业备选字号、股东股权架构、法人/监事实名信息及经营场所证明。专属顾问在您提交后 2 小时内完成合规审核并推进后续各项审批。',
-      status: 'in_progress',
-      statusLabel: '进行中 · 待填报',
-      dept: '当前任务 / 经办人在线填报',
-      time: '第一步（当前阶段）',
-      isPrereq: true
+      desc: effectiveSubmitted
+        ? '已成功提交企业名称排查、股东股权架构、主要管理人员实名信息及经营场所证明。专属顾问正在进行合规初核，预计 2 小时内完成并对接网申审批系统。'
+        : '在线登记企业备选字号、股东股权架构、主要人员实名信息及经营场所证明。专属顾问在您提交后 2 小时内完成合规审核并推进后续各项审批。',
+      status: effectiveSubmitted ? 'completed' : 'in_progress',
+      statusLabel: effectiveSubmitted ? '已完成填报 · 专员初审中' : '进行中 · 待填报',
+      dept: effectiveSubmitted ? '已提交 · 企服专员初核中' : '独立专项填报模块 / 经办人在线录入',
+      time: effectiveSubmitted ? '已提交（正在初核）' : '核心前置任务（约 10~15 分钟）',
+      isPrereq: !effectiveSubmitted
     },
     {
       title: '市场监督管理局行政审批送审与执照领办',
-      desc: '【前置条件：资料审核通过后启动】专人对接属地市监行政审批网申系统编制申报底稿，协同全体股东完成实名认证电子签名后，领办纸质营业执照正副本原件。',
-      status: 'waiting',
-      statusLabel: '待资料审核后启动',
+      desc: effectiveSubmitted
+        ? '【当前阶段】专人对接属地市监行政审批网申系统编制申报底稿，协同全体股东完成实名认证电子签名后，领办纸质营业执照正副本原件。'
+        : '【前置条件：资料审核通过后启动】专人对接属地市监行政审批网申系统编制申报底稿，协同全体股东完成实名认证电子签名后，领办纸质营业执照正副本原件。',
+      status: effectiveSubmitted ? 'in_progress' : 'waiting',
+      statusLabel: effectiveSubmitted ? '进行中 · 底稿编制与政务网申' : '待资料审核后启动',
       dept: '市场监督管理局',
-      time: '资料审核通过后 1~2 工作日'
+      time: effectiveSubmitted ? '预计 1~2 工作日办结' : '资料审核通过后 1~2 工作日',
+      isPrereq: effectiveSubmitted
     },
     {
       title: '公安特行备案防伪芯片印章刻制（全套5枚）',
@@ -346,7 +376,11 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
               {/* Section 3: Payment Method Selection */}
               <div className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white">
                 <h2 className="text-sm font-bold text-slate-800 mb-3">选择支付方式</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 目前只有微信支付接入了（src/payment/），支付宝还没接，所以这里只列一项，
+                    外层用单列。接入支付宝时：把下面那段注释掉的选项恢复，外层改回
+                    grid-cols-1 sm:grid-cols-2 —— payMethod 的类型和收银台那几处三元判断
+                    都还留着 'alipay' 分支，不用动。 */}
+                <div className="grid grid-cols-1 gap-3">
                   {/* WeChat Pay */}
                   <div
                     onClick={() => setPayMethod('wechat')}
@@ -372,7 +406,7 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                     </div>
                   </div>
 
-                  {/* Alipay */}
+                  {/* 支付宝：尚未接入，先隐藏（恢复时把这段取消注释即可）
                   <div
                     onClick={() => setPayMethod('alipay')}
                     className={`p-3.5 rounded-xl border cursor-pointer transition-colors flex items-center justify-between ${
@@ -396,6 +430,7 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                       {payMethod === 'alipay' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                     </div>
                   </div>
+                  */}
                 </div>
               </div>
 
@@ -561,7 +596,7 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                     </div>
                   </div>
                   <span className="text-xs text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200/70 self-start sm:self-auto font-medium">
-                    第 1 步待填报
+                    {effectiveSubmitted ? '资料已提交 · 专员初审中' : '第 1 步待填报'}
                   </span>
                 </div>
 
@@ -633,6 +668,18 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                             >
                               <span>进入专属服务群</span>
                               <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {isDone && index === 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (onProceedToFillDetails) onProceedToFillDetails();
+                              }}
+                              className="px-3 py-1.5 rounded-xl border border-emerald-300 bg-white hover:bg-emerald-50 text-[#1D6C5E] font-bold text-xs shadow-2xs transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                            >
+                              <FileEdit className="w-3.5 h-3.5" />
+                              <span>查看/修改申报资料</span>
                             </button>
                           )}
                           <span

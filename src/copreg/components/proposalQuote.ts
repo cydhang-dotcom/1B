@@ -14,6 +14,12 @@ import { OptionalAddonService, PlanAddon, QuotationItem, ServiceTierType, TierQu
 
 export const ALL_ADDON_IDS = ['addon-bank', 'addon-tax', 'addon-social'];
 
+/**
+ * 套餐档位白名单。存档解析（planDraft 的 `tierOf`）与确认凭据校验（serviceConfirm 的
+ * `parsePlanConfirm`）共用这一份：报价、存档、确认三处认的档位必须永远一致。
+ */
+export const ALL_TIER_IDS: ServiceTierType[] = ['bundle_small', 'bundle_general', 'standard'];
+
 /** 报价明细里靠这个前缀区分自选增值服务与套餐内含项（`item-*`） */
 const ADDON_PREFIX = 'addon-';
 
