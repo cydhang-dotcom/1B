@@ -100,11 +100,17 @@ const NOW = 1_800_000_000_000; // 固定基准时刻，避免用到真实时钟
 /* ---------------------------------------------------------------- URL 合法性 */
 
 {
-  ok('weixin://wxpay 通过', isWechatPayUrl(CODE_URL));
-  ok('大小写不敏感', isWechatPayUrl('WEIXIN://WXPAY/bizpayurl?pr=x'));
+  ok('pr 凭证模式通过', isWechatPayUrl(CODE_URL));
+  // 微信官方文档给的短链模式，参数名是 sr 不是 pr，同样必须通过
+  ok('sr 短链模式通过', isWechatPayUrl('weixin://wxpay/bizpayurl?sr=123456'));
+  ok('大小写不敏感', isWechatPayUrl('WEIXIN://WXPAY/bizpayurl?sr=x'));
+  // host 不一定是 wxpay：合单支付用的是 pay.weixin.qq.com，且路径多一层 /up
+  ok('合单支付的 pay.weixin.qq.com 通过', isWechatPayUrl('weixin://pay.weixin.qq.com/bizpayurl/up?pr=NwY5Mz9&groupid=00'));
+  ok('模式一的签名长串通过', isWechatPayUrl('weixin://wxpay/bizpayurl?sign=A&appid=B&mch_id=C'));
   ok('微信支付域名通过', isWechatPayUrl('https://wxpay.weixin.qq.com/pay?x=1'));
   ok('别的域名被拒', !isWechatPayUrl('https://evil.com/pay'));
   ok('别的 weixin 协议被拒', !isWechatPayUrl('weixin://other/thing'));
+  ok('bizpayurl 的近似串被拒', !isWechatPayUrl('weixin://wxpay/bizpayurlfake?sr=1'));
   ok('空串被拒', !isWechatPayUrl(''));
 }
 

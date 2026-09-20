@@ -175,9 +175,25 @@ export const decodeCodeUrl = (value: unknown): string => {
     .replace(/&amp;/g, '&');
 };
 
-/** code_url 的合法形态：微信的私有协议或微信支付域名 */
-export const isWechatPayUrl = (value: string): boolean =>
-  /^weixin:\/\/wxpay\/bizpayurl/i.test(value) || /^https:\/\/wxpay\.weixin\.qq\.com\//i.test(value);
+/**
+ * code_url 的合法形态。
+ *
+ * 只校验「微信私有协议 + /bizpayurl 路径」，**不校验 host 与查询参数名**，
+ * 因为它们随微信的下单模式而变，钉死任何一个都会误拒：
+ *   weixin://wxpay/bizpayurl?sr=123456                 短链模式
+ *   weixin://wxpay/bizpayurl?pr=AbCd1234               凭证模式
+ *   weixin://pay.weixin.qq.com/bizpayurl/up?pr=x&groupid=00   合单支付，host 都不一样
+ *   weixin://wxpay/bizpayurl?sign=…&appid=…&mch_id=…   模式一的签名长串
+ *
+ * 放宽的代价也只是渲染出一个微信不认的码（用户当场看得见），
+ * 而收紧的代价是整条支付链路直接不可用 —— 两者不对称，所以宁可宽松。
+ */
+export const isWechatPayUrl = (value: string): boolean => {
+  const raw = value.trim();
+  if (!raw) return false;
+  if (/^weixin:\/\/[\w.-]+\/bizpayurl(\/|\?|$)/i.test(raw)) return true;
+  return /^https:\/\/wxpay\.weixin\.qq\.com\//i.test(raw);
+};
 
 /**
  * 图片地址归一化。只接受 http(s) 绝对地址或协议相对地址。
@@ -315,6 +331,17 @@ export const MAX_CONSECUTIVE_FAILURES = 5;
 const JITTER = 0.2;
 
 /**
+ * 取数组第 i 项，越界就夹到两端。
+ * 不用 `list[i]` 直接加 `!` 断言：开了 noUncheckedIndexedAccess 的项目里
+ * `list[i]` 的类型是 `number | undefined`，`!` 能过编译但会掩盖真空数组，
+ * 这里显式给一个兜底值。
+ */
+const clampPick = (list: readonly number[], index: number): number => {
+  const clamped = Math.min(Math.max(index, 0), list.length - 1);
+  return list[clamped] ?? list[list.length - 1] ?? 0;
+};
+
+/**
  * 下一次查询的等待时长。rand 可注入，测试里传固定值就能做确定性断言。
  * 加抖动是为了避免同一时刻下单的客户端同频打服务端。
  */
@@ -323,9 +350,7 @@ export const nextPollDelay = (
   failures: number,
   rand: () => number = Math.random,
 ): number => {
-  const schedule = failures > 0 ? FAILURE_SCHEDULE_MS : POLL_SCHEDULE_MS;
-  const index = failures > 0 ? failures - 1 : attempt;
-  const base = schedule[Math.min(Math.max(index, 0), schedule.length - 1)];
+  const base = clampPick(failures > 0 ? FAILURE_SCHEDULE_MS : POLL_SCHEDULE_MS, failures > 0 ? failures - 1 : attempt);
   const factor = 1 + (rand() * 2 - 1) * JITTER;
   return Math.max(0, Math.round(base * factor));
 };
