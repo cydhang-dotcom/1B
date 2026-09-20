@@ -34,6 +34,7 @@ export default defineConfig(({mode}) => {
           main: 'index.html',
           presales: 'presales.html',
           registration: 'registration.html',
+          copreg: 'copreg.html',
         },
       },
     },

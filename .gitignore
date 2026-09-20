@@ -8,7 +8,6 @@ coverage/
 .DS_Store
 *.log
 .env*
-!.env.example
 # 部署脚本仅保留本地，含服务器账号信息，不入库
 deploy.sh
 vpn.sh

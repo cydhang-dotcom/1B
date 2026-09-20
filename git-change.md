@@ -44,6 +44,23 @@
 - 调整 model、schema、ui、steps、dialogs、review、help、flat、draft 由 Tailwind 工具类改用 design.css 语义化类名
 - 删除 agency-steps、attorney、dev-defaults、fields、flow、person-options 六个文件，逻辑并入上述模块
 
+### 企业方案（copreg）
+- 新增 第 2 步「确认并前往支付」接入 `POST /api/company-plan/confirm-proposal`，把第 1 步的两份存档（问卷 + 套餐加购、诊断返回）连同手机号验证信息一并提交，请求体分 formData / proposalResult / phoneNumber 三个字段
+- 新增 formData.addons 由 id 字符串数组改为对象数组（id + 名称 + 实收价），服务端照这份清单就能出单，不必自己再查 id 对应的服务名与价格；套餐内含的服务项不上报，服务端按 tier 自己映射
+- 新增 自选项取自方案页报价明细里 `addon-*` 的行项目，顺序固定（银行开户 → 税局开户 → 社保公积金开户），价格与页面显示的是同一个数
+- 调整 本地存档 1b_copreg_plan_form 与请求体统一形状：PlanForm.addons 同样是对象数组，确认接口直接拿 PlanForm 当 formData 的类型，存下去什么就发什么
+- 新增 proposalQuote.addonsOf 作为自选项唯一的派生入口（App 存盘与确认接口调同一个函数），derive 一次两边一致；normalizeAddons 负责存档读回
+- 新增 旧存档兼容：addons 是 id 字符串数组的老存档也能读回，按目录补上名称与价格，认不出的 id 与重复项丢掉
+- 新增 后端 proposalResult 标了 @NotNull，而第 1 步「诊断失败不拦人前进」是既有行为：诊断结果缺失时前端就地拦住、一个请求都不发，提示回第 1 步重新生成，不硬送 null 换回一句看不懂的 400
+- 新增 确认接口失败拦在方案页：弹窗不关、按钮恢复可点、错误文案直接显示在弹窗里，可原地重试
+- 新增 确认在途时手机号、验证码、获取验证码、取消与右上角关闭全部置灰，主按钮显示「提交中…」
+- 新增 serviceConfirm.ts 承载请求体拼装与调用，端点由 React 层注入以便离线自检；套餐、加购统一取自方案页那份 activePlan，提交值与页面显示不会出现两套价格
+- 删除 上一版临时加的 formData.services（套餐内含服务项、交付物清单）：改为只上报自选增值服务，由 addons 的对象数组承载
+- 新增 scripts/check-service-confirm.ts 自检脚本，80 项断言覆盖请求体形状、addons 对象数组的内容与顺序（含 bundle 档 addons 恒空这一约定）、自选项派生与存档往返（含旧存档迁移）、存档与请求同源、深拷贝、诊断结果缺失时不发请求、端点未配置与五类失败文案
+- 调整 apiClient 的 postJson 支持自定义超时，确认接口用 15s 而不是大模型接口的 60s
+- 调整 确认接口归入企业方案服务：新增 CONFIRM_PROPOSAL_PATH（可用 VITE_CONFIRM_PROPOSAL_PATH 覆盖），与填充 / 诊断共用 VITE_COMPANY_PLAN_HOST；删掉上一轮占位用的 SERVICE_CONFIRM_SAVE_PATH
+- 更新 docs/copreg-plan-api.md，补第三节「确认并前往支付」（含 addons 对象数组字段表与 proposalResult 非空的处理）并把后续章节顺延
+
 ### 校验脚本
 - 调整 scripts/check-registration-schema.ts 改为直接调用纯函数的自检脚本，覆盖六个步骤的校验规则与扁平值派生
 
@@ -58,10 +75,19 @@
 - 新增 轮询网络抖动只置提示而不改状态，避免用户扫码时二维码被卸载
 - 新增 服务端终态优先于本地倒计时，已支付订单不会被显示成已过期
 - 新增 接口路径留空时抛未配置错误并进入未开通态，不做静默降级
-- 新增 scripts/check-wechat-pay.ts 自检脚本，127 项断言覆盖解析、状态映射、退避与超时
+- 新增 scripts/check-wechat-pay.ts 自检脚本，131 项断言覆盖解析、状态映射、退避与超时
 - 新增 二维码矩阵与 SVG path 的往返一致性断言，确保生成的码可扫
 - 新增 uqr 依赖用于生成二维码，相较于 qrcode 不引入 yargs 等命令行解析依赖
+- 修复 code_url 校验把 host 写死成 wxpay，导致合单支付的 pay.weixin.qq.com 形态被误拒
+- 调整 校验改为只认 weixin 私有协议与 /bizpayurl 路径，host 与查询参数名不再参与判断
+- 修复 nextPollDelay 取数组元素在 noUncheckedIndexedAccess 下类型为 undefined，改为夹取并显式兜底
 
 ### 配置
 - 新增 config/api.ts 的下单与查单路径常量及期望的请求响应字段，路径留空待接口方确认
+- 新增 config/api.ts 的短信服务、腾讯行为验证码与企业方案服务三组配置
+- 新增 vite.config.ts 的 copreg 多页面入口
 - 更新 .gitignore 忽略 node_modules.bak/
+- 删除 .env.example 并移除 .gitignore 中对应的例外，各服务默认值已内置于 config/api.ts
+
+### 文档
+- 新增 docs/copreg-plan-api.md 与 docs/copreg-registration-fields.md
