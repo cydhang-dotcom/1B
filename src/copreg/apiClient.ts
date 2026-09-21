@@ -73,11 +73,35 @@ const messageOf = (text: string, status: number, label: string): string => {
  * timeoutMs 默认是给大模型接口的 60s；普通保存类接口（如「确认并前往支付」）传更短的值 ——
  * 一个按钮转圈超过十几秒，用户只会以为卡死了。
  */
-export const postJson = async (
+export const postJson = (
   url: string,
   body: unknown,
   label: string,
   timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Record<string, unknown>> =>
+  requestJson(
+    url,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    label,
+    timeoutMs
+  );
+
+/**
+ * GET 一段 JSON，收口规则与 postJson 完全一致（同一套超时与错误文案）。
+ * 给只读查询用（如支付状态查询）：查询是幂等的，不需要 body，也不该带请求体去绕缓存。
+ */
+export const getJson = (
+  url: string,
+  label: string,
+  timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Record<string, unknown>> =>
+  requestJson(url, { method: 'GET', headers: { Accept: 'application/json' } }, label, timeoutMs);
+
+const requestJson = async (
+  url: string,
+  init: RequestInit,
+  label: string,
+  timeoutMs: number
 ): Promise<Record<string, unknown>> => {
   const controller = new AbortController();
   let timedOut = false;
@@ -87,12 +111,7 @@ export const postJson = async (
   }, timeoutMs);
 
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
+    const response = await fetch(url, { ...init, signal: controller.signal });
 
     if (!response.ok) {
       throw new Error(messageOf(await response.text(), response.status, label));

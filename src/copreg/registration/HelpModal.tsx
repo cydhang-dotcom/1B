@@ -7,13 +7,14 @@ import React from 'react';
 import { X, HelpCircle, ShieldCheck, FileCheck, Users, Building, FileText, MessageSquare, QrCode, Phone, CheckCircle2 } from 'lucide-react';
 
 interface HelpModalProps {
-  onResetToDemo: () => void;
+  /** 用前面步骤（问卷 + 方案）的数据重新填充申报表 —— 不是示例数据 */
+  onRefillFromPlan: () => void;
   onClose: () => void;
   onOpenWecom?: () => void;
 }
 
 export const HelpModal: React.FC<HelpModalProps> = ({
-  onResetToDemo,
+  onRefillFromPlan,
   onClose,
   onOpenWecom,
 }) => {
@@ -51,11 +52,10 @@ export const HelpModal: React.FC<HelpModalProps> = ({
                 </div>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm text-slate-800">专属顾问：李经理</span>
+                    <span className="font-bold text-sm text-slate-800">专属顾问在线</span>
                     <span className="text-[10px] text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded border border-emerald-200 font-medium">
                       企业微信官方认证
                     </span>
-                    <span className="text-[11px] text-slate-400">（工号：BB-8029）</span>
                   </div>
                   <p className="text-slate-600 mt-1 leading-relaxed">
                     填报过程中如对企业名称排查、经营范围、出资比例、董事监事设置或场地证明材料有疑问，顾问可全程专人协同代填与合规预审。
@@ -146,10 +146,10 @@ export const HelpModal: React.FC<HelpModalProps> = ({
         <div className="px-6 py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-between">
           <button
             type="button"
-            onClick={onResetToDemo}
+            onClick={onRefillFromPlan}
             className="text-xs font-semibold text-[#1D6C5E] hover:underline cursor-pointer"
           >
-            载入合规示例数据
+            按方案重新填充
           </button>
           <button
             type="button"

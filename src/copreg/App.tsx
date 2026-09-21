@@ -35,6 +35,30 @@ import {
   savePlanReport
 } from './planDraft';
 import { isPlanConfirmStale, planConfirmWithSelection, type PlanConfirm } from './serviceConfirm';
+import {
+  PAID_HASH,
+  advanceOnPaid,
+  hashClaimsPaid,
+  progressRouteOf,
+  resolveStep,
+  stepHash,
+  stepOfHash,
+} from './stepRoute';
+import { fetchPaymentStatus } from './paymentStatus';
+import { createOrderStatusChecker, type OrderStatusChecker } from './orderStatusCheck';
+import { PAY_HOST, WECHAT_NATIVE_CREATE_PATH, WECHAT_NATIVE_QUERY_PATH } from '../config/api';
+import type { PayEndpoints } from '../payment/client';
+
+/**
+ * 支付端点：只有 React 这一层读 config/api.ts（它依赖 import.meta.env，是 Vite 专有的）。
+ * 与 useWechatNativePay 里那份是同一组常量 —— `#paid` 的状态核实走的就是支付模块的查单接口，
+ * 两个路径都填好之前 `#paid` 一律收口回 `#payment`（不会有人因为查不动被拦住）。
+ */
+const PAY_ENDPOINTS: PayEndpoints = {
+  host: PAY_HOST,
+  createPath: WECHAT_NATIVE_CREATE_PATH,
+  queryPath: WECHAT_NATIVE_QUERY_PATH
+};
 
 /**
  * 空问卷：所有字段留空，等用户从零填写。
@@ -88,6 +112,21 @@ const emptyRegistrationDetails = (): RegistrationDetails => ({
   ]
 });
 
+/**
+ * 第 5 步的申报资料是否已提交。第 5 步把整份申报表存进 localStorage（键见 registration/defaultData），
+ * 提交状态写在那份存档里。落点判断要在 state 之前用它，所以抽成模块级函数。
+ */
+const readDetailsSubmitted = (): boolean => {
+  try {
+    const saved = localStorage.getItem(REGISTRATION_STORAGE_KEY);
+    if (!saved) return false;
+    const parsed = JSON.parse(saved) as { status?: string };
+    return parsed.status === 'submitted';
+  } catch {
+    return false;
+  }
+};
+
 export default function App() {
   // 上次留下的本地存档（见 planDraft.ts，分「填写的」「返回的」「确认凭据」三份键）：
   // 有「填写的」就从第 2 步开始 —— 问卷答案与选过的套餐都还在；
@@ -118,12 +157,38 @@ export default function App() {
     planDraft?.confirm && !isPlanConfirmStale(planDraft.confirm, plan) ? planDraft.confirm : null;
   const [planConfirm, setPlanConfirm] = useState<PlanConfirm | null>(initialConfirm);
 
-  const [currentStep, setCurrentStep] = useState<ProcessStep>(
-    initialConfirm ? 'payment' : planDraft ? 'proposal' : 'survey'
-  );
-  const [unlockedSteps, setUnlockedSteps] = useState<ProcessStep[]>(
-    initialConfirm ? ['survey', 'proposal', 'payment'] : ['survey', 'proposal']
-  );
+  // 首屏落在哪一步：先按本地存档算出「本来该在哪」（有确认凭据 = 第 3 步，有问卷 = 第 2 步），
+  // 再看地址栏有没有 hash 请求别的步骤 —— hash 只是请求，没解锁的步骤会被收口回这一步
+  // （见 stepRoute.ts，以及下面同步 hash 的两个 effect）
+  // 刷新时的落点由**已知进度**决定，而且从后往前判断：申报资料已提交 > 订单已支付 >
+  // 确认过方案 > 填过问卷。只按「有确认凭据」就落到第 3 步是错的 —— 那会把已经填完申报资料
+  // 的人送回支付页。订单是否已支付只有异步查单才知道，所以首帧先按本地证据算，查回来后
+  // 由下面的核实 effect 解锁服务群。
+  const { landing: fallbackStep, unlocked: initialUnlocked } = progressRouteOf({
+    hasPlanForm: planDraft !== null,
+    hasConfirm: initialConfirm !== null,
+    orderPaid: false,
+    detailsSubmitted: readDetailsSubmitted(),
+  });
+  const initialStep = resolveStep(stepOfHash(window.location.hash), initialUnlocked, fallbackStep);
+
+  if (import.meta.env.DEV) {
+    // 落点决策只在首帧算一次，出问题时必须能一眼看出卡在哪条证据上（本地凭据缺失 / 过期最容易被误判）
+    console.info('[copreg] 首屏落点', {
+      hash: window.location.hash,
+      请求的步骤: stepOfHash(window.location.hash),
+      有问卷存档: planDraft !== null,
+      有确认凭据: initialConfirm !== null,
+      申报资料已提交: readDetailsSubmitted(),
+      解锁: initialUnlocked.join(','),
+      落点: initialStep,
+    });
+  }
+
+  const [currentStep, setCurrentStep] = useState<ProcessStep>(initialStep);
+  /** 首帧落点：异步查回「已支付」时用它判断用户是不是还停在原地（没自己走动过） */
+  const initialStepRef = useRef<ProcessStep>(initialStep);
+  const [unlockedSteps, setUnlockedSteps] = useState<ProcessStep[]>(initialUnlocked);
 
   // Core Survey state —— 有存档用存档，没有就从空问卷开始，用户填什么就是什么
   const [survey, setSurvey] = useState<SurveyData>(() => planDraft?.survey ?? emptySurvey());
@@ -152,16 +217,7 @@ export default function App() {
    * 申报资料是否已提交。第 5 步把整份申报表存进 localStorage（键见 registration/defaultData），
    * 提交状态就写在那份存档里 —— 刷新后据此恢复，否则支付页的清单会退回「第 1 步待填报」。
    */
-  const [isDetailsSubmitted, setIsDetailsSubmitted] = useState<boolean>(() => {
-    try {
-      const saved = localStorage.getItem(REGISTRATION_STORAGE_KEY);
-      if (!saved) return false;
-      const parsed = JSON.parse(saved) as { status?: string };
-      return parsed.status === 'submitted';
-    } catch {
-      return false;
-    }
-  });
+  const [isDetailsSubmitted, setIsDetailsSubmitted] = useState<boolean>(readDetailsSubmitted);
 
   // Timeline / Delivery progress state
   const [timeline, setTimeline] = useState<TimelineNode[]>(INITIAL_TIMELINE_NODES);
@@ -215,6 +271,108 @@ export default function App() {
     setPlanConfirm(filled);
     savePlanConfirm(filled);
   }, [planConfirm, plan]);
+
+  // ---------------------------------------------------------------- URL hash
+  // 步骤 ↔ 地址栏保持同步：刷新 / 收藏 / 转发能回到同一步，浏览器前进后退也能按步走。
+  // 两个 effect 一个「写」一个「读」，互相不会打架：写之前先比一次 hash，
+  // 读回来的步骤与当前一致时 setState 是同一个值，React 直接跳过。
+  //
+  // 唯一需要等一等的是 `#paid`：它声称「已支付」，而支付状态只有服务端知道。
+  // 首帧先拿确认单据号去查（下面那个 effect），结论出来之前**不写地址栏**，
+  // 否则会把 #paid 先改成 #payment、查到已支付再改回来，地址栏白闪两下。
+  const [paidCheck, setPaidCheck] = useState<'idle' | 'checking' | 'done'>('idle');
+  const isPaidOrder = order.status === 'paid';
+
+  const skipFirstHashWrite = useRef(true);
+  useEffect(() => {
+    if (paidCheck === 'checking') return; // 核实中，地址栏先不动
+    // 已支付的支付页有自己的 hash（#paid）；其余情况按当前步骤的 hash
+    const target = isPaidOrder && currentStep === 'payment' ? PAID_HASH : stepHash(currentStep);
+    if (skipFirstHashWrite.current) {
+      // 首帧只做规范化（例如地址栏是 #progress 但实际只能到第 1 步）：用 replace，
+      // 不给自己多塞一条历史，否则用户按后退会退回到同一个页面
+      skipFirstHashWrite.current = false;
+      if (window.location.hash !== target) window.history.replaceState(null, '', target);
+      return;
+    }
+    // 之后每换一步压一条历史，后退就是退回上一步
+    if (window.location.hash !== target) window.location.hash = target;
+  }, [currentStep, isPaidOrder, paidCheck]);
+
+  useEffect(() => {
+    const onHashChange = () => {
+      const requested = stepOfHash(window.location.hash);
+      // `#paid` 不是「请求哪一步」而是「声称已支付」：本次会话里没确认过已支付就不认，
+      // 改回真实步骤（下一次刷新时首帧核实会再给一次机会）
+      if (hashClaimsPaid(window.location.hash) && !isPaidOrder) {
+        window.history.replaceState(null, '', stepHash(stepRef.current));
+        return;
+      }
+      // 认不出的 hash、或还没解锁的步骤：留在原地，并把地址栏改回真实步骤 ——
+      // 地址栏与页面必须一致，否则复制出去的链接会把别人带到空壳页面
+      if (requested === null || !unlockedSteps.includes(requested)) {
+        window.history.replaceState(null, '', stepHash(stepRef.current));
+        return;
+      }
+      if (requested === stepRef.current) return;
+      setCurrentStep(requested);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+    window.addEventListener('hashchange', onHashChange);
+    return () => window.removeEventListener('hashchange', onHashChange);
+  }, [unlockedSteps, isPaidOrder]);
+
+  // 订单状态核实：只要手上有确认单据号、而且还不知道这笔已支付，就问一次服务端。两件事都靠它：
+  //   ① 地址栏是 `#paid` 时能不能真的显示「支付成功」；
+  //   ② **刷新后落回「待支付」、但订单其实早就付过了** —— 不问这一下，用户一点「立即支付」
+  //      就会被服务端以「当前订单已完成支付，或请联系客服」拒掉（本地凭据丢失时最容易撞上）。
+  // 查不动（路径没配 / 超时 / 网络不通 / 响应认不出）一律当没付：收口回 `#payment`，用户照常付款。
+  // 闸门要在 StrictMode 的「挂载 → 清理 → 再挂载」下也成立：同一个单据号复用同一个请求，
+  // 第一轮的结果虽然被取消丢弃，第二轮仍会拿到同一个 promise 并落地（详见 orderStatusCheck.ts）
+  const statusCheckerRef = useRef<OrderStatusChecker | null>(null);
+  if (statusCheckerRef.current === null) {
+    statusCheckerRef.current = createOrderStatusChecker((recordId: string) =>
+      fetchPaymentStatus(PAY_ENDPOINTS, recordId)
+    );
+  }
+
+  useEffect(() => {
+    if (isPaidOrder) return;
+    const pending = statusCheckerRef.current!.check(planConfirm?.recordId ?? '');
+    if (pending === null) return; // 空号 / 已核实过：不发请求
+
+    let cancelled = false;
+    setPaidCheck('checking');
+    pending.then(result => {
+      if (cancelled) return;
+      if (result.status === 'paid') {
+        setOrder(prev => ({
+          ...prev,
+          status: 'paid',
+          // 服务端给了单号 / 支付时间 / 手机号就用它的；没给就留空，不自己编。
+          // 手机号按约定不落本地，重新进入页面时只能从查单回答里补回来
+          orderNo: result.orderNo ?? prev.orderNo,
+          paidAt: result.paidAt ?? prev.paidAt,
+          contactPhone: result.mobile ?? prev.contactPhone
+        }));
+        unlockStep('group'); // 已支付 = 服务群本来就该解锁
+
+        // 首帧算落点时还不知道这笔已支付，可能先落在了第 2 步；查回来后把人补到
+        // 「支付成功」界面 —— 只在他还停在首帧那一步时补（自己走开过就不动他）。
+        const advanced = advanceOnPaid(stepRef.current, initialStepRef.current, {
+          userNavigated: stepRef.current !== initialStepRef.current
+        });
+        if (advanced !== null) {
+          setCurrentStep(advanced);
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      }
+      setPaidCheck('done');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [planConfirm, isPaidOrder]);
 
   // Helper to unlock step
   const unlockStep = (step: ProcessStep) => {
@@ -490,6 +648,7 @@ export default function App() {
           <AgreementAndPaymentStep
             plan={plan}
             order={order}
+            busUnionId={planConfirm?.recordId ?? ''}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
             onProceedToGroup={handleProceedToGroup}
@@ -504,6 +663,7 @@ export default function App() {
           <AgreementAndPaymentStep
             plan={plan}
             order={order}
+            busUnionId={planConfirm?.recordId ?? ''}
             isDetailsSubmitted={isDetailsSubmitted}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
@@ -533,6 +693,9 @@ export default function App() {
         {currentStep === 'fill_details' && (
           <RegistrationDetailsStep
             details={details}
+            survey={survey}
+            plan={plan}
+            contactPhone={order.contactPhone}
             onUpdateDetails={setDetails}
             onSubmitForReview={handleSubmitForReview}
             onBackToGroup={() => {

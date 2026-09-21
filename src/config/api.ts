@@ -2,30 +2,42 @@ export const API_HOST = import.meta.env.VITE_API_HOST;
 export const DOC_HOST = import.meta.env.VITE_DOC_HOST;
 
 /**
- * 微信支付 Native（PC 扫码）—— 下单与查单。
+ * 微信支付 Native（PC 扫码）—— 下单（出码）与查单。
  *
- * 只写路径，不含 host、不含 /v1：VITE_API_HOST 本身已经带 /v1（见 .env.*）。
- * 下单  POST  期望请求 { bizType: string; bizId: string; subject?: string;
- *                        idempotencyKey?: string; shareUserUuid?: string }
- *             ★ 绝不传金额：服务端按 bizType/bizId 自行定价，前端传来的金额一律忽略
- *            期望响应 { outTradeNo: string; codeUrl?: string; qrImageUrl?: string;
- *                       expiresAt?: number | string; amount?: number | string; currency?: string }
- * 查单  GET   期望请求 { outTradeNo }（query）
- *            期望响应 { outTradeNo: string; tradeState: string; amount?: number | string }
- *            tradeState: SUCCESS | NOTPAY | USERPAYING | CLOSED | REVOKED | PAYERROR | REFUND
+ * 下单挂在**文档 / 业务服务 DOC_HOST** 下（与弹窗里取企微客服码同一个 host；注意 DOC_HOST
+ * 自带 /v1，路径直接接在后面）：
+ *   下单  POST  {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/pay
+ *        请求体 { payAmount: number（元）, busUnionId: string（= 确认接口返回的 recordId）}
+ *        ★ 金额是前端传的：服务端必须按 busUnionId 复核价格，否则改请求体就能少付钱
+ *        ★ 没有去重键：一次点击只许发一次（前端状态机负责），失败也不自动重试
+ *        响应  形如 { outTradeNo, codeUrl | qrImageUrl, expiresAt?, amount?, currency? }
+ *              —— 二维码字段两种来源都支持（见 payment/model.ts 的 resolveQrSource）
  *
- * ponytail: 路径待接口方确认后填入（如 '/xcx/xhr-pay/native/create'）。
- * 留空时模块抛 PaymentNotConfiguredError 并让 UI 进入「未开通」态，不静默降级。
+ * 查单  GET  {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay?busUnionId=<确认单据号>
+ *       —— 收银台轮询与「#paid」的直达判断都用它（同一个接口，同一个入参）
+ *       响应 { scbUuid, orderNo, payTime, mobile, status, payAmount }，status: '1' 已支付 / '0' 未支付
+ *       ★ 只认 status='1' 为已支付；缺 status 按「查不动」处理（不猜），
+ *         不认识的 status 只 warn、继续当未支付（服务端会加状态）
  */
-export const WECHAT_NATIVE_CREATE_PATH: string = '';
-export const WECHAT_NATIVE_QUERY_PATH: string = '';
+export const WECHAT_NATIVE_CREATE_PATH: string =
+  import.meta.env.VITE_WECHAT_NATIVE_CREATE_PATH || '/xcx/yqt-co/wx-pay/open-acc/pay';
+/** 查单（收银台轮询 + #paid 核实）。留空 = 还没接 */
+export const WECHAT_NATIVE_QUERY_PATH: string =
+  import.meta.env.VITE_WECHAT_NATIVE_QUERY_PATH || '/xcx/yqt-co/wx-pay/open-acc/query/pay';
 
-/** 两个路径都填了才算开通；只填一个同样是没开通 */
+/** 下单与查单的 host：两个接口都挂在文档 / 业务服务 DOC_HOST 下 */
+export const PAY_HOST = DOC_HOST;
+
+/** 两个路径都填了才算开通；只填一个同样是没开通（下单出码缺一不可） */
 export const PAYMENT_CONFIGURED =
   Boolean(WECHAT_NATIVE_CREATE_PATH) && Boolean(WECHAT_NATIVE_QUERY_PATH);
 
 if (import.meta.env.DEV && !PAYMENT_CONFIGURED) {
-  console.warn('[payment] 微信支付接口路径未配置，调用下单时会抛错');
+  console.warn(
+    `[payment] 微信支付未接通：下单路径 ${WECHAT_NATIVE_CREATE_PATH ? '已配' : '缺失'}、查单路径 ${
+      WECHAT_NATIVE_QUERY_PATH ? '已配' : '缺失'
+    }`
+  );
 }
 
 /**
@@ -107,6 +119,7 @@ export const PLAN_DIAGNOSE_PATH =
 /** 「确认并前往支付」的确认保存接口，与上面两个同属企业方案服务 */
 export const CONFIRM_PROPOSAL_PATH =
   import.meta.env.VITE_CONFIRM_PROPOSAL_PATH || '/api/company-plan/confirm-proposal';
+
 
 /**
  * 腾讯云行为验证码 appId。appId 是前端公开值，真正的票据校验在服务端完成，可安全暴露。

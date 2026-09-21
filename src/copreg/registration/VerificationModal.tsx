@@ -17,7 +17,8 @@ export const VerificationModal: React.FC<VerificationModalProps> = ({
   onVerifySuccess,
   onClose,
 }) => {
-  const [phone, setPhone] = useState(defaultPhone || '13800138000');
+  // 默认号由调用方给（确认步骤用过的手机号）；没有就空着让用户自己填，不预置示例号
+  const [phone, setPhone] = useState(defaultPhone || '');
   const [code, setCode] = useState('');
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

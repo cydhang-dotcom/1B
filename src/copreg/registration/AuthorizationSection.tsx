@@ -28,8 +28,10 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
   // Find contact person to automatically fill as trustee
   const contactRole = roles.find((r) => r.roles.includes('联系人')) || roles[0];
   const contactPerson = contactRole ? people[contactRole.personId] : null;
-  const trusteeName = data.trusteeName || contactPerson?.name || '林楚天';
-  const trusteeIdNumber = data.trusteeIdNumber || '440301199308123418';
+  // 受托人取申报表里的值或「联系人」，都没有就留空 —— 委托书上按下划线占位交申请人手写，
+  // 绝不回落成写死的示例姓名
+  const trusteeName = data.trusteeName || contactPerson?.name || '';
+    const trusteeIdNumber = data.trusteeIdNumber || '';
 
   const dateVal = data.entrustDate || new Date().toISOString().split('T')[0];
   const [y, m, d] = dateVal.split('-');

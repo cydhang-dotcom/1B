@@ -9,13 +9,41 @@
 | 页面组件 | `src/copreg/components/RegistrationDetailsStep.tsx` |
 | 章节组件 | `src/copreg/registration/`（BasicInfoSection / ShareholderSection / PersonnelSection / AuthorizationSection / ReviewSection + 4 个弹窗） |
 | 数据模型 | `src/copreg/registration/types.ts` 的 `RegistrationFullForm` |
-| 空白表单与示例表单 | `src/copreg/registration/defaultData.ts` 的 `createBlankForm()` / `createCompliantDemoForm()` |
+| 空白骨架与初始数据 | 骨架 `src/copreg/registration/defaultData.ts` 的 `createBlankForm()`；初始数据由 `src/copreg/registrationSeed.ts` 的 `registrationSeedFrom()` **从前面步骤转换**（不再有示例表单） |
 | 页面状态持有者 | 全部在 `RegistrationDetailsStep` 内部（`useState`），不放 `App.tsx` |
 | 草稿落点 | `localStorage`，键 `banbu-registration-20260913-v1`（`defaultData.ts` 的 `STORAGE_KEY`） |
 | 提交后去向 | `App.tsx` 的 `handleSubmitForReview()` → 第 6 步「办理进度」 |
 
 > 这一步最初是独立的 `registration.html`，现已并入 `copreg.html`，与「问卷 → 方案 → 支付 → 服务群 → 进度」
 > 共用同一次会话状态，不再有跨页面的数据搬运层。
+
+---
+
+## 〇、初始数据从哪来（`src/copreg/registrationSeed.ts`）
+
+没有草稿时，这一步的表单**由前面几步的数据转换而来**，不再预置示例数据：
+
+| 申报表字段 | 来源 |
+|---|---|
+| `basic.intro` / `basic.service` / `basic.scope` | 第 1 步问卷的 `companyDesc` / `bizDesc` / `scope`（多条用「；」拼接） |
+| `basic.capital` | 问卷 `capitalAmount`（用户自填时）；否则取第 2 步方案建议句里的**第一个数字** |
+| `basic.expert` | 问卷 `capitalRec === '是'`（金额由服务人员定 → 专家建议） |
+| `basic.names` | 第 2 步方案的 `companyNameProposal`（拆出主名与备选，最多 3 个） |
+| `basic.org` | 方案 `companyType` 里能认出「股份有限公司 / 合伙」才改，否则「有限责任公司」 |
+| `basic.regRecommend` / `workRecommend` | 问卷里「要不要推荐注册地址 / 办公场地」是否以「是」开头 |
+| `shareholders` | 问卷的股东人数（「3 个及以上」按下限 3 行）× 股东类型（自然人 / 企业 / 其他），**只铺结构** |
+| `submissionPhone` | 第 2/3 步确认时用过的经办手机号（本地不落，能拿到才带上） |
+| 其余字段（姓名、证件号、股比、出资额、地址、附件、人员、角色、员工数、各类勾选） | **一律留空**，由用户在这一步自己填 |
+
+三条硬规矩：
+
+1. **拿不到就空着**，不编姓名、不编证件号、不编股比金额；
+2. **需要本人确认的勾选**（信息属实、免于申报）不预先勾上；
+3. **空值渲染不许回落到示例数据** —— 委托书模板、复核摘要这些地方曾经用写死的示例姓名 /
+   证件号 / 手机号兜底，现改为下划线占位或破折号。
+
+守门断言：`npx tsx scripts/check-no-fake-demo-data.ts` 扫全量源码，出现示例姓名 / 身份证号 /
+手机号 / 企业描述 / 顾问工号即失败；转换规则本身由 `scripts/check-registration-seed.ts`（50 项）覆盖。
 
 ---
 
@@ -34,7 +62,7 @@
 | `orgOther` | 文本 | `org === '其他'` 时必填 | 具体组织形式 |
 | `names` | 文本列表 | 至少 1 个非空；第 4 个起不能留空 | 拟注册名称，按优先级排序，开箱 3 个栏位、上限 9 个 |
 | `capital` | 数字文本 | 必填，须为 > 0 的整数 | 注册资本（万元人民币） |
-| `intro` / `service` | 文本（只读展示） | —— | 企业简介与主营服务，来自问卷，页面上标注「仅供展示」 |
+| `intro` / `service` | 文本（只读展示） | —— | 企业简介与主营服务，**来自第 1 步问卷**（`companyDesc` / `bizDesc`），页面上标注「仅供展示」；问卷没填就显示「尚未填写」 |
 | `scope` | 多行文本 | 必填 | 经营范围，按市监规范表述 |
 | `expert` | 开关 | —— | 由服务人员提供资本建议 |
 | `regAddress` | 文本 | 未勾选 `regRecommend` 时必填 | 法定注册详细地址 |

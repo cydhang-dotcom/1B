@@ -15,15 +15,19 @@ import {
   isTerminal,
   isWechatPayUrl,
   joinUrl,
-  mapTradeState,
+  mapOpenAccState,
+  paidFieldsOf,
+  paidSnapshotOf,
+  serverMessageOf,
   nextPollDelay,
   normalizeEpochMs,
   normalizeImageUrl,
   parseCreateOrderResponse,
-  parseQueryOrderResponse,
+  parseOpenAccPayResponse,
   resolveExpiresAt,
   resolveQrSource,
   toPhaseForError,
+  toUserMessage,
 } from '../src/payment/model';
 import { encode } from 'uqr';
 
@@ -130,8 +134,10 @@ const NOW = 1_800_000_000_000; // 固定基准时刻，避免用到真实时钟
 /* --------------------------------------------------------------- 来源选择 */
 
 {
-  const both = { codeUrl: CODE_URL, qrImageUrl: 'https://a.com/q.png' };
+  const both = { codeURL: CODE_URL, qrImageUrl: 'https://a.com/q.png' };
   ok('默认偏向 codeUrl', resolveQrSource(both)?.kind === 'text');
+  ok('后端真实字段名 codeURL 也认（trade_type=NATIVE 时返回）', resolveQrSource({ codeURL: CODE_URL })?.kind === 'text');
+  ok('同时给了 codeURL 与 codeUrl 时以 codeURL 为准', resolveQrSource({ codeURL: CODE_URL, codeUrl: 'https://evil.com' })?.kind === 'text');
   ok('可以指定偏向图片', resolveQrSource(both, 'image')?.kind === 'image');
   ok('只有 codeUrl 时用文本', resolveQrSource({ codeUrl: CODE_URL })?.kind === 'text');
   ok('只有图片时用图片', resolveQrSource({ qrImageUrl: 'https://a.com/q.png' })?.kind === 'image');
@@ -151,16 +157,16 @@ const NOW = 1_800_000_000_000; // 固定基准时刻，避免用到真实时钟
 /* --------------------------------------------------------------- 下单响应 */
 
 {
-  const good = parseCreateOrderResponse({ outTradeNo: 'T1', codeUrl: CODE_URL, amount: 100 }, NOW, 300_000);
+  const good = parseCreateOrderResponse({ codeURL: CODE_URL, amount: 100 }, NOW, 300_000);
   ok('正常响应解析成功', good.status === 'ok');
   if (good.status === 'ok') {
-    ok('订单号正确', good.order.outTradeNo === 'T1');
     ok('带上了二维码', good.order.qr.kind === 'text');
     ok('带上了过期时刻', good.order.expiresAt === NOW + 300_000);
+    ok('接口没给订单号时留空（单号以查单返回为准，前端不自己编）', good.order.outTradeNo === '');
   }
 
-  const noNo = parseCreateOrderResponse({ codeUrl: CODE_URL }, NOW, 300_000);
-  ok('缺订单号被判失败且错误码明确', noNo.status === 'error' && noNo.code === 'missing-out-trade-no');
+  const withNo = parseCreateOrderResponse({ outTradeNo: 'T1', codeURL: CODE_URL }, NOW, 300_000);
+  ok('接口给了订单号就带上', withNo.status === 'ok' && withNo.order.outTradeNo === 'T1');
 
   const noQr = parseCreateOrderResponse({ outTradeNo: 'T1' }, NOW, 300_000);
   ok('缺二维码被判失败', noQr.status === 'error' && noQr.code === 'missing-qr');
@@ -183,33 +189,176 @@ const NOW = 1_800_000_000_000; // 固定基准时刻，避免用到真实时钟
 /* --------------------------------------------------------------- 查单响应 */
 
 {
-  const good = parseQueryOrderResponse({ outTradeNo: 'T1', tradeState: 'SUCCESS', amount: '100' });
-  ok('查单正常解析', good.status === 'ok' && good.snapshot.tradeState === 'SUCCESS');
-  ok('查单缺状态被判失败', parseQueryOrderResponse({ outTradeNo: 'T1' }).status === 'error');
-  ok('查单非对象被判失败', parseQueryOrderResponse(null).status === 'error');
+  const raw = {
+    scbUuid: 'SCB-1',
+    orderNo: 'REG20260920001',
+    payTime: '2026-09-20 12:00:00',
+    mobile: '13800000000',
+    status: '1',
+    payAmount: 2500,
+  };
+  const good = parseOpenAccPayResponse(raw, 'VHpX5NqoXLHwPyMnVeBzCN');
+  ok('查单正常解析', good.status === 'ok');
+  if (good.status === 'ok') {
+    ok('带上业务关联 id（查单入参）', good.snapshot.busUnionId === 'VHpX5NqoXLHwPyMnVeBzCN');
+    ok('带上订单号', good.snapshot.orderNo === 'REG20260920001');
+    ok('带上状态原值', good.snapshot.status === '1');
+    ok('带上支付时间', good.snapshot.payTime === '2026-09-20 12:00:00');
+    ok('金额转成字符串（界面按字符串展示）', good.snapshot.amount === '2500');
+    ok('带上开户 id 与手机号（排查用）', good.snapshot.scbUuid === 'SCB-1' && good.snapshot.mobile === '13800000000');
+  }
+
+  ok('没给订单号时是空串', (() => {
+    const result = parseOpenAccPayResponse({ status: '0' }, 'R1');
+    return result.status === 'ok' && result.snapshot.orderNo === '';
+  })());
+  ok('缺 status 判失败（换了字段名不该被藏起来）', (() => {
+    const result = parseOpenAccPayResponse({ orderNo: 'T1' }, 'R1');
+    return result.status === 'error' && result.code === 'missing-pay-status';
+  })());
+  ok('查单非对象被判失败', parseOpenAccPayResponse(null, 'R1').status === 'error');
+  ok('查单数组被判失败', parseOpenAccPayResponse([], 'R1').status === 'error');
+}
+
+/* ------------------------------------------- 服务端业务错误（200 + reasons） */
+
+{
+  // 真实遇到的那一包：本地凭据丢了之后又去下单，服务端说这笔单已经付过了
+  const rejected = {
+    reasons: [
+      {
+        msg_id: '当前订单已完成支付，或请联系客服。',
+        field: '',
+        message: '当前订单已完成支付，或请联系客服。',
+      },
+    ],
+  };
+  const message = '当前订单已完成支付，或请联系客服。';
+
+  ok('从 reasons[].message 取到原因', serverMessageOf(rejected) === message);
+  ok('reasons[].message 缺失时退回 msg_id', serverMessageOf({ reasons: [{ msg_id: '仅 msg_id' }] }) === '仅 msg_id');
+  ok('reasons 里有脏项也不崩', serverMessageOf({ reasons: [null, 3, { message: '  ' }, { message: '有效原因' }] }) === '有效原因');
+  ok('认 { message }', serverMessageOf({ message: '直接给 message' }) === '直接给 message');
+  ok('认 { msg } / { errorMsg } / { error }', serverMessageOf({ msg: 'm' }) === 'm' && serverMessageOf({ errorMsg: 'e' }) === 'e' && serverMessageOf({ error: 'x' }) === 'x');
+  ok('剥一层 data 信封', serverMessageOf({ data: { message: '套在 data 里' } }) === '套在 data 里');
+
+  const quiet: unknown[] = [
+    { outTradeNo: 'T1', status: '1' }, // 正常业务响应不能被当成错误
+    { reasons: [] },
+    { reasons: [{ field: 'x' }] },
+    null,
+    [],
+    'boom',
+    42,
+  ];
+  ok('没有错误信息时返回 null（正常响应不受影响）', quiet.every((payload) => serverMessageOf(payload) === null));
+
+  // 解析器：认得出就用这句话，而不是笼统的「返回格式不正确」
+  const create = parseCreateOrderResponse(rejected, NOW, 300_000);
+  ok('下单响应是业务错误时，把服务端那句话交给调用方', create.status === 'error' && create.code === 'server-rejected' && create.message === message);
+  const query = parseOpenAccPayResponse(rejected, 'R1');
+  ok('查单响应是业务错误时同样透出原因', query.status === 'error' && query.code === 'server-rejected' && query.message === message);
+}
+
+/* ----------------------------------------- 400 是「已经付过了」这种业务失败 */
+
+{
+  const live = { host: 'https://api.example.com', createPath: '/xcx/pay/create', queryPath: '/xcx/pay/query' };
+  const busUnionId = 'VHpX5NqoXLHwPyMnVeBzCN';
+
+  // 真实链路：下单被服务端以 400 + reasons[] 拒掉
+  let createRejected: unknown = null;
+  try {
+    await createPayClient(live, {
+      fetchImpl: async () =>
+        ({
+          ok: false,
+          status: 400,
+          text: async () =>
+            JSON.stringify({
+              reasons: [
+                {
+                  msg_id: '当前订单已完成支付，或请联系客服。',
+                  field: '',
+                  message: '当前订单已完成支付，或请联系客服。',
+                },
+              ],
+            }),
+          json: async () => ({}),
+        }) as unknown as Response,
+    }).createOrder({ payAmount: 2500, busUnionId });
+  } catch (cause) {
+    createRejected = cause;
+  }
+
+  const reason = '当前订单已完成支付，或请联系客服。';
+  ok('400 下单失败仍是 HttpError（带状态码）', createRejected instanceof HttpError && createRejected.status === 400);
+  ok('400 时用户看到的是服务端那句话，不是「服务返回 400」', toUserMessage(createRejected) === reason);
+  ok('这类失败不算「未开通」，UI 不该显示未开通态', toPhaseForError(createRejected) === 'error');
+
+  // 同一路径下补查状态：服务端说已支付 → 自愈所需的快照就到手了
+  const recovered = parseOpenAccPayResponse(
+    { scbUuid: 'SCB-1', orderNo: 'REG20260920001', payTime: '2026-09-20 12:00:00', status: '1', payAmount: 2500 },
+    busUnionId,
+  );
+  const snapshot = paidSnapshotOf(recovered);
+  ok('补查能拿到已支付快照（自愈的依据）', snapshot?.orderNo === 'REG20260920001');
+  ok('自愈时能带上支付时间与订单号给界面', paidFieldsOf(snapshot!).payTime === '2026-09-20 12:00:00');
+}
+
+/* -------------------------------------------- 下单被拒后的自愈判断 */
+
+{
+  const paidSnapshot = { busUnionId: 'R1', orderNo: 'REG1', status: '1', mobile: '13800000000' };
+  ok('查单说已支付 → 给出快照（调用方据此进「支付成功」）', paidSnapshotOf({ status: 'ok', snapshot: paidSnapshot })?.orderNo === 'REG1');
+  ok('查单说没支付 → null（照常报下单那一刻的错误）', paidSnapshotOf({ status: 'ok', snapshot: { busUnionId: 'R1', orderNo: 'REG1', status: '0' } }) === null);
+  ok('查单本身失败 → null', paidSnapshotOf({ status: 'error', code: 'server-rejected', message: 'x' }) === null);
+}
+
+/* --------------------------------------------------- 已支付要回填的字段 */
+
+{
+  const full = paidFieldsOf({
+    busUnionId: 'R1',
+    orderNo: 'REG20260920001',
+    status: '1',
+    payTime: '2026-09-20 12:00:00',
+    amount: '2500',
+    mobile: '13800000000',
+  });
+  ok('回填订单号', full.orderNo === 'REG20260920001');
+  ok('回填支付时间', full.payTime === '2026-09-20 12:00:00');
+  // 手机号按约定不落本地，重新进入页面时只能从查单回答里补「经办联系电话」
+  ok('回填经办手机号', full.mobile === '13800000000');
+
+  const bare = paidFieldsOf({ busUnionId: 'R1', orderNo: '', status: '1' });
+  ok('服务端没给的一律 undefined（页面显示破折号，不编值）', bare.orderNo === undefined && bare.payTime === undefined && bare.mobile === undefined);
 }
 
 /* ------------------------------------------------------------------ 状态 */
 
 {
-  const at = (state: string) => ({ outTradeNo: 'T1', tradeState: state, amount: '' });
+  const at = (status: string) => ({ busUnionId: 'R1', orderNo: 'T1', status });
   const future = NOW + 60_000;
   const past = NOW - 1;
 
-  ok('SUCCESS → paid', mapTradeState(at('SUCCESS'), NOW, future) === 'paid');
-  ok('小写与空格都能认', mapTradeState(at(' success '), NOW, future) === 'paid');
-  ok('NOTPAY → awaiting', mapTradeState(at('NOTPAY'), NOW, future) === 'awaiting');
-  ok('USERPAYING → awaiting', mapTradeState(at('USERPAYING'), NOW, future) === 'awaiting');
-  ok('CLOSED → closed', mapTradeState(at('CLOSED'), NOW, future) === 'closed');
-  ok('REVOKED → closed', mapTradeState(at('REVOKED'), NOW, future) === 'closed');
-  ok('REFUND → closed', mapTradeState(at('REFUND'), NOW, future) === 'closed');
-  ok('PAYERROR → failed', mapTradeState(at('PAYERROR'), NOW, future) === 'failed');
-  ok('未知状态当 awaiting，不判死', mapTradeState(at('SOMETHING_NEW'), NOW, future) === 'awaiting');
+  ok("status='1' → paid", mapOpenAccState(at('1')) === 'paid');
+  ok("status='0' → awaiting", mapOpenAccState(at('0')) === 'awaiting');
+  ok('前后空白无所谓', mapOpenAccState(at(' 1 ')) === 'paid');
+  // 未知状态：只 warn、不判死，同时也不静默吞掉
+  const warnings: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(String(args[0]));
+  const unknownNext = mapOpenAccState(at('9'));
+  const emptyNext = mapOpenAccState(at(''));
+  console.warn = realWarn;
+  ok('没见过的状态当 awaiting，不判死（服务端会加状态）', unknownNext === 'awaiting');
+  ok('空状态也当 awaiting（解析层已经拦过一次）', emptyNext === 'awaiting');
+  ok('未知状态会 warn 出来，不是静默吞掉', warnings.filter((line) => line.includes('未知的支付状态')).length === 2);
 
-  ok('未支付且本地到点 → expired', mapTradeState(at('NOTPAY'), NOW, past) === 'expired');
-  // 这条最重要：已支付被显示成「已过期」是支付模块最不可接受的 bug
-  ok('SUCCESS 压过本地倒计时', mapTradeState(at('SUCCESS'), NOW, past) === 'paid');
-  ok('CLOSED 也压过本地倒计时', mapTradeState(at('CLOSED'), NOW, past) === 'closed');
+  // 这条最重要：已支付被显示成「已过期」是支付模块最不可接受的 bug。
+  // 判 expired 是调用方（hook）按本地倒计时做的，已支付必须在它之前就返回 paid。
+  ok('已支付不参与本地倒计时判定（拿未来/过去时间点结果一样）', mapOpenAccState(at('1')) === 'paid' && future > past);
 }
 
 /* ------------------------------------------------------------------ 退避 */
@@ -306,7 +455,8 @@ const hanging: typeof fetch = (_url, init) =>
   });
 
 async function checkClient() {
-  const payload = { bizType: 'company-registration', bizId: 'B1', subject: '服务费' };
+  // 真实契约：创建开户支付订单（POST {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/pay）
+  const payload = { payAmount: 2500, busUnionId: 'VHpX5NqoXLHwPyMnVeBzCN' };
   const live = { host: 'https://api.example.com', createPath: '/xcx/pay/create', queryPath: '/xcx/pay/query' };
 
   // 未配置时必须在碰 fetch 之前就抛，且错误类型要能被 toPhaseForError 认成 unconfigured
@@ -351,23 +501,24 @@ async function checkClient() {
   const created = await createPayClient({ ...live, host: 'https://api.example.com/' }, { fetchImpl: okFetch }).createOrder(payload);
   ok('下单走通并解析成功', created.status === 'ok');
   ok('下单地址拼接正确（host 尾斜杠被吃掉）', seenUrl === 'https://api.example.com/xcx/pay/create');
-  // 金额永远由服务端定，前端请求体里不许出现金额字段
-  ok('请求体不含任何金额字段', !('amount' in seenBody) && !('total' in seenBody) && !('price' in seenBody));
-  ok('请求体原样带上业务标识', seenBody.bizType === 'company-registration' && seenBody.bizId === 'B1');
+  // 请求体就是这两个字段：金额（元）+ 业务关联 id，不多不少
+  ok('请求体恰好两个字段', Object.keys(seenBody).sort().join(',') === 'busUnionId,payAmount');
+  ok('金额按元传数字（不是分、不是字符串）', seenBody.payAmount === 2500 && typeof seenBody.payAmount === 'number');
+  ok('业务关联 id 就是确认单据号', seenBody.busUnionId === 'VHpX5NqoXLHwPyMnVeBzCN');
 
   const queried = await createPayClient(live, {
-    fetchImpl: async () => jsonResponse({ outTradeNo: 'T1', tradeState: 'SUCCESS' }),
-  }).queryOrder('T1');
-  ok('查单走通并解析成功', queried.status === 'ok' && queried.snapshot.tradeState === 'SUCCESS');
+    fetchImpl: async () => jsonResponse({ orderNo: 'REG1', status: '1', payAmount: 2500 }),
+  }).queryOrder('VHpX5NqoXLHwPyMnVeBzCN');
+  ok('查单走通并解析成功（status=1 → 已支付）', queried.status === 'ok' && mapOpenAccState(queried.snapshot) === 'paid' && queried.snapshot.orderNo === 'REG1');
 
   let queryUrl = '';
   await createPayClient(live, {
     fetchImpl: async (url) => {
       queryUrl = String(url);
-      return jsonResponse({ outTradeNo: 'T1', tradeState: 'NOTPAY' });
+      return jsonResponse({ orderNo: 'T1', status: '0' });
     },
   }).queryOrder('T 1&x=2');
-  ok('单号被 URL 编码，不会污染查询串', queryUrl === 'https://api.example.com/xcx/pay/query?outTradeNo=T%201%26x%3D2');
+  ok('查单按 busUnionId 查，且值被 URL 编码', queryUrl === 'https://api.example.com/xcx/pay/query?busUnionId=T%201%26x%3D2');
 
   // 非 2xx 要变成 HttpError，而不是静默当成空响应
   let httpError: unknown = null;
@@ -377,6 +528,39 @@ async function checkClient() {
     httpError = cause;
   }
   ok('非 2xx 抛 HttpError', httpError instanceof HttpError && httpError.status === 500);
+
+  // 非 2xx 的响应体里若带着同一套 reasons 信封，HttpError 的文案要用它，
+  // 而不是只报「服务返回 500」——用户至少知道该找客服还是该重新下单
+  let rejectedError: unknown = null;
+  try {
+    await createPayClient(live, {
+      fetchImpl: async () =>
+        ({
+          ok: false,
+          status: 400,
+          text: async () => JSON.stringify({ reasons: [{ message: '当前订单已完成支付，或请联系客服。' }] }),
+          json: async () => ({}),
+        }) as unknown as Response,
+    }).queryOrder('R1');
+  } catch (cause) {
+    rejectedError = cause;
+  }
+  ok(
+    '非 2xx 时把服务端的原因带进 HttpError',
+    rejectedError instanceof HttpError && rejectedError.message === '当前订单已完成支付，或请联系客服。',
+  );
+
+  // 网关整页 HTML 这种解不开的响应体，仍然退回状态码文案
+  let htmlError: unknown = null;
+  try {
+    await createPayClient(live, {
+      fetchImpl: async () =>
+        ({ ok: false, status: 502, text: async () => '<html>502</html>', json: async () => ({}) }) as unknown as Response,
+    }).queryOrder('R1');
+  } catch (cause) {
+    htmlError = cause;
+  }
+  ok('响应体解不开时退回「服务返回 502」', htmlError instanceof HttpError && htmlError.message === '服务返回 502');
 
   // 超时抛 TimeoutError（可重试），与下面外部取消的 AbortError（静默丢弃）必须区分开
   let timeoutError: unknown = null;

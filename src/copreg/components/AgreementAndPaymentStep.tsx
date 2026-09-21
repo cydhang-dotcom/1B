@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { RegistrationPlan, PaymentOrder } from '../types';
 import {
   FileText,
@@ -32,16 +32,9 @@ import {
 } from 'lucide-react';
 
 import { STORAGE_KEY as REGISTRATION_STORAGE_KEY } from '../registration/defaultData';
-
-/**
- * 支付成功时现场生成订单号：REG + 年月日 + 时间戳后 6 位。
- * 真实环境订单号应由后端下单接口下发，这里没有后端，所以用支付时刻本地生成，
- * 保证它跟同一时刻记录的 paidAt 自洽（两者都来自同一个 Date）。
- */
-const makeOrderNo = (date: Date): string => {
-  const ymd = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-  return `REG${ymd}${String(date.getTime()).slice(-6)}`;
-};
+import { PayQrCode } from '../../payment/PayQrCode';
+import { useWechatNativePay } from '../../payment/useWechatNativePay';
+import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
 
 interface AgreementAndPaymentStepProps {
   plan: RegistrationPlan;
@@ -56,6 +49,8 @@ interface AgreementAndPaymentStepProps {
   onProceedToGroup?: () => void;
   /** 直接进入第 5 步「企业注册申报资料填报」，或提交后回来看/改 */
   onProceedToFillDetails?: () => void;
+  /** 确认接口返回的 recordId：下单时的业务关联 id（busUnionId）。没有它下不了单 */
+  busUnionId?: string;
 }
 
 export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = ({
@@ -67,7 +62,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   onBack,
   isDetailsSubmitted,
   onProceedToGroup,
-  onProceedToFillDetails
+  onProceedToFillDetails,
+  busUnionId
 }) => {
   const isPaid = order?.status === 'paid';
 
@@ -102,6 +98,9 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   const [showServiceContentModal, setShowServiceContentModal] = useState(false);
   const [showWecomModal, setShowWecomModal] = useState(false);
 
+  // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图
+  const wecomQr = useCustomerServiceQr(showWecomModal);
+
   // Payment method
   // 支付方式：目前只有微信（支付方式选择区里支付宝那一项先注释掉了），所以 'alipay'
   // 这一支暂时选不到；收银台与实付金额那几处三元判断都保留着它，接入支付宝时不用改。
@@ -111,7 +110,15 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
 
   // Cashier modal (直接支付)
   const [showPayModal, setShowPayModal] = useState(false);
-  const [isProcessingPay, setIsProcessingPay] = useState(false);
+
+  /**
+   * 微信 Native 收银台：下单出码 + 轮询查单，只有服务端说已支付才算成功。
+   *
+   * 这里**没有任何「演示完成支付」的按钮**：不付款就标成已支付是假的终态，
+   * 接了真实接口之后不能再留。下单也不会自动触发（见 hook 注释：StrictMode 下会出两个订单），
+   * 只能由「立即支付」这一次点击发起。
+   */
+  const pay = useWechatNativePay();
 
   // Toast message
   const [toast, setToast] = useState<string | null>(null);
@@ -120,49 +127,53 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Triggered when user clicks "立即支付" - 只进行支付
+  // Triggered when user clicks "立即支付"
   const handleStartPayment = () => {
     if (!hasAgreed) {
       showToast('请先勾选同意《委托代理服务协议》');
       return;
     }
-    // “立即支付”只支付：直接唤起支付收银台
+    if (!pay.configured) {
+      // 路径没配就别开一个只有空气的收银台
+      showToast('在线支付尚未开通，请联系专属顾问完成付款');
+      return;
+    }
+    if (!busUnionId) {
+      // 没有单据号下不了单：服务端要靠它认这笔委托单
+      showToast('缺少确认单据号，请返回上一步重新确认方案');
+      return;
+    }
+
     setShowPayModal(true);
+    // 一次点击只发一次：hook 的 creating 相位会把按钮挡住，服务端没有去重键
+    void pay.create({ payAmount: plan.finalPrice, busUnionId });
   };
 
-  // Confirm payment in Cashier modal
-  const handleCompletePayment = () => {
-    setIsProcessingPay(true);
-    setTimeout(() => {
-      setIsProcessingPay(false);
-      setShowPayModal(false);
+  /**
+   * 查单确认已支付（`phase === 'paid'`）才落订单与后续解锁。
+   * 订单号 / 支付时间取查单返回的值；服务端没给就留空，前端不自己编。
+   */
+  useEffect(() => {
+    if (pay.phase !== 'paid' || order.status === 'paid') return;
 
-      const paidAt = new Date();
-      const now = paidAt.toLocaleString('zh-CN', { hour12: false });
-      const updatedOrder: PaymentOrder = {
-        ...order,
-        // 订单号理应由后端下单接口下发，这里没有后端，就在支付成功这一刻用
-        // 同一个时间戳现场生成，保证订单号与支付时间自洽。
-        orderNo: order.orderNo || makeOrderNo(paidAt),
-        status: 'paid',
-        paidAt: now,
-        paymentMethod: payMethod,
-        amount: plan.finalPrice
-      };
+    const updatedOrder: PaymentOrder = {
+      ...order,
+      orderNo: pay.paidOrder?.orderNo || order.orderNo,
+      status: 'paid',
+      paidAt: pay.paidOrder?.payTime || new Date().toLocaleString('zh-CN', { hour12: false }),
+      // 手机号只有服务端知道（本地不落）：查单带回 mobile 才补得上
+      contactPhone: pay.paidOrder?.mobile || order.contactPhone,
+      paymentMethod: payMethod,
+      amount: plan.finalPrice
+    };
 
-      if (onUpdateOrder) {
-        onUpdateOrder(updatedOrder);
-      }
-      if (onPaymentSuccess) {
-        onPaymentSuccess();
-      }
-      if (onPaid) {
-        onPaid(updatedOrder);
-      }
+    if (onUpdateOrder) onUpdateOrder(updatedOrder);
+    if (onPaymentSuccess) onPaymentSuccess();
+    if (onPaid) onPaid(updatedOrder);
+    setShowPayModal(false);
 
-      showToast('支付成功！委托代办已生效，已生成专属服务清单与企微顾问');
-    }, 900);
-  };
+    showToast('支付成功！委托代办已生效，已生成专属服务清单与企微顾问');
+  }, [pay.phase, pay.paidOrder, order, payMethod, plan.finalPrice]);
 
   // Checklist items for post-payment status display
   const checklistItems = [
@@ -376,6 +387,15 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
               {/* Section 3: Payment Method Selection */}
               <div className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white">
                 <h2 className="text-sm font-bold text-slate-800 mb-3">选择支付方式</h2>
+
+                {/* 没有确认单据号就下不了单（服务端要靠它认这笔委托单）。
+                    这件事写在页面上，而不是等用户点了「立即支付」才弹一句 toast ——
+                    上一次正是「渲染点漏传 busUnionId」这种错误，只弹 toast 时很难发现。 */}
+                {!isPaid && !busUnionId && (
+                  <div className="mb-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-[11px] text-amber-900 leading-relaxed">
+                    缺少确认单据号，暂时无法在线支付：请返回第 2 步重新确认方案后再试。
+                  </div>
+                )}
                 {/* 目前只有微信支付接入了（src/payment/），支付宝还没接，所以这里只列一项，
                     外层用单列。接入支付宝时：把下面那段注释掉的选项恢复，外层改回
                     grid-cols-1 sm:grid-cols-2 —— payMethod 的类型和收银台那几处三元判断
@@ -537,13 +557,13 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                     <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-emerald-100/70 shadow-2xs">
                       <span className="text-[11px] text-slate-400 block font-medium">经办人姓名</span>
                       <span className="font-semibold text-slate-800 text-xs mt-0.5 block">
-                        {order.contactName}
+                        {order.contactName || '—'}
                       </span>
                     </div>
                     <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-emerald-100/70 shadow-2xs">
                       <span className="text-[11px] text-slate-400 block font-medium">经办联系电话</span>
                       <span className="font-semibold text-slate-800 text-xs font-mono mt-0.5 block">
-                        {order.contactPhone}
+                        {order.contactPhone || '—'}
                       </span>
                     </div>
                     <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-emerald-100/70 shadow-2xs">
@@ -561,7 +581,7 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                         <MessageSquare className="w-3.5 h-3.5" />
                       </div>
                       <div className="flex items-center gap-2 flex-wrap min-w-0 text-xs">
-                        <span className="font-bold text-slate-800">专属顾问：李经理</span>
+                        <span className="font-bold text-slate-800">专属顾问在线</span>
                         <span className="text-[10px] text-emerald-800 bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-200 font-medium">
                           企业微信官方认证
                         </span>
@@ -735,38 +755,62 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
               <span className="text-[11px] text-slate-400 block mt-0.5">订单号：{order?.orderNo || '支付后生成'}</span>
             </div>
 
-            {/* Simulated QR Box */}
+            {/* 真实二维码：由下单接口返回的 codeURL 现渲染（不引外部图片，也不走后端截图） */}
             <div className="w-44 h-44 mx-auto bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col items-center justify-center mb-4 relative">
-              <QrCode className="w-36 h-36 text-slate-800" />
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-8 h-8 rounded-lg bg-white border border-slate-200 shadow-2xs flex items-center justify-center">
-                  <span className="text-xs font-bold text-[#36B39E]">
-                    {payMethod === 'wechat' ? '微信' : '支'}
-                  </span>
-                </div>
-              </div>
+              {pay.phase === 'creating' && (
+                <span className="text-xs text-slate-400">正在生成支付二维码…</span>
+              )}
+
+              {pay.phase !== 'creating' && pay.error && (
+                <span className="text-xs text-red-500 leading-relaxed px-2">{pay.error}</span>
+              )}
+
+              {pay.phase !== 'creating' && !pay.error && pay.qr && (
+                <PayQrCode source={pay.qr} className="w-36 h-36" />
+              )}
+
+              {pay.phase !== 'creating' && !pay.error && !pay.qr && (
+                <span className="text-xs text-slate-400">
+                  {pay.configured ? '暂未取到支付二维码' : '在线支付尚未开通'}
+                </span>
+              )}
             </div>
 
-            <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-              请打开手机{payMethod === 'wechat' ? '微信' : '支付宝'}扫码完成付款<br />
-              <span className="text-[11px] text-slate-400">（演示环境可直接点击下方按钮完成）</span>
+            <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+              请打开手机微信扫码完成付款
+              <br />
+              <span className="text-[11px] text-slate-400">
+                {pay.phase === 'awaiting' && pay.remainingMs > 0
+                  ? `二维码 ${Math.ceil(pay.remainingMs / 1000)} 秒后失效`
+                  : '付款完成后本页面会自动刷新状态'}
+              </span>
             </p>
 
-            <button
-              type="button"
-              disabled={isProcessingPay}
-              onClick={handleCompletePayment}
-              className="w-full py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white font-bold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5"
-            >
-              {isProcessingPay ? (
-                <span>正在确认支付结果...</span>
-              ) : (
-                <>
-                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>确认支付（¥{formatMoney(finalPrice)}）</span>
-                </>
-              )}
-            </button>
+            {/* 轮询期间的网络抖动只是提示，二维码照常显示（别把人正扫的码卸载掉） */}
+            {pay.pollError && (
+              <p className="text-[11px] text-amber-600 mb-3 leading-relaxed">
+                查询支付结果暂时不通（已重试 {pay.pollError.attempts} 次），二维码仍可继续扫
+              </p>
+            )}
+
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => setShowPayModal(false)}
+                className="flex-1 py-2.5 rounded-full border border-slate-200 text-slate-600 font-medium text-xs hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                稍后支付
+              </button>
+              {/* 重新出码：二维码过期不可复用，必须换新订单（下单失败也不自动重试） */}
+              <button
+                type="button"
+                disabled={!pay.configured || !busUnionId || pay.phase === 'creating'}
+                onClick={() => void pay.restart({ payAmount: plan.finalPrice, busUnionId: busUnionId ?? '' })}
+                className="flex-1 py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {pay.phase === 'awaiting' ? '二维码失效？重新出码' : '重新出码'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1006,9 +1050,14 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
               </button>
             </div>
             <div className="w-36 h-36 mx-auto bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex flex-col items-center justify-center my-2">
-              <QrCode className="w-28 h-28 text-slate-800" />
+              {wecomQr.loading ? (
+                <span className="text-[11px] text-slate-400 leading-relaxed px-2">
+                  正在获取专属顾问二维码…
+                </span>
+              ) : (
+                <img src={wecomQr.url} alt="专属顾问企业微信二维码" className="w-full h-full object-contain" />
+              )}
             </div>
-            <p className="text-xs font-semibold text-slate-800 mt-2">李经理 · 资深设立顾问</p>
             <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 inline-block mt-1">企业微信官方认证</span>
             <p className="text-[11px] text-slate-400 mt-2">微信扫一扫添加，专属顾问全程跟进代办</p>
           </div>

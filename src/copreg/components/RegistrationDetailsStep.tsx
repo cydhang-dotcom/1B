@@ -12,7 +12,7 @@ import {
   PersonRecord,
 } from '../registration/types';
 import {
-  createCompliantDemoForm,
+  createBlankForm,
   STORAGE_KEY,
   uid,
 } from '../registration/defaultData';
@@ -26,6 +26,9 @@ import { ShareholderTypeModal } from '../registration/ShareholderTypeModal';
 import { VerificationModal } from '../registration/VerificationModal';
 import { HelpModal } from '../registration/HelpModal';
 import { FilePreviewModal } from '../registration/FilePreviewModal';
+import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
+import { registrationSeedFrom } from '../registrationSeed';
+import type { RegistrationPlan, SurveyData } from '../types';
 import {
   ArrowLeft,
   ArrowRight,
@@ -35,7 +38,6 @@ import {
   AlertCircle,
   Send,
   MessageSquare,
-  QrCode,
   X,
   FileText,
   Check,
@@ -43,6 +45,12 @@ import {
 
 interface RegistrationDetailsStepProps {
   details: RegistrationDetails;
+  /** 第 1 步问卷：申报表的企业描述 / 业务描述 / 经营范围 / 注册资本等由它转换而来 */
+  survey: SurveyData;
+  /** 第 2 步方案：名称建议、组织形式、注册资本建议由它转换而来 */
+  plan: RegistrationPlan;
+  /** 确认/支付步骤用过的手机号（本地不落，拿到就带上） */
+  contactPhone?: string;
   onUpdateDetails: (details: RegistrationDetails) => void;
   onSubmitForReview: () => void;
   onBackToGroup: () => void;
@@ -58,6 +66,9 @@ const CHAPTERS = [
 
 export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = ({
   details,
+  survey,
+  plan,
+  contactPhone,
   onUpdateDetails,
   onSubmitForReview,
   onBackToGroup,
@@ -67,23 +78,34 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     try {
       const cached = localStorage.getItem(STORAGE_KEY);
       if (cached) {
-        const parsed = JSON.parse(cached);
+        const parsed = JSON.parse(cached) as Partial<RegistrationFullForm> | null;
         if (parsed && parsed.basic && parsed.people) {
-          if (!parsed.basic.board) parsed.basic.board = '不设董事会';
-          if (!parsed.basic.singleDirector) parsed.basic.singleDirector = '由总经理代行职务（不设董事）';
-          if (parsed.basic.unanimous === undefined || parsed.basic.unanimous === null) parsed.basic.unanimous = true;
-          if (!parsed.basic.regAddressNature) parsed.basic.regAddressNature = '租赁用房';
-          if (!parsed.basic.workAddressNature) parsed.basic.workAddressNature = '商业租赁';
-          return parsed;
+          // 存档可能来自旧版本、也可能被手改过：按「空骨架 + 存档覆盖」合并，
+          // 缺的字段回落到默认值而不是 undefined —— 之前只检查 basic/people 存在，
+          // 一份残缺草稿（如 basic.scope 缺失）会在校验里直接 .trim() 崩掉整页。
+          const blank = createBlankForm();
+          const next: RegistrationFullForm = {
+            ...blank,
+            ...parsed,
+            basic: { ...blank.basic, ...parsed.basic },
+            setup: { ...blank.setup, ...(parsed.setup ?? {}) },
+            authorization: { ...blank.authorization, ...(parsed.authorization ?? {}) },
+            confirm: { ...blank.confirm, ...(parsed.confirm ?? {}) },
+          };
+          // 老存档里没有的几项结构默认值（与迁移前的口径一致）
+          if (!next.basic.board) next.basic.board = '不设董事会';
+          if (!next.basic.singleDirector) next.basic.singleDirector = '由总经理代行职务（不设董事）';
+          if (next.basic.unanimous === undefined || next.basic.unanimous === null) next.basic.unanimous = true;
+          if (!next.basic.regAddressNature) next.basic.regAddressNature = '租赁用房';
+          if (!next.basic.workAddressNature) next.basic.workAddressNature = '商业租赁';
+          return next;
         }
       }
     } catch (e) {
       console.warn('Failed to load cached registration form', e);
     }
-    return createCompliantDemoForm(
-      details.legalRepresentative?.name || '林楚天',
-      details.legalRepresentative?.phone || '13800138000'
-    );
+    // 没有草稿 → 按前面几步的真实数据生成一份（拿不到的字段留空，不再塞假示例）
+    return registrationSeedFrom({ survey, plan, contactPhone });
   });
 
   const [currentChapter, setCurrentChapter] = useState<number>(0);
@@ -103,6 +125,9 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
   const [showVerifyModal, setShowVerifyModal] = useState<boolean>(false);
   const [showWecomModal, setShowWecomModal] = useState<boolean>(false);
+
+  // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图
+  const wecomQr = useCustomerServiceQr(showWecomModal);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -330,15 +355,11 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     }
   };
 
-  const handleResetToDemo = () => {
-    const demo = createCompliantDemoForm(
-      details.legalRepresentative?.name || '林楚天',
-      details.legalRepresentative?.phone || '13800138000'
-    );
-    setForm(demo);
+  const handleRefillFromPlan = () => {
+    setForm(registrationSeedFrom({ survey, plan, contactPhone }));
     setIsDirty(true);
     setShowHelpModal(false);
-    showToast('已载入全套合规示例数据');
+    showToast('已按前面步骤的方案重新填充申报表');
   };
 
   // Step Navigation
@@ -393,8 +414,8 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     /**
      * 把申报表回写成「办理进度」页用的摘要（企业名称、法定代表人、收件地址、股东结构）。
      *
-     * 只搬申报表里确实存在的值：上游这里用「林楚天 / 440301199308123418 / contact@company.com」
-     * 这类示例常量兜底，空白申报表会被回写成一份假身份，进度页也就分不清哪些是真填的。
+     * 只搬申报表里确实存在的值：上游这里曾经用一套写死的示例姓名 / 证件号 / 邮箱兜底，
+     * 空白申报表会被回写成一份假身份，进度页也就分不清哪些是真填的。
      * 申报表里没有的字段（身份证号）保持原值，进度页对空值显示占位。
      */
     const firstFilled = (list: string[]) => list.find((item) => item.trim().length > 0) ?? '';
@@ -847,7 +868,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       {/* Help Modal */}
       {showHelpModal && (
         <HelpModal
-          onResetToDemo={handleResetToDemo}
+          onRefillFromPlan={handleRefillFromPlan}
           onClose={() => setShowHelpModal(false)}
           onOpenWecom={() => setShowWecomModal(true)}
         />
@@ -856,7 +877,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       {/* SMS Phone Verification Modal */}
       {showVerifyModal && (
         <VerificationModal
-          defaultPhone={form.submissionPhone || details.legalRepresentative?.phone || '13800138000'}
+          defaultPhone={form.submissionPhone || contactPhone || ''}
           onVerifySuccess={handleVerifySuccess}
           onClose={() => setShowVerifyModal(false)}
         />
@@ -880,9 +901,14 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
               </button>
             </div>
             <div className="w-36 h-36 mx-auto bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex flex-col items-center justify-center my-2">
-              <QrCode className="w-28 h-28 text-slate-800" />
+              {wecomQr.loading ? (
+                <span className="text-[11px] text-slate-400 leading-relaxed px-2">
+                  正在获取专属顾问二维码…
+                </span>
+              ) : (
+                <img src={wecomQr.url} alt="专属顾问企业微信二维码" className="w-full h-full object-contain" />
+              )}
             </div>
-            <p className="text-xs font-semibold text-slate-800 mt-2">李经理 · 资深设立顾问</p>
             <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200/60 inline-block mt-1">
               企业微信官方认证
             </span>

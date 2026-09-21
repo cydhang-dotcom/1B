@@ -31,8 +31,9 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
 
   const contactRole = roles.find((r) => r.roles.includes('联系人')) || roles[0];
   const contactPerson = contactRole ? people[contactRole.personId] : null;
-  const trusteeName = authorization.trusteeName || contactPerson?.name || '林楚天';
-  const trusteeIdNumber = authorization.trusteeIdNumber || '440301199308123418';
+  // 受托人取申报表里的值或「联系人」，都没有就留空，不回落成写死的示例姓名
+  const trusteeName = authorization.trusteeName || contactPerson?.name || '';
+    const trusteeIdNumber = authorization.trusteeIdNumber || '';
 
   const renderFilesList = (files: FileAttachment[]) => {
     if (!files || files.length === 0) {
@@ -77,7 +78,7 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
                 您填报的信息与附件均已完成系统智能排查，政务专员已开展市监局“一窗通”网上申报立项。
               </p>
               <div className="text-[11px] text-slate-400 font-mono mb-4">
-                提交时间：{submittedAt || '刚刚'} · 验证经办手机：{submissionPhone || '13800138000'}
+                提交时间：{submittedAt || '刚刚'} · 验证经办手机：{submissionPhone || '—'}
               </div>
 
               <div className="flex items-center gap-3">

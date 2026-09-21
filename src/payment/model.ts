@@ -218,13 +218,49 @@ export const resolveQrSource = (
   prefer: 'codeUrl' | 'image' = 'codeUrl',
 ): QrSource | null => {
   if (!isRecord(response)) return null;
-  const text = decodeCodeUrl(response.codeUrl);
+  // 后端 Java 字段名是 codeURL（trade_type=NATIVE 时返回，内容是 weixin:// 开头的 code_url 文本）；
+  // codeUrl 是另一种常见写法，一并认。给了 qrImageUrl 就直接用图。
+  const text = decodeCodeUrl(response.codeURL ?? response.codeUrl);
   const image = normalizeImageUrl(response.qrImageUrl);
 
   const byText: QrSource | null = isWechatPayUrl(text) ? { kind: 'text', text } : null;
   const byImage: QrSource | null = image ? { kind: 'image', url: image } : null;
 
   return prefer === 'image' ? (byImage ?? byText) : (byText ?? byImage);
+};
+
+/* -------------------------------------------------------------- 服务端错误 */
+
+/**
+ * 从服务端的**业务错误信封**里取一句能给用户看的话。
+ *
+ * 这套后端不是用 HTTP 状态码表达业务失败的，而是回 200 + 这样的结构：
+ *   { "reasons": [ { "msg_id": "当前订单已完成支付，或请联系客服。", "field": "",
+ *                    "message": "当前订单已完成支付，或请联系客服。" } ] }
+ * 以前我们只校验业务字段（outTradeNo / codeURL / status），认不出就把整包丢掉，
+ * 用户看到的是一句「返回格式不正确」—— 服务端明明说清楚了原因，却被我们吞了。
+ *
+ * 这里按优先级认几种常见写法；都没有就返回 null，由调用方给兜底文案。
+ */
+export const serverMessageOf = (payload: unknown): string | null => {
+  const record = isRecord(payload) ? payload : null;
+  if (!record) return null;
+
+  const reasons = record.reasons;
+  if (Array.isArray(reasons)) {
+    for (const item of reasons) {
+      if (!isRecord(item)) continue;
+      const text = str(item.message) || str(item.msg_id) || str(item.msg) || str(item.msgId);
+      if (text) return text;
+    }
+  }
+
+  const direct = str(record.message) || str(record.msg) || str(record.errorMsg) || str(record.error);
+  if (direct) return direct;
+
+  // 有些网关再套一层
+  const data = record.data;
+  return data === payload ? null : serverMessageOf(data);
 };
 
 /* ------------------------------------------------------------------ 响应解析 */
@@ -250,8 +286,12 @@ export const parseCreateOrderResponse = (
 ): CreateOrderResult => {
   if (!isRecord(response)) return { status: 'error', code: 'bad-payload', message: '下单返回格式不正确' };
 
+  // 服务端用 200 + reasons[] 表达业务失败（如「当前订单已完成支付」）：先把这句话留给用户看
+  const rejection = serverMessageOf(response);
+  if (rejection) return { status: 'error', code: 'server-rejected', message: rejection };
+
+  // 单号**不是必须的**：真实下单接口只承诺返回 codeURL，订单编号以查单返回的 orderNo 为准
   const outTradeNo = str(response.outTradeNo);
-  if (!outTradeNo) return { status: 'error', code: 'missing-out-trade-no', message: '下单返回缺少订单号' };
 
   const qr = resolveQrSource(response, prefer);
   if (!qr) return { status: 'error', code: 'missing-qr', message: '下单返回缺少可用的支付二维码' };
@@ -269,56 +309,98 @@ export const parseCreateOrderResponse = (
   };
 };
 
-export type QueryOrderSnapshot = { outTradeNo: string; tradeState: string; amount: string };
+/**
+ * 查单快照：一企通开户支付自己的字段（`GET {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay`）。
+ * 只有 busUnionId 是查单入参，其余都是服务端给的业务信息。
+ */
+export type OpenAccPaySnapshot = {
+  /** 业务关联 id：就是确认接口返回的 recordId（查单入参） */
+  busUnionId: string;
+  /** 订单号；服务端没给就是空串，界面不自己编 */
+  orderNo: string;
+  /** 支付状态原值：'1' 已支付 / '0' 未支付；别的值原样留着（判定见 mapOpenAccState） */
+  status: string;
+  /** 支付时间（服务端格式，原样展示） */
+  payTime?: string;
+  /** 支付金额（元），服务端格式化后的字符串 */
+  amount?: string;
+  /** 开户记录 id / 手机号：本模块不用，留给排查 */
+  scbUuid?: string;
+  mobile?: string;
+};
 
-export type QueryOrderResult =
-  | { status: 'ok'; snapshot: QueryOrderSnapshot }
+export type OpenAccPayResult =
+  | { status: 'ok'; snapshot: OpenAccPaySnapshot }
   | { status: 'error'; code: string; message: string };
 
-export const parseQueryOrderResponse = (response: unknown): QueryOrderResult => {
+/** BigDecimal 之类的字段会以 JSON 数字回来，收成字符串展示 */
+const textOf = (value: unknown): string =>
+  typeof value === 'number' && Number.isFinite(value) ? String(value) : str(value);
+
+const PAY_STATUS_PAID = '1';
+const PAY_STATUS_UNPAID = '0';
+
+/**
+ * 查单响应逐字段校验。`status` 缺失就按错误处理（不猜「没状态 = 没付」：
+ * 那会把服务端换了字段名这种事藏起来，用户只会看到二维码一直转圈）。
+ */
+export const parseOpenAccPayResponse = (response: unknown, busUnionId: string): OpenAccPayResult => {
   if (!isRecord(response)) return { status: 'error', code: 'bad-payload', message: '查单返回格式不正确' };
-  const tradeState = str(response.tradeState);
-  if (!tradeState) return { status: 'error', code: 'missing-trade-state', message: '查单返回缺少交易状态' };
-  const currency = str(response.currency) || 'CNY';
+  const rejection = serverMessageOf(response);
+  if (rejection) return { status: 'error', code: 'server-rejected', message: rejection };
+  const status = str(response.status);
+  if (!status) return { status: 'error', code: 'missing-pay-status', message: '查单返回缺少支付状态' };
+
   return {
     status: 'ok',
     snapshot: {
-      outTradeNo: str(response.outTradeNo),
-      tradeState,
-      amount: formatAmount(response.amount, currency),
+      busUnionId,
+      orderNo: str(response.orderNo),
+      status,
+      payTime: str(response.payTime) || undefined,
+      amount: textOf(response.payAmount) || undefined,
+      scbUuid: str(response.scbUuid) || undefined,
+      mobile: str(response.mobile) || undefined,
     },
   };
 };
 
-/* --------------------------------------------------------------- 状态判定 */
+/**
+ * 查单确认已支付后，能顺手补到页面订单上的字段。
+ *
+ * 重新进入页面时前端手上什么都没有（手机号按约定不落本地、订单号只有服务端知道），
+ * 这几项只能从查单回答里取：订单号、支付时间、**经办手机号**（已支付界面的
+ * 「经办联系电话」就靠它，不然那格是空的）。
+ */
+export const paidFieldsOf = (
+  snapshot: OpenAccPaySnapshot,
+): { orderNo?: string; payTime?: string; mobile?: string } => ({
+  orderNo: snapshot.orderNo || undefined,
+  payTime: snapshot.payTime,
+  mobile: snapshot.mobile,
+});
 
 /**
- * 唯一的终态判定入口。两条规则：
- *   1. 服务端终态永远压过本地倒计时 —— SUCCESS 即使本地已到点也算 paid。
- *      已支付的订单被显示成「已过期」是支付模块最不可接受的 bug。
- *   2. 不认识的 trade_state 一律当 awaiting —— 微信会加状态，客户端不能因为不认识就判死。
+ * 这次查单能不能证明「已支付」：能就给出快照，否则 null。
+ * 下单被拒后的自愈、以及进页面时核实订单状态，都用它判一次。
  */
-export const mapTradeState = (snapshot: QueryOrderSnapshot, now: number, expiresAt: number): PayPhase => {
-  const state = snapshot.tradeState.trim().toUpperCase();
-  switch (state) {
-    case 'SUCCESS':
-      return 'paid';
-    case 'CLOSED':
-    case 'REVOKED':
-    // 退款的订单不可能再支付，对本模块而言等同于已关闭
-    case 'REFUND':
-      return 'closed';
-    case 'PAYERROR':
-      return 'failed';
-    case 'NOTPAY':
-    case 'USERPAYING':
-      return now >= expiresAt ? 'expired' : 'awaiting';
-    default:
-      if (typeof console !== 'undefined') {
-        console.warn(`[payment] 未知的 trade_state: ${snapshot.tradeState}`);
-      }
-      return now >= expiresAt ? 'expired' : 'awaiting';
+export const paidSnapshotOf = (result: OpenAccPayResult): OpenAccPaySnapshot | null =>
+  result.status === 'ok' && mapOpenAccState(result.snapshot) === 'paid' ? result.snapshot : null;
+
+/**
+ * 服务端状态 → 前端相位。两条规则：
+ *   1. `'1'` = 已支付：这是唯一能进「支付成功」界面的结论，且它**压过本地倒计时**
+ *      （已支付的订单被显示成「已过期」是支付模块最不可接受的 bug）。
+ *   2. 其余值（含 '0' 与没见过的新值）一律 awaiting —— 服务端会加状态，客户端不能因为
+ *      不认识就判死；本地到点由调用方判 expired。
+ */
+export const mapOpenAccState = (snapshot: OpenAccPaySnapshot): PayPhase => {
+  const status = snapshot.status.trim();
+  if (status === PAY_STATUS_PAID) return 'paid';
+  if (status !== PAY_STATUS_UNPAID && typeof console !== 'undefined') {
+    console.warn(`[payment] 未知的支付状态: ${snapshot.status}`);
   }
+  return 'awaiting';
 };
 
 /* --------------------------------------------------------------- 轮询节奏 */

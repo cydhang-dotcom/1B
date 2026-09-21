@@ -1,12 +1,13 @@
 import {
   HttpError,
+  serverMessageOf,
   PaymentNotConfiguredError,
   TimeoutError,
   joinUrl,
   parseCreateOrderResponse,
-  parseQueryOrderResponse,
+  parseOpenAccPayResponse,
   type CreateOrderResult,
-  type QueryOrderResult,
+  type OpenAccPayResult,
 } from './model';
 
 /**
@@ -15,10 +16,22 @@ import {
  * 这里刻意**不 import config/api.ts**：那个文件读 import.meta.env，
  * 而 import.meta.env 只有 Vite 才提供，一旦被 scripts/ 下的 tsx 脚本间接引到就会崩。
  * 端点由调用方注入（见 useWechatNativePay.ts），本文件因此可以离线测试。
+ * 两个端点都是「一企通开户支付」的业务接口：下单 {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/pay、
+ * 查单 {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay（按 busUnionId 查）。
  *
  * 不做重试：下单请求盲目重发会产生多个真实订单，是支付里最经典的资损邻近 bug。
- * 要重试就靠调用方点击、且复用同一个 idempotencyKey 让服务端去重。
+ * 服务端的开户支付下单接口没有去重键（见 CreateOrderPayload），所以「重复点击出两个订单」
+ * 只能靠前端状态机挡住：hook 的 creating 相位 + 按钮 disable，一次点击只发一次。
  */
+
+/** 响应体可能是 JSON，也可能是网关整页 HTML —— 解不开就当没有 */
+const tryParseJson = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 /** 微信 Native 二维码的默认有效期，后端没给 expiresAt 时用它兜底 */
@@ -40,22 +53,25 @@ export type PayClientOptions = {
   timeoutMs?: number;
 };
 
-/** 下单请求体。★ 这里永远不出现金额字段：服务端按 bizType/bizId 自行定价 */
+/**
+ * 下单（创建开户支付订单）请求体，对应 `POST {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/pay`。
+ *
+ * ★ **金额由前端传**（服务端按 `busUnionId` 关联业务，但金额取的是这里传的值）。
+ *   这意味着前端传什么价就按什么价收款 —— 服务端**必须**按 `busUnionId` 复核一遍价格，
+ *   否则改一个请求体就能少付钱。
+ * ★ 没有去重键：同一次点击绝不能重发（调用方负责），下单失败也不自动重试。
+ */
 export type CreateOrderPayload = {
-  /** 业务类型，例如 'company-registration' */
-  bizType: string;
-  /** 业务单据 id */
-  bizId: string;
-  /** 展示给用户的标题，例如「企业注册服务费」 */
-  subject?: string;
-  /** 去重键，服务端据此保证重复调用只出一个订单 */
-  idempotencyKey?: string;
-  shareUserUuid?: string;
+  /** 支付金额（元）。与页面上显示的实付金额同一个数：`plan.finalPrice` */
+  payAmount: number;
+  /** 业务关联 id：确认接口返回的 recordId（本地存档 `1b_copreg_plan_confirm`） */
+  busUnionId: string;
 };
 
 export type PayClient = {
   createOrder: (payload: CreateOrderPayload, signal?: AbortSignal) => Promise<CreateOrderResult>;
-  queryOrder: (outTradeNo: string, signal?: AbortSignal) => Promise<QueryOrderResult>;
+  /** 查单：按业务关联 id（确认单据号）查这笔开户支付订单的状态 */
+  queryOrder: (busUnionId: string, signal?: AbortSignal) => Promise<OpenAccPayResult>;
 };
 
 /** 哪些端点没配。两个路径缺任何一个都算没接入 */
@@ -90,7 +106,10 @@ const request = async (
   try {
     const response = await fetchImpl(url, { ...init, signal: controller.signal });
     if (!response.ok) {
-      throw new HttpError(response.status, `服务返回 ${response.status}`);
+      // 非 2xx 时后端也常把原因写在同样的 reasons[] 信封里，能读出来就别只报状态码
+      const body = typeof response.text === 'function' ? await response.text().catch(() => '') : '';
+      const parsed = body ? tryParseJson(body) : null;
+      throw new HttpError(response.status, serverMessageOf(parsed) || `服务返回 ${response.status}`);
     }
     return (await response.json()) as unknown;
   } catch (cause) {
@@ -135,10 +154,13 @@ export function createPayClient(endpoints: PayEndpoints, options: PayClientOptio
       return parseCreateOrderResponse(json, Date.now(), DEFAULT_CODE_TTL_MS);
     },
 
-    /** 查单。这里只负责拿回 tradeState，怎么解释交给 model 的 mapTradeState */
-    async queryOrder(outTradeNo, signal) {
+    /**
+     * 查单。入参是业务关联 id（确认单据号），不是订单号 —— 服务端的开户支付查单就是按它查的。
+     * 这里只负责拿回 status，怎么解释交给 model 的 mapOpenAccState。
+     */
+    async queryOrder(busUnionId, signal) {
       assertConfigured();
-      const url = `${joinUrl(endpoints.host, endpoints.queryPath)}?outTradeNo=${encodeURIComponent(outTradeNo)}`;
+      const url = `${joinUrl(endpoints.host, endpoints.queryPath)}?busUnionId=${encodeURIComponent(busUnionId)}`;
       const json = await request(
         url,
         { method: 'GET', headers: { Accept: 'application/json' } },
@@ -146,7 +168,7 @@ export function createPayClient(endpoints: PayEndpoints, options: PayClientOptio
         timeoutMs,
         signal,
       );
-      return parseQueryOrderResponse(json);
+      return parseOpenAccPayResponse(json, busUnionId);
     },
   };
 }

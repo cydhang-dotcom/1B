@@ -379,7 +379,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               </span>
             </div>
             <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200 text-xs sm:text-sm text-slate-700 leading-relaxed select-text">
-              {data.intro || '拟设立有限责任公司，依托数字化与全渠道服务网络，面向目标市场提供合规、高品质的产品与专业技术服务。'}
+              {data.intro || <span className="text-slate-400">（尚未填写，回到第 1 步问卷或在此补填）</span>}
             </div>
           </div>
 
@@ -393,7 +393,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               </span>
             </div>
             <div className="p-3.5 rounded-xl bg-slate-50/80 border border-slate-200 text-xs sm:text-sm text-slate-700 leading-relaxed select-text">
-              {data.service || '主营海外仓配履约、跨境独立站全渠道运营、供应链数字化协同及品牌海外推广咨询服务。'}
+              {data.service || <span className="text-slate-400">（尚未填写，回到第 1 步问卷或在此补填）</span>}
             </div>
           </div>
 
