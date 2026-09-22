@@ -7,13 +7,13 @@ export const DOC_HOST = import.meta.env.VITE_DOC_HOST;
  * 下单挂在**文档 / 业务服务 DOC_HOST** 下（与弹窗里取企微客服码同一个 host；注意 DOC_HOST
  * 自带 /v1，路径直接接在后面）：
  *   下单  POST  {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/pay
- *        请求体 { payAmount: number（元）, busUnionId: string（= 确认接口返回的 recordId）}
+ *        请求体 { payAmount: number（元）, busUnionId: string（= 第 1 步生成方案时返回的 recordId）}
  *        ★ 金额是前端传的：服务端必须按 busUnionId 复核价格，否则改请求体就能少付钱
  *        ★ 没有去重键：一次点击只许发一次（前端状态机负责），失败也不自动重试
  *        响应  形如 { outTradeNo, codeUrl | qrImageUrl, expiresAt?, amount?, currency? }
  *              —— 二维码字段两种来源都支持（见 payment/model.ts 的 resolveQrSource）
  *
- * 查单  GET  {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay?busUnionId=<确认单据号>
+ * 查单  GET  {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay?busUnionId=<委托单号>
  *       —— 收银台轮询与「#paid」的直达判断都用它（同一个接口，同一个入参）
  *       响应 { scbUuid, orderNo, payTime, mobile, status, payAmount }，status: '1' 已支付 / '0' 未支付
  *       ★ 只认 status='1' 为已支付；缺 status 按「查不动」处理（不猜），
@@ -76,14 +76,14 @@ export const SMS_SCENE_TYPE = import.meta.env.VITE_SMS_SCENE_TYPE || '20260311';
  *      三个字段都是「无建议给空数组」，不是 null。
  *
  * ── 生成需求方案（架构诊断）────────────────────────────────────────────
- * 请求  POST  {host}/api/company-plan/diagnose-architecture?captchaAppId=&userIp=&jcaptchaCode=&jcaptchaId=
- *      query 腾讯行为验证码票据：jcaptchaCode = ticket、jcaptchaId = randstr，
- *            由 src/utils/tencentCaptcha.ts 弹窗取得（调用点见 planGenerate.ts 的
- *            requestPlanCaptcha）；和 ai-fill 一样，没有 ticket 的请求会被直接拒绝
- *      body  { formData: <问卷字段，逐项见 planGenerate.ts 的 PlanFormData> }
- *            caa 同接口的 body 是 { formData, phoneNumber }，phoneNumber 承载短信校验信息；
- *            问卷提交这一步前端还没有手机号（下一步确认方案时才收并验证），所以先不发这个字段。
- *            验证码四件套也只走 query，不塞进 body（body 的 DTO 没声明它们，严格反序列化会 400）。
+ * 请求  POST  {host}/api/company-plan/diagnose-architecture
+ *      body  { formData: <问卷字段，逐项见 planGenerate.ts 的 PlanFormData>,
+ *              phoneNumber: { mobile, smsCodeId, smsValidCode } }
+ *            phoneNumber 就是第 1 步手机验证弹框给出的那三样（见 verification.ts 的
+ *            PhoneVerification）：服务端拿 smsCodeId + smsValidCode 比对短信验证码，
+ *            比对不过这次请求就不算成功 —— **验证手机号是出方案的前置条件**，
+ *            不再有「接口失败就用本地规则生成一份」的兜底。
+ *            这里没有腾讯行为验证码：那一道在手机验证弹框的「获取验证码」上（发短信时用）
  * 响应  架构诊断结果（都是长文本 / 清单）：
  *      companyNameProposal    企业名称方案建议
  *      companyType            组织形式（含股东结构建议）
@@ -96,35 +96,29 @@ export const SMS_SCENE_TYPE = import.meta.env.VITE_SMS_SCENE_TYPE || '20260311';
  *      postQualifications     后置许可 / 资质清单
  *      riskTips               合规风险提示
  *      model                  服务端自报的模型名（前端不展示，未取）
+ *      recordId               委托单号（**必给**）：服务端在生成方案时就建好了单，
+ *                             第 3 步下单（busUnionId）与查单都用它；缺了这次请求算失败，
+ *                             前端提示「生成需求方案未返回委托单号」
+ *      status                 服务端自报的状态（形如 SUCCESS）。前端不读：内容与单号都在，
+ *                             就是一份可用方案；真失败时上面两条已经拦住了
  *      缺字段 / 传 null / 传空串 = 这一项没给，沿用本地方案（plan.ts 的 buildPlan）；
  *      传空数组 = 明确「没有」，就用空数组。前端取哪几项见 planGenerate.ts 的 PlanSuggestion。
  *
- * ── 确认并前往支付（确认方案）──────────────────────────────────────────
- * 请求  POST  {host}/api/company-plan/confirm-proposal
- *      body  { formData, proposalResult, phoneNumber }（后端三个字段都是 JsonNode / PhoneNumber）
- *            formData      格式参考本地存档 1b_copreg_plan_form：问卷 + 用户选中的套餐档位，
- *                          外加自选增值服务。其中 addons 是对象数组（id / 名称 / 实收价），
- *                          比存档里的 id 字符串数组多带名称与价格，服务端照它出单；
- *                          套餐内含的服务项不上报，服务端按 tier 自己映射。见 serviceConfirm.ts
- *            proposalResult 本地存档 1b_copreg_plan_report：上面那个接口返回的诊断结果。
- *                          **后端标了 @NotNull**，所以诊断没成功过时前端就地拦住，不发请求
- *            phoneNumber    { mobile, smsCodeId, smsValidCode }，服务端据此比对短信验证码
- *      字段清单见 docs/copreg-plan-api.md。
+ * ── 确认并前往支付（confirm-proposal）—— **已不再调用**（2026-09）────────
+ * 委托单号改成诊断接口同一次响应里返回（上面的 recordId），第 2 步因此变成纯展示页：
+ * 它只把第 1 步的结果摆出来，点「前往支付」直接拿单号下单，前端不再有任何确认请求。
+ * 服务端那个接口可以下线；要恢复时，历史请求体是 { formData, proposalResult }，
+ * 形状见 docs/copreg-plan-api.md 第三节（已标注废弃）。
  *
  * ponytail: host 取自 caa 项目生产配置（https://caa001.ibanbu.com），1b 侧尚无自己的方案服务配置。
  * 上线前需与接口方确认 host 是否一致，不一致时用 .env 的 VITE_COMPANY_PLAN_HOST、
- * VITE_AI_FILL_PATH、VITE_PLAN_DIAGNOSE_PATH、VITE_CONFIRM_PROPOSAL_PATH 覆盖，无需改代码。
+ * VITE_AI_FILL_PATH、VITE_PLAN_DIAGNOSE_PATH 覆盖，无需改代码。
  */
 export const COMPANY_PLAN_HOST =
   import.meta.env.VITE_COMPANY_PLAN_HOST || 'https://caa001.ibanbu.com';
 export const AI_FILL_PATH = import.meta.env.VITE_AI_FILL_PATH || '/api/company-plan/ai-fill';
 export const PLAN_DIAGNOSE_PATH =
   import.meta.env.VITE_PLAN_DIAGNOSE_PATH || '/api/company-plan/diagnose-architecture';
-/** 「确认并前往支付」的确认保存接口，与上面两个同属企业方案服务 */
-export const CONFIRM_PROPOSAL_PATH =
-  import.meta.env.VITE_CONFIRM_PROPOSAL_PATH || '/api/company-plan/confirm-proposal';
-
-
 /**
  * 腾讯云行为验证码 appId。appId 是前端公开值，真正的票据校验在服务端完成，可安全暴露。
  * userIp 供腾讯侧做风控，取的是网关出口 IP，caa 同款接口即固定传此值。

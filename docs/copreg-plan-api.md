@@ -1,18 +1,19 @@
 # copreg 方案接口字段说明
 
-三个接口**同属企业方案服务**，都在 `/api/company-plan/*` 下：第 1 步（问卷页）调 AI 智能填充与
-架构诊断，第 2 步（方案页）在「确认并前往支付」时调确认保存。本文整理**接口参数与返回值**，
-即服务端照这份清单做即可 —— 参数以前端为准，第 1 步的字段名与前端问卷
-（`SurveyData`，`src/copreg/types.ts:6`）逐字一致。
+**两个接口**同属企业方案服务，都在 `/api/company-plan/*` 下，都在第 1 步（问卷页）调用：
+AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并当场建单**（返回 `recordId`）。
+第 2 步（方案页）**不调任何接口** —— 它只把第 1 步的结果展示出来，点「前往支付」直接拿那个
+单号进支付页。本文整理**接口参数与返回值**，即服务端照这份清单做即可 —— 参数以前端为准，
+第 1 步的字段名与前端问卷（`SurveyData`，`src/copreg/types.ts:6`）逐字一致。
 
 | 用途 | 方法 / 路径 | 触发点 | 调用模块 |
 |---|---|---|---|
-| AI 智能填充：出经营范围、许可资质、敏感要素建议 | `POST {host}/api/company-plan/ai-fill` | 问卷页「AI 智能填充」按钮（`SurveyStep.tsx:89`） | `src/copreg/aiFill.ts` |
-| 生成需求方案（架构诊断，含企业概况评估） | `POST {host}/api/company-plan/diagnose-architecture` | 问卷页「生成需求方案」按钮（`SurveyStep.tsx:169`） | `src/copreg/planGenerate.ts` |
-| 确认并前往支付：第 1 步两份存档（自选增值服务带名称与实收价）+ 手机号验证信息一并留档 | `POST {host}/api/company-plan/confirm-proposal` | 方案页手机号验证弹窗的「确认并前往支付」按钮（`ProposalStep.tsx:126`） | `src/copreg/serviceConfirm.ts` |
+| AI 智能填充：出经营范围、许可资质、敏感要素建议 | `POST {host}/api/company-plan/ai-fill` | 问卷页「AI 智能填充」按钮 | `src/copreg/aiFill.ts` |
+| 生成需求方案（架构诊断 + 建单）：出方案内容，并返回委托单号 `recordId` | `POST {host}/api/company-plan/diagnose-architecture` | 问卷页「生成需求方案」按钮（先过手机验证弹框） | `src/copreg/planGenerate.ts` |
+| ~~确认并前往支付~~ | ~~`POST {host}/api/company-plan/confirm-proposal`~~ | **已不再调用**（2026-09）：单号改由诊断接口返回，第 2 步成了纯展示页 | 见第三节 |
 
-`host` 与三个路径都能用环境变量覆盖（`VITE_COMPANY_PLAN_HOST` / `VITE_AI_FILL_PATH` /
-`VITE_PLAN_DIAGNOSE_PATH` / `VITE_CONFIRM_PROPOSAL_PATH`），默认值见 `src/config/api.ts`
+`host` 与两个路径都能用环境变量覆盖（`VITE_COMPANY_PLAN_HOST` / `VITE_AI_FILL_PATH` /
+`VITE_PLAN_DIAGNOSE_PATH`），默认值见 `src/config/api.ts`
 （host 默认 `https://caa001.ibanbu.com`，取自 caa 项目生产配置，1b 侧待确认）。
 
 ---
@@ -50,30 +51,30 @@
 
 ### 2.1 请求信封
 
-与第一节的 AI 智能填充同一道**腾讯行为验证码闸门**：先由前端弹验证码，通过后才带着票据发请求；
-没有票据的请求会被服务端直接拒绝。
+**手机号在这一个接口上验证**（2026-09 从第 2 步挪过来的）：点「生成需求方案」先弹手机验证弹框
+（`components/PhoneVerifyModal.tsx`：`获取验证码` 那一步自己会过腾讯行为验证码 → 发短信），
+验证通过后才带着手机号与短信凭据发这个请求；服务端拿 `smsCodeId` + `smsValidCode` 比对验证码，
+比对不过这次请求就不算成功。**这里没有腾讯行为验证码 query 参数**（那一道在发短信时用掉了）。
 
 ```json
-{ "formData": { ...见 2.2... } }
+{ "formData": { ...见 2.2... },
+  "phoneNumber": { "mobile": "13800000000", "smsCodeId": "…", "smsValidCode": "654321" } }
 ```
 
 | 位置 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|---|
-| query | `captchaAppId` | `string` | 是 | 腾讯云行为验证码 appId（前端公开值） |
-| query | `userIp` | `string` | 是 | 腾讯侧风控用的出口 IP |
-| query | `jcaptchaCode` | `string` | 是 | 验证码票据 ticket，弹窗成功回调里拿到 |
-| query | `jcaptchaId` | `string` | 是 | 验证码 randstr，与 ticket 同时下发 |
 | body | `formData` | `object` | 是 | 问卷 16 个字段，逐项见 2.2 |
+| body | `phoneNumber` | `object` | 是 | 手机验证弹框给出的三件套（`verification.ts` 的 `PhoneVerification`） |
+| body | `phoneNumber.mobile` | `string` | 是 | 用户填的手机号，已 trim |
+| body | `phoneNumber.smsCodeId` | `string` | 是 | 发短信时服务端返回的会话 id |
+| body | `phoneNumber.smsValidCode` | `string` | 是 | 用户填的短信验证码，服务端与 `smsCodeId` 一起校验 |
 
-验证码四件套**只走 query**，不重复塞进 body —— body 的 DTO 只声明了 `formData`（caa 那边还有
-`phoneNumber`），严格反序列化下多传字段会直接换回 400。这两点和 `ai-fill` 完全一致
-（`aiFill.ts` 的 `buildUrl`；本接口在 `planGenerate.ts` 的 `buildUrl`）。
+前端只校验格式（11 位手机号、4~6 位数字），真正的比对在服务端 —— 前端没有任何接口能验证它，
+所以这三个字段必须原样收下。与 caa 同接口的信封（`{ formData, phoneNumber }`）完全一致。
 
-caa 同接口的 body 是 `{ formData, phoneNumber }`，其中 `phoneNumber` 承载短信校验信息
-（`mobile` / `smsCodeId` / `smsValidCode` / `password` / 验证码四件套 / `shareUserUuid`）。
-copreg 在问卷提交这一步**还没有手机号**（手机号是下一步确认方案时才收并验证），所以这个字段不发。
-短信验证信息改由第 2 步的确认接口承载（见第三节的 `phoneNumber`）。若后端要求这个诊断接口
-也过短信闸门，得把调用点后移到 `ProposalStep` 的手机号验证之后，再补上该字段。
+**验证失败与接口失败都留在手机验证弹框里**（弹框不关、错误写在弹框里、可改验证码原地重试）：
+手机号没验过就不该出方案，所以这个接口**没有**「失败就按本地规则生成一份方案」的兜底 ——
+这一条是随手机验证一起改的，见第四节的失败行为。
 
 ### 2.2 请求字段 `formData`
 
@@ -115,6 +116,8 @@ copreg 在问卷提交这一步**还没有手机号**（手机号是下一步确
 | `preQualifications` | `string[]` | ✅ | `plan.preQualifications` 前置许可 / 备案 | 进度页「需办理资质」（`ProgressAndReviewStep.tsx:719`） |
 | `postQualifications` | `string[]` | ✅ | `plan.postQualifications` 后置许可 / 资质 | 方案页 01「后续需协同办理的行业资质」（`:287`） |
 | `riskTips` | `string[]` | ✅ | `plan.riskTips` 合规风险提示 | 方案页 01「合规专家提醒」（`:307`） |
+| `recordId` | `string` | ✅ | 本地存档 `1b_copreg_plan_record` | **委托单号**：服务端在生成方案时就建好了单，第 3 步下单（支付接口的 `busUnionId`）与查单都用它。**必给** —— 缺失时这次请求按失败处理（提示「生成需求方案未返回委托单号」），因为没它下不了单 |
+| `status` | `string` | ❌ 不取 | —— | 服务端自报的状态（线上形如 `SUCCESS`）。前端不读：内容与单号都在，就是一份可用方案；真失败时 `hasPlanContent` 与 `recordId` 两条已经拦住了 |
 | `model` | `string` | ❌ 不取 | —— | 服务端自报的模型名，前端没有展示位；要排查时看这里或服务端日志 |
 
 ### 2.4 覆盖规则（`applyPlanSuggestion`）
@@ -139,167 +142,54 @@ copreg 在问卷提交这一步**还没有手机号**（手机号是下一步确
 
 ---
 
-## 三、确认并前往支付 `POST /api/company-plan/confirm-proposal`
+## 三、确认并前往支付 `POST /api/company-plan/confirm-proposal`（已废弃）
 
-第 2 步方案页的手机号验证弹窗里，点「确认并前往支付」时调一次。作用是把**第 1 步的两份本地存档**
-交给服务端留档（自选增值服务带上名称与实收价，服务端好照它出单），确认落库之后才放人进支付页。
+**2026-09 起前端不再调用这个接口**，服务端可以下线它。
 
-后端 DTO 是 `{ formData: JsonNode, proposalResult: JsonNode, phoneNumber: PhoneNumber }`，
-其中 `formData` 与 `proposalResult` 标了 `@NotNull`，`phoneNumber` 注释写明必填。
+原来它承担两件事：① 把第 1 步的两份存档（问卷 + 套餐/加购、诊断结果）交给服务端留档；
+② 服务端据此建委托单并返回 `recordId`。现在**建单挪到了诊断接口**（第二节的响应字段
+`recordId`）—— 生成方案那一次就把单建好，方案页只负责展示，点「前往支付」直接拿这个单号
+下单。于是：
 
-### 3.1 请求
+- 第 2 步（方案页）**没有任何接口调用**，也不再需要手机号（第 1 步已验）、不需要行为验证码；
+- 前端删掉了整个确认请求链路（`serviceConfirm.ts`、`VITE_CONFIRM_PROPOSAL_PATH`、
+  `1b_copreg_plan_confirm` 键与「凭据是否与当前套餐一致」的过期判断）；
+- 单号存在 `1b_copreg_plan_record`，**改套餐 / 换自选项都不作废它**：那些只影响前端报价，
+  服务端按单号复核价格。
 
-请求体恰好三个字段：
-
-```json
-{
-  "formData": {
-    "survey": { "…见 2.2…" },
-    "tier":   "standard",
-    "addons": [
-      { "id": "addon-bank", "name": "银行对公账户开通", "price": 200 },
-      { "id": "addon-tax",  "name": "电子税务局开户",   "price": 300 }
-    ]
-  },
-  "proposalResult": { "…见 2.3…" },
-  "phoneNumber":    { "mobile": "13800000000", "smsCodeId": "…", "smsValidCode": "654321" }
-}
-```
-
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `formData` | `JsonNode` | 是（`@NotNull`） | 就是本地存档 `1b_copreg_plan_form` 那份形状（见第五节），存下去什么这里就发什么 |
-| `formData.survey` | `object` | 是 | 问卷 16 个字段，逐个见 2.2 那张表 |
-| `formData.tier` | `string` | 是 | 选中的套餐档位：`bundle_small` / `bundle_general` / `standard`（取点击那一刻方案页上的选择）。套餐内含的服务项不上报，服务端按这个档位自己映射 |
-| `formData.addons` | `object[]` | 是 | **勾选的自选增值服务**，没勾就是空数组。**只有 `standard` 档会有值**（见下） |
-| `formData.addons[].id` | `string` | 是 | `addon-bank` / `addon-tax` / `addon-social` |
-| `formData.addons[].name` | `string` | 是 | 服务名称，如「银行对公账户开通」「电子税务局开户」 |
-| `formData.addons[].price` | `number` | 是 | 实收金额（元），取自报价明细，与页面上显示的一致 |
-| `proposalResult` | `JsonNode` | 是（`@NotNull`） | 本地存档 `1b_copreg_plan_report`：架构诊断结果，就是 2.3 那个响应（前端取的那 10 项）。**绝不能为 `null`**：诊断没成功过时前端就地拦住、不发请求，见 3.2 |
-| `phoneNumber` | `PhoneNumber` | 是 | 服务端据此比对短信验证码 |
-| `phoneNumber.mobile` | `string` | 是 | 用户填的手机号 |
-| `phoneNumber.smsCodeId` | `string` | 是 | 发短信时服务端返回的会话 id（`verification.ts`） |
-| `phoneNumber.smsValidCode` | `string` | 是 | 用户填的短信验证码，服务端与 `smsCodeId` 一起校验 |
-
-`survey` / `tier` / `addons` **三个字段与本地存档**（`planDraft.ts` 的 `1b_copreg_plan_form`）
-**逐字一致** —— 请求体的类型就是存档类型本身（`PlanForm`），不存在两套形状。
-自选项的名称与价格两边都由 `proposalQuote.addonsOf` 从同一份报价明细派生，所以存下来的、
-页面上显示的、发出去的，是同一个数。
-
-价格与套餐以页面上显示的为准，服务端不需要自己算价。
-
-**两档「全年无忧」的 `addons` 恒为空数组**，这不是漏传：bundle 档的银行开户 / 税局开户 /
-社保公积金开户是套餐内置的必选服务（页面上的报价明细里 `isFree: true`、`tag` 为
-「全年无忧必选服务」），页面上没有勾选框，所以没有「自选」可言；自选增值服务只在
-`standard` 档提供。套餐内这些服务项前端**一概不上报**，服务端按 `tier` 自己映射即可。
-
-`addons` 的顺序固定为报价明细里的顺序（银行开户 → 税局开户 → 社保公积金开户），
-与用户勾选的先后无关。
-
-前端只校验验证码的**格式**（4~6 位数字），真正的比对在服务端 —— 前端没有任何接口能验证它，
-所以这三个字段必须原样收下。
-
-请求体里的每一项都是**深拷贝**后交出去的（`serviceConfirmRequestOf`）：请求在途时用户改问卷、
-切套餐、勾加购都不会改到已经在途的载荷。
-
-### 3.2 `proposalResult` 为空的处理
-
-第 1 步的架构诊断接口失败**不拦人前进**（既有产品行为：本地方案照样完整可用），所以
-「人已经走到方案页、手上却没有诊断结果」是真实可达的状态。后端 `proposalResult` 是 `@NotNull`，
-这种时候前端**就地拦住、一个请求都不发**，提示「方案诊断结果缺失，请返回第 1 步点
-『生成需求方案』重新生成后再确认」。不硬送 `null` 去换一句看不懂的 400，也不编一份空壳冒充满意。
-
-### 3.3 响应
-
-```json
-{ "recordId": "VHpX5NqoXLHwPyMnVeBzCN", "status": "SUCCESS" }
-```
-
-| 字段 | 类型 | 说明 |
-|---|---|---|
-| `recordId` | `string` | 确认单据号。**必给**：它既是「已确认」的凭据（见 3.4），也是后续微信支付下单的 `bizId` |
-| `status` | `string` | 目前只认 `SUCCESS`。别的值（或没给）一律按失败处理，提示里带上服务端给的原值 |
-
-必须是 JSON 对象（数组 / `null` / 不是 JSON 都按「返回格式异常」处理，与另外两个接口一致）。
-**HTTP 200 不等于确认成功**：`status` 不是 `SUCCESS`、或 `recordId` 为空，都算失败 ——
-没有单据号的「成功」续不上，等于白确认一场。
-
-### 3.4 本地凭据与续步（`1b_copreg_plan_confirm`）
-
-```json
-{ "recordId": "VHpX5NqoXLHwPyMnVeBzCN", "status": "SUCCESS",
-  "tier": "standard", "addonIds": ["addon-bank"] }
-```
-
-`recordId` / `status` 是**服务端给的**，前端原样存下；`tier` / `addonIds` 是**前端附加的注解**，
-记下这份确认是为哪套选择做的。之后：
-
-- **下次进入这个页面直接落在第 3 步**（协议确认与支付），不必重新验证手机号、也不必重新提交问卷；
-  方案页顶栏仍可回看，第 2 步的主按钮会变成「已确认，前往支付」，点了直接走，**不再重复调用
-  确认接口**（重复调用会在服务端多出一份委托单）。
-- **凭据必须与「填写的」存档配套**：没有 `1b_copreg_plan_form`（或问卷全空）时只有凭据不会跳 ——
-  方案是从问卷算出来的，没有方案就没有可支付的第三步。
-- **凭据会过期作废**：重新提交问卷、问卷页点「重置」、或把套餐档位 / 自选项改成与确认时不同，
-  凭据立刻清掉，回到「先确认再进支付」的流程。旧凭据代表的方案已经不是页面上这份了，
-  继续用会把人送进一份与价格不符的支付页。
-- **校验口径：服务端字段严格，附加注解尽力而为**。不是对象、`status` 不是 `SUCCESS`、`recordId`
-  为空 → 整个凭据不认（等于没确认过）。而 `tier` 认不出、`addonIds` 缺了或混进未知 id →
-  只当作「这一项没记」，**不作废凭据**：服务端只返回 `recordId` / `status`，手写的或老版本写入的
-  凭据本来就没有这两个注解。App 首帧读到缺注解的凭据会**接受它并把当前选择补记上去**，
-  之后过期判断照常生效。
-- **自选项比较按集合看**：勾选先后与报价明细顺序不同，不算「改过」；只比较凭据里记了的那几项。
-- 凭据存不下（隐私模式 / 配额满）不拦人：本次已经确认成功、能正常进支付，但会提示
-  「下次进入需要重新确认（可能产生重复委托单）」—— 丢凭据的代价是服务端多一份单据，
-  这个不能静默。
-
-### 3.5 失败行为
-
-超时 **15s**（不是大模型接口的 60s —— 按钮转圈超过十几秒，用户只会以为卡死）。失败一律
-**拦在方案页**：弹窗不关、按钮恢复可点、错误文案直接显示在弹窗里，用户能原地重试，
-不会带着一份服务端并不知道的确认进支付页。
-
-| 情况 | 提示 |
-|---|---|
-| 诊断结果缺失（3.2） | 方案诊断结果缺失，请返回第 1 步点「生成需求方案」重新生成后再确认（且一个请求都不发） |
-| 路径被清空（`VITE_CONFIRM_PROPOSAL_PATH` 置空） | 确认方案接口尚未接入，暂时无法前往支付（且一个请求都不发） |
-| `status` 不是 `SUCCESS` | 确认方案未成功（{服务端给的状态}） |
-| `status` 缺失 | 确认方案未返回状态，请稍后重试 |
-| `recordId` 缺失或为空 | 确认方案未返回单据号，请稍后重试 |
-| 非 2xx | 优先用响应体里的文字；是网关 HTML 则用「确认方案失败（状态码）」 |
-| 超时 | 确认方案超时，请稍后重试 |
-| 网络不通 | 网络异常，请检查网络后重试 |
-| 响应不是合法 JSON 对象 | 确认方案返回格式异常，请稍后重试 |
-
-请求在途时：手机号输入框、验证码输入框、「获取验证码」、「取消」、右上角关闭全部置灰，
-主按钮显示「提交中…」—— 半途关掉弹窗但请求已经发出去，是最容易出重复确认的路径。
+若以后要恢复，历史请求体是 `{ formData, proposalResult }`（两个 `JsonNode`，都 `@NotNull`）：
+`formData` 是本地存档 `1b_copreg_plan_form` 那份形状（`{ survey, tier, addons }`，
+`addons` 为 `{ id, name, price }` 对象数组），`proposalResult` 是第二节 2.3 那个响应
+（前端取的 10 项）。
 
 ---
 
-## 四、三个接口的公共约定
+## 四、接口的公共约定
 
 | 项 | 约定 |
 |---|---|
-| 超时 | 两个 AI 接口 60s（`apiClient.ts` 的默认值），大模型生成长文本比普通接口慢；确认接口 15s。验证码弹窗等待不计入 |
+| 超时 | 两个接口都是 60s（`apiClient.ts` 的默认值），大模型生成长文本比普通接口慢。验证码弹窗等待不计入 |
 | 请求头 | `Content-Type: application/json` |
 | 响应体 | 必须是 JSON 对象；不是 JSON / 是数组 / 是 `null` 一律按「返回格式异常」处理 |
 | 「有响应但没内容」 | 架构诊断额外判一条：200 且 JSON 合法、但 2.3 里要取的那些字段一个都没给，按失败处理，走同一条提示通道 —— 否则用户会看到一份本地模板方案却以为它是服务端给的 |
 | 错误文案 | 非 2xx 时优先用响应体里的文字（以 `<` 开头认为是网关 HTML，改用兜底文案）；超时「{接口名}超时，请稍后重试」；网络不通「网络异常，请检查网络后重试」；解析失败「{接口名}返回格式异常，请稍后重试」 |
-| 类型收口 | `tsconfig` 没开 `strict`，所有响应字段在 `apiClient.ts` 里显式校验：字符串数组过滤掉非字符串与空串并去重，单字符串字段非字符串或空串即视为「没给」 |
+| 类型收口 | `tsconfig` 没开 `strict`，所有响应字段在 `apiClient.ts` 里显式校验：字符串数组过滤掉非字符串与空串并去重，单字符串字段非字符串或空串即视为「没给」（`recordId` 例外：它是必给项，给不出就算这次失败） |
 
 失败时的界面行为：
 
 - **AI 智能填充**：把错误文案弹 toast；用户自己关掉验证码弹窗则静默返回（不算失败），
   不做本地兜底 —— 没拿到建议就不改问卷。
-- **生成需求方案**：点按钮先弹腾讯验证码（与 AI 智能填充同一道闸门，票据走 query，见 2.1）。
-  用户自己关掉验证码弹窗（`requestPlanCaptcha` 返回 `null`）＝**整件事没发生过**：一个请求都不发、
-  问卷与方案存档不动、页面原地留在第 1 步，静默不报错，等他再点一次；验证码组件加载失败等
-  真故障则弹中文 toast 留在原地（此时同样没发请求）。
-  验证码通过后接口失败就**不拦人前进**（本地方案本身是完整可用的，用户填的问卷也能落进方案），
-  但会在页面底部弹一条提示说明这版方案是本地规则生成的，不静默降级。
-  请求期间「生成需求方案」按钮置灰显示「生成方案中…」（验证码弹窗期间也是），避免连点发两次请求；
+- **生成需求方案**：必填项过关后弹手机验证弹框（`PhoneVerifyModal`，「获取验证码」自己过腾讯行为验证码）。
+  用户直接关掉弹框（或取消）＝**整件事没发生过**：一个请求都不发、问卷与方案存档不动、
+  页面原地留在第 1 步，静默不报错。验证通过后带着手机号调诊断接口，
+  **接口失败一样拦人**：弹框不关、原因写在弹框里、按钮恢复可点，改验证码原地重试
+  —— 手机号没验过就不该出方案（这里没有「用本地规则生成一份」的兜底，见 2.1）。
+  请求期间弹框整体置灰、「生成需求方案」按钮也置灰显示「生成方案中…」，避免连点发两次请求；
   「AI 智能填充」与「生成需求方案」互斥（在途时都置灰），免得 AI 结果落进一个已经离开的问卷页。
-- **确认并前往支付**：与上面两个相反，接口失败**拦人**——停在方案页、弹窗不关、错误写在弹窗里。
-  这是唯一一个「没成功就不许往下走」的调用：支付页要挂在一份服务端已确认的方案上。
+- **第 2 步（方案页）**：**不调任何接口**。切套餐 / 勾加购只是前端重算报价
+  （`quoteFor`）并把结果刷进本地存档；点「前往支付」就是往后走一步，用的是第 1 步给的委托单号。
+  所以在第 2 步不可能出现「接口失败要拦人」这种情况 —— 会拦住人的只有第 1 步
+  （手机验证 / 诊断失败）与第 3 步（缺单号时下不了单）。
 
 ---
 
@@ -309,47 +199,46 @@ copreg 在问卷提交这一步**还没有手机号**（手机号是下一步确
 
 | 键 | 内容 | 什么时候写 |
 |---|---|---|
-| `1b_copreg_plan_form` | 「填写的」：`{ survey, tier, addons }`，**与确认接口的 `formData` 同一形状** | **调接口之前**写一次（接口超时 / 不通 / 用户在等待时关掉页面，问卷都还能捞回来）；方案页切套餐 / 勾加购时再刷新一次档位 |
-| `1b_copreg_plan_report` | 「返回的」：2.3 里前端取的那 10 项，与确认接口的 `proposalResult` 同一份 | **只在接口成功后**写。提交新问卷时先 `clearPlanReport`，成功后写新的 —— 旧的结论对应的是旧问卷 |
-| `1b_copreg_plan_confirm` | 「确认凭据」：`{ recordId, status, tier, addonIds }`（见 3.4） | **只在 `confirm-proposal` 返回 `SUCCESS` 后**写。提交新问卷、重置问卷、或方案改过（`isPlanConfirmStale`）时 `clearPlanConfirm` |
+| `1b_copreg_plan_form` | 「填写的」：`{ survey, tier, addons }` | **调诊断接口之前**写一次（接口超时 / 不通 / 用户在等待时关掉页面，问卷都还能捞回来）；方案页切套餐 / 勾加购时再刷新一次档位 |
+| `1b_copreg_plan_report` | 「返回的」：2.3 里前端取的那 10 项诊断结果 | **只在接口成功后**写。提交新问卷时先 `clearPlanReport`，成功后写新的 —— 旧的结论对应的是旧问卷 |
+| `1b_copreg_plan_record` | 「委托单凭据」：`{ recordId }`（诊断接口同一次响应里给的） | **只在诊断接口成功、且拿到了 `recordId` 之后**写。提交新问卷 / 重置问卷时 `clearPlanRecord`；改套餐不作废 |
 
 ```json
-// 1b_copreg_plan_form —— 与 3.1 的 formData 逐字相同，存下去什么就发什么
+// 1b_copreg_plan_form —— 填写的输入，方案由它现算
 { "survey": { "…": "SurveyData 的 16 个字段，就是 2.2 那张表" },
   "tier": "standard",
   "addons": [ { "id": "addon-bank", "name": "银行对公账户开通", "price": 200 } ] }
 
-// 1b_copreg_plan_confirm —— 有它下次进来直接落在第 3 步
-{ "recordId": "VHpX5NqoXLHwPyMnVeBzCN", "status": "SUCCESS",
-  "tier": "standard", "addonIds": ["addon-bank"] }
+// 1b_copreg_plan_record —— 有它下次进来直接落在第 3 步
+{ "recordId": "D8DrdkCZoNvQhEzdQD5vTN" }
 ```
 
-下次打开：有「填写的」就直接落到第 2 步（问卷答案、选过的套餐都在），有「确认凭据」再往前一步
-落到第 3 步，有「返回的」再把诊断结果叠上去；只有「填写的」时方案页显示的是本地规则那一版
-（和刷新前看到的一致）。
+下次打开：**有「返回的」才落到第 2 步**（问卷答案、选过的套餐、服务端诊断都在），
+有「委托单凭据」再往前一步落到第 3 步。
+只有「填写的」时留在第 1 步 —— 方案是诊断接口给的，没拿到结果就不进方案页
+（本地规则那版不算方案），问卷答案照旧填在表单里，重新点「生成需求方案」即可。
 
-- **确认凭据决定停在第三步还是第二步**：`loadPlanDraft()` 一次把三份键读齐，App 首帧看
-  `confirm` 决定 `currentStep` 与 `unlockedSteps`（有凭据 = `payment` 且解锁到支付）。
-  「确认凭据」必须和「填写的」配套：没有 form 就没有方案，光有凭据不会把人送进支付页。
-- **凭据的失效规则**（过期判断在 `isPlanConfirmStale`，纯函数、有自检）：
-  档位或自选项与确认时不同即作废；自选项按集合比较，勾选先后不算改过。
-  首帧读存档时也会再判一次（防「新问卷 + 旧凭据」这种两次写入之间崩溃留下的组合）。
+- **委托单号决定停在第三步还是第二步**：`loadPlanDraft()` 一次把三份键读齐，App 首帧看
+  `record` 决定 `currentStep` 与 `unlockedSteps`（有单号 = `payment` 且解锁到支付）。
+  它必须和「填写的」配套：没有 form 就没有方案，光有单号不会把人送进支付页。
+- **单号不作废于改套餐**：单号是第 1 步生成方案时服务端建的，改档位 / 自选项只改前端报价，
+  服务端按单号自己复核价格；`parsePlanRecord` 只认 `{ recordId: 非空字符串 }`，其余当没有。
 - **落点自检**：`npm run check:entry` 用**真实组件树**在 Node 里渲染首屏（走 Vite 的 SSR 构建，
-  因为 App 依赖 `import.meta.env` 与 JSX），断言四种存档状态下分别落在第 3 / 第 2 / 第 1 步。
-  这是唯一覆盖「存档 → 首屏落点」这条链的自检。
-- **存档形状与请求体一致**：`addons` 是 `{ id, name, price }` 对象数组，不是 id 字符串数组 ——
-  两边都由 `proposalQuote.addonsOf` 从同一份报价明细派生（App 存盘与
-  `serviceConfirmRequestOf` 调的是同一个函数），所以「存下来的」与「发出去的」永远同一批对象、
-  同一个价格。报价明细只存在于内存，`quoteFor` 重算用的输入仍是 `addons` 里的 id。
+  因为 App 依赖 `import.meta.env` 与 JSX），覆盖有单号 / 只有诊断结果 / 只有问卷 / 什么都没有
+  这几种组合分别落在第 3 / 第 2 / 第 1 步。这是唯一覆盖「存档 → 首屏落点」这条链的自检。
+- **存档形状**：`addons` 是 `{ id, name, price }` 对象数组，不是 id 字符串数组 ——
+  由 `proposalQuote.addonsOf` 从方案页那份报价明细派生，存下来的就是页面上显示的那批、
+  同一个价格（派生与迁移的自检见 `scripts/check-plan-archive.ts`）。报价明细只存在于内存，
+  `quoteFor` 重算用的输入仍是 `addons` 里的 id。
 - **旧存档（字符串数组）仍能读回**：`normalizeAddons` 两种形状都认，字符串 id 会按
   `OPTIONAL_ADDON_SERVICES` 目录补上名称与价格，认不出的 id 与重复项丢掉。
 - **存输入不存算出来的方案**：进入页面时用 `buildPlan(survey, quoteFor(tier, addons 的 id))` 现算、
   再 `applyPlanSuggestion(report)`，所以报价改版后回来看到的是新价，而不是上次存的旧数字。
-- **「返回的」不存失败的那次**：接口失败时方案页那份是本地规则拼的，存下来下次就会被当成
-  服务端给的结果 —— 所以只有成功的那次才写 report。
+- **「返回的」不存失败的那次**：诊断失败时（现在连方案页都进不去）更不该存，
+  所以只有成功的那次才写 report；单号同理，只有拿到才写。
 - **不存手机号与订单**：手机号按约定不落本地；订单 / 支付是服务端说了算的状态，前端恢复它
   只会造出一个「看着像已支付」的假象。所以支付、服务群、办理进度这几步不在存档范围 ——
-  「确认凭据」只说明**确认过**，不代表已支付。
+  「委托单凭据」只说明**建过单**，不代表已支付。
 - **读取时逐字段校验**（`parsePlanSuggestion` 复用 2.3 的收口，问卷字段同样逐项过一遍，
   `addons` 走 `normalizeAddons`）：tsconfig 没开 strict，存档又可能来自旧版本或被手改过，
   任何一处对不上就当没有存档；问卷全空也不恢复（否则「重置后刷新」会直接跳到第 2 步）。
@@ -372,17 +261,18 @@ copreg 在问卷提交这一步**还没有手机号**（手机号是下一步确
 2. **`capitalAmount` 的取数**：`registrationBridge.ts` 已随 registration.html 一并移除，原来靠它把
    整句 `capitalAmount` 用 `digitsOf` 取第一个数字串写进 `basic.capital`；现在的申报表在
    `BasicInfoSection` 里直接收纯数字，服务端那句建议仍只用于方案页展示。
-3. **诊断接口的短信闸门**：caa 的架构诊断接口是在短信验证通过后调的，copreg 现在调在问卷提交
-   （那时还没收手机号），不带 `phoneNumber`。短信验证信息目前只在第 2 步的确认接口里送
-   （第三节）。若后端要求诊断接口也过闸门，得把调用点后移到 `ProposalStep` 的手机号验证之后。
-4. **host 待接口方确认**：三个接口同属企业方案服务，host 默认值取自 caa 项目生产配置
+3. **验证与建单都在诊断接口**（2026-09）：诊断接口带 `phoneNumber`（第 1 步手机验证弹框给出）
+   并在同一次响应里返回委托单号 `recordId` —— 与 caa「诊断前先短信验证」的顺序一致。
+   前端这一侧的弹框在 `SurveyStep`（`PhoneVerifyModal`）；确认接口整个不再调用（见第三节），
+   所以第 2 步没有任何接口调用、也没有任何验证框。
+4. **host 待接口方确认**：两个接口同属企业方案服务，host 默认值取自 caa 项目生产配置
    （`https://caa001.ibanbu.com`），1b 侧尚无自己的方案服务配置 —— 按 `ponytail:` 标注在
    `src/config/api.ts`，可用 `VITE_COMPANY_PLAN_HOST` 覆盖。
 5. **套餐内含的服务项前端不上报**：`formData.addons` 只报「自选增值服务」，套餐里含的
    「全年财务代记账服务」「公安备案印章」等行项目由服务端按 `tier` 自己映射（前端不再另发
    服务清单）。若后端希望连套餐内含项也一起收，再加一项字段即可。
-6. **刷新后能不能停在「已支付」界面，靠服务端查单**：有确认凭据就落在第 3 步；地址栏是 `#paid`
-   时前端会拿确认单据号调支付模块的查单接口核实（见 [copreg-steps.md](copreg-steps.md)），
+6. **刷新后能不能停在「已支付」界面，靠服务端查单**：有委托单号就落在第 3 步；地址栏是 `#paid`
+   时前端会拿委托单号调支付模块的查单接口核实（见 [copreg-steps.md](copreg-steps.md)），
    查单说 SUCCESS 才显示支付成功界面，否则收口回 `#payment`。**当前两个支付路径还是空的**
    （`WECHAT_NATIVE_CREATE_PATH` / `WECHAT_NATIVE_QUERY_PATH`），所以 `#paid` 一律收口 ——
    路径一填好就通。前端不会把「已支付」落本地来假装续上，那会造出「看着像已支付」的假象。

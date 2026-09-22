@@ -109,10 +109,17 @@ export const STEP_ORDER: ProcessStep[] = [
  * 这是第一版落点规则的错处：只看了「有确认凭据 → 第 3 步」，把后面完成的活全忽略了。
  */
 export interface KnownProgress {
-  /** 有第 1 步的问卷存档 */
-  hasPlanForm: boolean;
-  /** 有确认凭据（第 2 步确认过） */
-  hasConfirm: boolean;
+  /**
+   * 有第 1 步**接口返回的**架构诊断结果（存档 `1b_copreg_plan_report`）。
+   *
+   * **这才是「有方案」的凭据**：方案页上的组织形式 / 税务身份 / 资本与地址建议都来自这个接口，
+   * 光有一份问卷存档（`1b_copreg_plan_form`：填到一半、或诊断失败/超时）进去只有本地模板，
+   * 那不是一份方案。问卷存档本身在这里没有用武之地 —— 诊断结果存在就意味着问卷也存过
+   * （`loadPlanDraft` 没有问卷存档就直接返回 null）。
+   */
+  hasPlanReport: boolean;
+  /** 有第 1 步诊断接口返回的委托单号（存档 `1b_copreg_plan_record`）：能直接进第 3 步 */
+  hasRecord: boolean;
   /** 服务端说订单已支付（只有异步查单后才知道，首帧为 false） */
   orderPaid: boolean;
   /** 第 5 步申报资料已提交（草稿里 status === 'submitted'） */
@@ -122,9 +129,10 @@ export interface KnownProgress {
 /**
  * 由已知进度推出「最远能到哪一步」与「该解锁哪些步骤」。
  *
- * 申报资料已提交 ⇒ 必然走过支付与服务群；订单已支付 ⇒ 必然确认过；确认过 ⇒ 必然填过问卷，
- * 所以从最靠后的那条证据一路往回退即可。
- * 解锁范围至少到第 2 步（方案页任何时候都能点进去看看，与既有行为一致）。
+ * 申报资料已提交 ⇒ 必然走过支付与服务群；订单已支付 ⇒ 必然下过单；下过单 ⇒ 必然拿到过委托单号；
+ * 拿到过单号 ⇒ 必然生成过方案，所以从最靠后的那条证据一路往回退即可。
+ * **第 2 步要拿到接口返回的诊断结果才解锁**：只有问卷存档时留在第 1 步
+ * （不然刷新会跳进一份没有服务端内容的方案页 —— 用户报过这个 bug）。
  */
 export interface ProgressRoute {
   /** 落点：刷新后默认显示哪一步 */
@@ -137,23 +145,28 @@ export const progressRouteOf = (progress: KnownProgress): ProgressRoute => {
   // 落点：从最靠后的证据往回退。已支付落「支付成功」界面（第 3 步的已支付态，hash 为 #paid），
   // 而不是直接跳进服务群或填报页 —— 用户刚付完款，先看到「支付成功」这个 milestone 更清楚；
   // 那一页的主按钮是「申报资料填报」（第 5 步），服务群仍在导航里可直达。
+  //
+  // hasRecord 那一档不看 hasPlanReport：单号是服务端在生成方案时建的，有它就说明那次请求成功过，
+  // 本地那份诊断结果被清掉/存不下（隐私模式、配额满）不该把人挡在支付页外。
   const landing: ProcessStep = progress.detailsSubmitted
     ? 'progress'
     : progress.orderPaid
     ? 'payment'
-    : progress.hasConfirm
+    : progress.hasRecord
     ? 'payment'
-    : progress.hasPlanForm
+    : progress.hasPlanReport
     ? 'proposal'
     : 'survey';
 
-  // 解锁范围：已支付连服务群一起解锁（能不能*直达*是另一回事，由 hash 决定）
+  // 解锁范围：有诊断结果才解锁第 2 步 —— 手敲 #proposal 也收口回第 1 步，方案页不是「随便看看」
+  // 的页面，它得先有服务端给的内容。已支付连服务群一起解锁（能不能*直达*是另一回事，由 hash 决定）
   const deepest: ProcessStep = progress.detailsSubmitted
     ? 'progress'
     : progress.orderPaid
     ? 'group'
     : landing;
-  const depth = Math.max(STEP_ORDER.indexOf(deepest), STEP_ORDER.indexOf('proposal'));
+  const base: ProcessStep = progress.hasPlanReport ? 'proposal' : 'survey';
+  const depth = Math.max(STEP_ORDER.indexOf(deepest), STEP_ORDER.indexOf(base));
   return { landing, unlocked: STEP_ORDER.slice(0, depth + 1) };
 };
 

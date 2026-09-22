@@ -52,7 +52,7 @@ interface AgreementAndPaymentStepProps {
    * 服务群仍在导航里可直达，只是不再是这一页的主按钮。
    */
   onProceedToFillDetails?: () => void;
-  /** 确认接口返回的 recordId：下单时的业务关联 id（busUnionId）。没有它下不了单 */
+  /** 第 1 步诊断接口返回的委托单号：下单时的业务关联 id（busUnionId）。没有它下不了单 */
   busUnionId?: string;
 }
 
@@ -141,8 +141,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
       return;
     }
     if (!busUnionId) {
-      // 没有单据号下不了单：服务端要靠它认这笔委托单
-      showToast('缺少确认单据号，请返回上一步重新确认方案');
+      // 没有单号下不了单：服务端要靠它认这笔委托单（单号在第 1 步生成方案时由服务端给出）
+      showToast('缺少委托单号，请返回第 1 步重新生成方案');
       return;
     }
 
@@ -390,12 +390,12 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
               <div className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white">
                 <h2 className="text-sm font-bold text-slate-800 mb-3">选择支付方式</h2>
 
-                {/* 没有确认单据号就下不了单（服务端要靠它认这笔委托单）。
+                {/* 没有委托单号就下不了单（服务端要靠它认这笔委托单）。
                     这件事写在页面上，而不是等用户点了「立即支付」才弹一句 toast ——
                     上一次正是「渲染点漏传 busUnionId」这种错误，只弹 toast 时很难发现。 */}
                 {!isPaid && !busUnionId && (
                   <div className="mb-3 p-3 rounded-xl bg-amber-50/70 border border-amber-200/80 text-[11px] text-amber-900 leading-relaxed">
-                    缺少确认单据号，暂时无法在线支付：请返回第 2 步重新确认方案后再试。
+                    缺少委托单号，暂时无法在线支付：请返回第 1 步重新生成方案后再试。
                   </div>
                 )}
                 {/* 目前只有微信支付接入了（src/payment/），支付宝还没接，所以这里只列一项，

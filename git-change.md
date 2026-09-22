@@ -45,10 +45,27 @@
 - 调整 支付模块契约由原先假设的微信 Native（bizType/bizId + tradeState）换成真实开户支付（payAmount/busUnionId + status '1'/'0'），下单只承诺 codeURL（订单号以查单返回的 orderNo 为准）
 - 调整 查单失败不再抛异常：路径未配 / 超时 / 网络不通 / 缺 status 一律回 unknown，只读预判不拦人；未知 status 只 warn 且仍当未支付
 - 调整 金额由前端传（= 页面实付金额），服务端必须按 busUnionId 复核价格，已在代码注释里写明这条资损风险
-- 新增 「生成需求方案」接口接入腾讯行为验证码：点按钮先弹验证码，票据走 query（captchaAppId / userIp / jcaptchaCode / jcaptchaId），与「AI 智能填充」同一道闸门；弹窗放在所有本地存档动作之前，用户自己关掉＝整件事没发生过（不发请求、存档不动、原地留在第 1 步且不报错）
-- 新增 planGenerate.ts 的 requestPlanCaptcha 与带票据的 buildUrl，generatePlanReport 改为必须传入票据，没过闸门就发不出请求
-- 调整 验证码通过后接口失败仍按原样降级到本地方案（不拦人前进）；验证码组件加载失败则弹中文提示留在原地，一个请求都不发
-- 真机验证（无头 Chrome + 桩替 window.TencentCaptcha / fetch）：取消时 0 个请求且 hash 保持 #survey，通过后 URL 带上四个验证码参数、body 仍是 { formData }
+- 调整 第 1 步与第 2 步的验证对调：「生成需求方案」改为先过手机验证弹框（手机号 + 短信验证码），确认方案不再弹框、也没有行为验证码
+- 新增 components/PhoneVerifyModal.tsx：把原方案页的手机验证弹框抽成独立组件（预填手机号、获取验证码先过腾讯行为验证码、60s 倒计时、格式校验），供第 1 步复用
+- 调整 diagnose-architecture 的 body 由 { formData } 改为 { formData, phoneNumber }（回到 caa 同款信封）：手机号与短信凭据随这次请求提交，服务端比对不过这次请求就不算成功；不再走行为验证码 query
+- 调整 诊断失败不再降级成本地方案：失败一律留在手机验证弹框里（弹框不关、原因写在弹框里）改验证码原地重试 —— 手机号没验过就不该出方案，也不该往下一步走
+- 调整 confirm-proposal 的 body 去掉 phoneNumber（只剩 formData + proposalResult）；方案页「确认方案」直接调接口，失败改用 toast 说明并恢复按钮
+- 调整 手机号改在第 1 步收集：验证通过后写进内存里的订单（支付页的「经办联系电话」由它来），仍按约定不落本地存档
+- 新增 scripts/check-plan-archive.ts 覆盖存档形状（这条替换了原来的 check-service-confirm.ts）
+- 真机验证（无头 Chrome + 桩替短信服务与诊断接口）：点「生成需求方案」先出手机验证弹框且一个请求都不发；验证通过后请求体带 phoneNumber、URL 上没有行为验证码 query；方案页点「确认方案」直接发确认请求
+- 修复 刷新落点只看「有问卷存档」就跳第 2 步：本地只有 1b_copreg_plan_form（填到一半、或诊断失败/超时）时方案页只有本地模板，现在改成**拿到接口返回的 1b_copreg_plan_report 才落第 2 步**、也才解锁它（手敲 #proposal 同样收口回第 1 步）
+- 调整 KnownProgress 的判据由 hasPlanForm 换成 hasPlanReport（stepRoute.ts），App 首帧按 planDraft.report 判断，DEV 落点日志加一格「有诊断结果」
+- 调整 scripts/check-step-route.ts（60 项）与 check-copreg-entry.tsx（33 项）的落点断言，补「只填过问卷 → 第 1 步」「拿到诊断结果 → 第 2 步」「#proposal 无诊断结果 → 收口回第 1 步」这组回归用例
+- 真机验证（无头 Chrome，四种存档组合）：只有问卷存档时落 #survey（手敲 #proposal 也收口），问卷 + 诊断结果时落 #proposal
+- 调整 「确认并前往支付」接口（confirm-proposal）不再调用：**委托单号改由第 1 步的诊断接口返回**（响应里的 recordId + status），第 2 步变成纯展示页 —— 切套餐 / 勾加购只重算前端报价，点「前往支付」直接拿第 1 步的单号进支付页
+- 新增 planGenerate.ts 返回 { recordId, suggestion }：内容与单号都来自同一次响应；缺 recordId 按接口失败处理（提示「生成需求方案未返回委托单号」），因为没它下不了单。响应里的 status 不读（内容与单号都在即为可用）
+- 调整 本地存档第三份键由「确认凭据」（1b_copreg_plan_confirm：recordId/status/tier/addonIds）换成「委托单凭据」（1b_copreg_plan_record：recordId）；parsePlanRecord 收口，App 首帧按它决定直落第 3 步
+- 删除 serviceConfirm.ts（请求体拼装 / 端点 / 响应收口 / 凭据过期判断整套）与 VITE_CONFIRM_PROPOSAL_PATH；KNOWN_PROGRESS 的 hasConfirm 改名 hasRecord
+- 调整 改套餐 / 换自选项**不再作废委托单号**（单号是服务端建单时给的，改的只是前端报价，服务端按单号复核价格）；ProposalStep 不再有确认状态与失败提示，主按钮改成「前往支付（¥ …）」，页脚常显「委托单号」
+- 调整 scripts/check-service-confirm.ts（121 项）随接口一起删掉，留下仍然成立的存档形状断言 → 重写为 scripts/check-plan-archive.ts（28 项：addonsOf 派生、normalizeAddons 迁移、存档字段）
+- 真机验证（无头 Chrome + 桩替诊断接口按线上响应形状返回 recordId）：第 2 步一次请求都不发（confirmCalls=0）、显示委托单号 D8DrdkCZoNvQhEzdQD5vTN、点「前往支付」落 #payment 且不提示「缺少委托单号」，刷新后仍在支付页
+- 调整 填报页（#fill-details）底部操作条的返回目标由「返回企微沟通群」改为「返回办理清单」（回第 3 步的 #paid，办理清单就在那一页；页头那颗同名按钮同走这一条）；第 4 步服务群仍然解锁、hash 仍可直达，只是不再是填报页的返回目标（prop 由 onBackToGroup 改名 onBackToPaid）
+- 真机验证（无头 Chrome）：填报页页头与底栏各一颗「返回办理清单」（不再有「返回企微沟通群」），点底栏那颗落 #paid 并渲染出支付成功界面
 - 调整 支付成功界面（#paid）清单第一项的主按钮由「进入专属服务群」改为「申报资料填报」，直接进第 5 步；服务群仍然解锁、导航里可直达，只是不再是这一页的下一步（与 copreg 主线一致：付完款该做的是填申报资料）
 - 调整 同一处的状态徽标由「第 1 步待填报」改为「申报资料待填报」（copreg 用的就是这句；这份清单说的是申报资料，跟第 1 步问卷不是同一件事）
 - 删除 AgreementAndPaymentStep 的 onProceedToGroup 与 App 的 handleProceedToGroup：改完就没有调用点了（copreg 里这个函数也是死的）
@@ -60,7 +77,7 @@
 
 ### 文档
 - 更新 docs/copreg-plan-api.md 与 docs/copreg-registration-fields.md，反映并入后的流程与字段
-- 更新 docs/copreg-plan-api.md 第 2.1 / 四节：diagnose-architecture 补验证码 query 参数、只走 query 的理由，以及用户取消验证码时的界面行为
+- 更新 docs/copreg-plan-api.md 第 2.1 / 3.1 / 四节与第六节第 3 条：诊断接口改成带 phoneNumber 且无验证码、确认接口去掉 phoneNumber，以及「验证失败/接口失败都留在弹框里」的界面行为
 - 更新 docs/copreg-steps.md：第 5 步的解锁条件与支付成功界面的下一步（申报资料填报）
 
 - 新增 stepRoute.ts：六个步骤各有一个 URL hash（#survey / #proposal / #payment / #group / #fill-details / #progress），刷新、收藏、转发与浏览器前进后退都能回到同一步

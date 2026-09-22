@@ -64,13 +64,13 @@ export type PayClientOptions = {
 export type CreateOrderPayload = {
   /** 支付金额（元）。与页面上显示的实付金额同一个数：`plan.finalPrice` */
   payAmount: number;
-  /** 业务关联 id：确认接口返回的 recordId（本地存档 `1b_copreg_plan_confirm`） */
+  /** 业务关联 id：第 1 步生成方案时返回的委托单号（本地存档 `1b_copreg_plan_record`） */
   busUnionId: string;
 };
 
 export type PayClient = {
   createOrder: (payload: CreateOrderPayload, signal?: AbortSignal) => Promise<CreateOrderResult>;
-  /** 查单：按业务关联 id（确认单据号）查这笔开户支付订单的状态 */
+  /** 查单：按业务关联 id（copreg 侧就是第 1 步给的委托单号）查这笔开户支付订单的状态 */
   queryOrder: (busUnionId: string, signal?: AbortSignal) => Promise<OpenAccPayResult>;
 };
 
@@ -155,7 +155,7 @@ export function createPayClient(endpoints: PayEndpoints, options: PayClientOptio
     },
 
     /**
-     * 查单。入参是业务关联 id（确认单据号），不是订单号 —— 服务端的开户支付查单就是按它查的。
+     * 查单。入参是业务关联 id（委托单号），不是订单号 —— 服务端的开户支付查单就是按它查的。
      * 这里只负责拿回 status，怎么解释交给 model 的 mapOpenAccState。
      */
     async queryOrder(busUnionId, signal) {

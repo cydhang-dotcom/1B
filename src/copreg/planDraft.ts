@@ -11,14 +11,14 @@
  * 2. `1b_copreg_plan_report`（**返回的**）：架构诊断结果。**只在接口成功后**写 ——
  *    它和上面那份问卷是配套的。提交新问卷时先把旧的作废：上一份问卷的结论
  *    挂在新问卷上是错的。
- * 3. `1b_copreg_plan_confirm`（**确认凭据**）：`confirm-proposal` 返回的
- *    `{ recordId, status }`，外加确认时那套选择（档位 / 自选项）。**只在确认成功后**写；
- *    有它下次进来就直接落在第 3 步（协议与支付），不必重新验证手机号。
- *    提交新问卷、重置问卷、或把套餐 / 自选项改掉，都会把它作废 —— 旧凭据代表的方案
- *    已经不是页面上这份了。
+ * 3. `1b_copreg_plan_record`（**委托单凭据**）：诊断接口同一次响应里给的 `recordId`
+ *    （服务端生成方案时就建好了单）。**只在接口成功后**写；它是下单（`busUnionId`）
+ *    与查单的唯一凭据，有它下次进来就直接落在第 3 步（协议与支付）。
+ *    提交新问卷、重置问卷都会作废它 —— 旧单号代表的是上一份问卷建的单。
+ *    （第 2 步不再调确认接口，也不再因为「改了套餐」作废：单号是第 1 步建的，
+ *    改套餐只改前端报价，服务端按单号复核价格。）
  *
- * 下次打开：有 form 就直接落到第 2 步，有 confirm 再往前一步落到第 3 步，
- * 有 report 就把诊断结果叠在方案上。
+ * 下次打开：有 report 就落到第 2 步，有 record 再往前一步落到第 3 步。
  * 存的是**输入**而不是算出来的方案 —— 方案由 buildPlan(survey, quoteFor(tier, addons 的 id)) 现算、
  * 再叠 applyPlanSuggestion(report) 得到，报价改版后回来看到的是新价而不是上次存的旧数字。
  *
@@ -35,19 +35,18 @@
 import { stringListOf } from './apiClient';
 import { ALL_TIER_IDS, normalizeAddons } from './components/proposalQuote';
 import { hasPlanContent, parsePlanSuggestion, PlanSuggestion } from './planGenerate';
-import { parsePlanConfirm, type PlanConfirm } from './serviceConfirm';
 import { PlanAddon, ServiceTierType, SurveyData } from './types';
 
 export const PLAN_FORM_KEY = '1b_copreg_plan_form';
 export const PLAN_REPORT_KEY = '1b_copreg_plan_report';
-export const PLAN_CONFIRM_KEY = '1b_copreg_plan_confirm';
+export const PLAN_RECORD_KEY = '1b_copreg_plan_record';
 
 /**
  * 「填写的」：问卷 + 第 2 步的选择（方案由这两样现算，不存算出来的结果）。
  *
- * 这份形状与确认接口请求体里的 `formData` **完全一致**（`serviceConfirm.ts` 直接拿它当
- * 请求体的类型）：存下去什么，点「确认并前往支付」就发什么。`addons` 因此是对象数组
- * 而不是 id 数组 —— 两边都由 `proposalQuote.addonsOf` 从同一份报价明细派生，价格同源。
+ * `addons` 存的是对象数组（`{ id, name, price }`）而不是 id 数组：由
+ * `proposalQuote.addonsOf` 从方案页那份报价明细派生，与服务端出单要的形状同源，
+ * 价格改版后重算的也是同一批数字。
  */
 export interface PlanForm {
   /** 提交那一刻的问卷（与请求载荷、方案都是同一份快照） */
@@ -58,13 +57,28 @@ export interface PlanForm {
   addons: PlanAddon[];
 }
 
+/** 委托单凭据：第 1 步诊断接口返回的 `recordId`，支付下单与查单都用它 */
+export interface PlanRecord {
+  recordId: string;
+}
+
 /** 读出来的存档：三份键合起来的样子 */
 export interface PlanDraft extends PlanForm {
   /** 上一次成功返回的诊断结果；没有（接口失败过 / 从没成功过）就是 null */
   report: PlanSuggestion | null;
-  /** 确认凭据；没有（没确认过 / 确认失败 / 方案改过已作废）就是 null */
-  confirm: PlanConfirm | null;
+  /** 委托单凭据；没有（没成功生成过方案 / 已作废）就是 null */
+  record: PlanRecord | null;
 }
+
+/**
+ * 存档里的委托单凭据收口：不是对象、`recordId` 不是非空字符串都不认（当作没有）。
+ * 单号是支付的前提，认不出就不能拿去下单。
+ */
+export const parsePlanRecord = (value: unknown): PlanRecord | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const recordId = textOf((value as Record<string, unknown>).recordId).trim();
+  return recordId === '' ? null : { recordId };
+};
 
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -151,7 +165,7 @@ const readRecord = (key: string): Record<string, unknown> | null => {
  * 读本地存档。没有「填写的」那份、或问卷全空（重置过、存的时候就是空的）都返回 null：
  * 宁可让用户重填，也不要拿半份数据把人送进第 2 步。
  * 「返回的」那份缺失是正常的（接口还没成功过），此时 report 为 null；
- * 「确认凭据」同理，没有就是 confirm 为 null（下次仍停在第 2 步）。
+ * 「委托单凭据」同理，没有就是 record 为 null（下次仍停在第 2 步）。
  */
 export const loadPlanDraft = (): PlanDraft | null => {
   const form = readRecord(PLAN_FORM_KEY);
@@ -166,14 +180,13 @@ export const loadPlanDraft = (): PlanDraft | null => {
     // 新旧两种形状都认（旧存档是 id 字符串数组），认不出的 id 丢掉
     addons: normalizeAddons(form.addons),
     report: suggestionOf(readRecord(PLAN_REPORT_KEY)),
-    confirm: parsePlanConfirm(readRecord(PLAN_CONFIRM_KEY)),
+    record: parsePlanRecord(readRecord(PLAN_RECORD_KEY)),
   };
 };
 
 /**
  * 存「填写的」：调接口之前写一次，方案页切套餐 / 勾加购时再刷新一次档位。
- * 写进去的就是确认接口要的那份形状（`addons` 由 `proposalQuote.addonsOf` 派生），
- * 所以「存下来什么」与「发出去什么」不会漂移。
+ * `addons` 由 `proposalQuote.addonsOf` 派生，与页面报价明细同源。
  * 写不进去（隐私模式 / 配额满）返回 false，由调用方决定要不要告诉用户 ——
  * 存不下不该拦着人往下走。
  */
@@ -187,25 +200,24 @@ export const savePlanReport = (report: PlanSuggestion): boolean =>
   writeItem(PLAN_REPORT_KEY, report);
 
 /**
- * 存「确认凭据」：只在 `confirm-proposal` 成功（status SUCCESS）后调用。
- * 它是「已经确认过、可以进第 3 步」的唯一凭据，所以存不下必须让用户知道 ——
- * 丢了它下次进来要重新确认，服务端会多出一份委托单。
+ * 存「委托单凭据」：只在诊断接口成功、且拿到了 `recordId` 之后调用。
+ * 它是下单与查单的唯一凭据，所以存不下必须让用户知道 —— 丢了它下次进来就得重新生成方案。
  */
-export const savePlanConfirm = (confirm: PlanConfirm): boolean =>
-  writeItem(PLAN_CONFIRM_KEY, confirm);
+export const savePlanRecord = (record: PlanRecord): boolean =>
+  writeItem(PLAN_RECORD_KEY, record);
 
 /** 作废「返回的」：提交新问卷时先清掉，旧的诊断结果对应的是上一份问卷 */
 export const clearPlanReport = (): void => removeItem(PLAN_REPORT_KEY);
 
 /**
- * 作废「确认凭据」：提交新问卷、重置问卷、或把套餐 / 自选项改掉（`isPlanConfirmStale`）时调。
- * 旧凭据代表的那份方案已经不是页面上这份了，不能拿它进支付页。
+ * 作废「委托单凭据」：提交新问卷、重置问卷时调。
+ * 旧单号是上一份问卷建的，不能被这份问卷继续拿去下单。
  */
-export const clearPlanConfirm = (): void => removeItem(PLAN_CONFIRM_KEY);
+export const clearPlanRecord = (): void => removeItem(PLAN_RECORD_KEY);
 
 /** 三份一起作废（问卷页重置时用），否则重置完刷新一下又跳回后面的步骤看上一份问卷的方案 */
 export const clearPlanDraft = (): void => {
   removeItem(PLAN_FORM_KEY);
   removeItem(PLAN_REPORT_KEY);
-  removeItem(PLAN_CONFIRM_KEY);
+  removeItem(PLAN_RECORD_KEY);
 };

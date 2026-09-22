@@ -3,22 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { RegistrationPlan, SurveyData, ServiceTierType, OptionalAddonService } from '../types';
 import { buildPlan } from '../plan';
 import { ALL_ADDON_IDS, OPTIONAL_ADDON_SERVICES, quoteFor } from './proposalQuote';
-import { requestSmsCode } from '../verification';
-import { CaptchaCancelledError } from '../../utils/tencentCaptcha';
-import { COMPANY_PLAN_HOST, CONFIRM_PROPOSAL_PATH } from '../../config/api';
-import {
-  ServiceConfirmEndpoint,
-  confirmServicePlan,
-  isPlanConfirmStale,
-  planConfirmOf,
-  serviceConfirmRequestOf,
-  type PlanConfirm
-} from '../serviceConfirm';
-import { PlanSuggestion } from '../planGenerate';
 import {
   Building,
   Receipt,
@@ -37,35 +25,30 @@ import {
   Landmark,
   FileSpreadsheet,
   Users,
-  Sparkles,
-  Smartphone
+  Sparkles
 } from 'lucide-react';
 
 interface ProposalStepProps {
   plan: RegistrationPlan;
   survey: SurveyData;
-  /** 第 1 步「返回的」那份诊断结果（App 的 planSuggestion）：确认时原样提交给服务端 */
-  report: PlanSuggestion | null;
-  /** 已存下的确认凭据（App 的 planConfirm）；与当前方案一致时不再重复确认 */
-  confirm: PlanConfirm | null;
-  contactPhone?: string;
-  onProceed: (phone: string | undefined, confirm: PlanConfirm | null) => void;
+  /**
+   * 第 1 步诊断接口返回的**委托单号**：这一页只把它显示出来（页脚与按钮上），
+   * 下单与查单都用它。**没有单号就来不到这一页**（第 1 步没返回单号时算接口失败）
+   */
+  recordId: string;
+  /**
+   * 前往支付页。这一页**不调任何接口** —— 单号与方案内容都是第 1 步给的，
+   * 这里只是把它展示出来，点按钮就是往后走一步
+   */
+  onProceed: () => void;
   onBack: () => void;
   onUpdatePlan?: (newPlan: RegistrationPlan) => void;
 }
 
-/** 只有 React 这一层读 config/api.ts：它依赖 import.meta.env，是 Vite 专有的 */
-const CONFIRM_ENDPOINT: ServiceConfirmEndpoint = {
-  host: COMPANY_PLAN_HOST,
-  path: CONFIRM_PROPOSAL_PATH
-};
-
 export const ProposalStep: React.FC<ProposalStepProps> = ({
   plan,
   survey,
-  report,
-  confirm,
-  contactPhone,
+  recordId,
   onProceed,
   onBack,
   onUpdatePlan
@@ -87,126 +70,21 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
     return [];
   });
   const [showReportModal, setShowReportModal] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Phone and SMS verification modal for confirming proposal
-  const [showPhoneModal, setShowPhoneModal] = useState(false);
-  const [phone, setPhone] = useState(contactPhone || '');
-  // 短信验证码：先过腾讯行为验证码，拿到票据才发请求，请求成功才起 60s 倒计时
-  const [smsCode, setSmsCode] = useState('');
-  const [smsCodeId, setSmsCodeId] = useState('');
-  // 验证码实际发往的号码。改过号就得重新获取，否则等于在验证旧号码
-  const [smsSentTo, setSmsSentTo] = useState('');
-  const [smsError, setSmsError] = useState('');
-  const [countdown, setCountdown] = useState(0);
-  const [isSendingSms, setIsSendingSms] = useState(false);
-  // 「确认并前往支付」的接口在途状态与失败提示：失败拦在方案页，不放人进支付
-  const [isConfirming, setIsConfirming] = useState(false);
-  const [confirmError, setConfirmError] = useState('');
-
-  useEffect(() => {
-    if (countdown <= 0) return;
-    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
 
   const formatMoney = (val?: number | null) => {
     if (val === undefined || val === null || isNaN(val)) return '0';
     return val.toLocaleString();
   };
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 2500);
-  };
-
-  const openPhoneModal = () => {
-    setSmsError('');
-    setConfirmError('');
-    setShowPhoneModal(true);
-  };
-
-  const handleSendSms = async () => {
-    if (!/^1\d{10}$/.test(phone.trim())) {
-      setSmsError('请输入有效的 11 位中国大陆手机号码');
-      return;
-    }
-    setIsSendingSms(true);
-    setSmsError('');
-    try {
-      const { smsCodeId: id } = await requestSmsCode(phone.trim());
-      setSmsCodeId(id);
-      setSmsSentTo(phone.trim());
-      setSmsCode('');
-      setCountdown(60);
-    } catch (err) {
-      // 用户自己关掉验证码弹窗不算失败，静默处理
-      if (!(err instanceof CaptchaCancelledError)) {
-        setSmsError(err instanceof Error ? err.message : '验证码发送失败，请稍后重试');
-      }
-    } finally {
-      setIsSendingSms(false);
-    }
-  };
-
-  const handleConfirmAndProceed = async () => {
-    if (!smsCodeId) {
-      setSmsError('请先获取短信验证码');
-      return;
-    }
-    if (phone.trim() !== smsSentTo) {
-      setSmsError('手机号码已变更，请重新获取验证码');
-      return;
-    }
-    // 前端只校验格式，真正的验证码比对由服务端拿 smsCodeId + smsValidCode 完成
-    if (!/^\d{4,6}$/.test(smsCode.trim())) {
-      setSmsError('请输入手机收到的短信验证码');
-      return;
-    }
-
-    setSmsError('');
-    setConfirmError('');
-    setIsConfirming(true);
-    let record: PlanConfirm | null = null;
-    try {
-      // 第 1 步的两份存档（问卷 + 套餐选择、诊断返回）连同手机号一起提交；
-      // 套餐、加购、服务清单与确认凭据都取方案页当前这份 activePlan，和页面上的价格是同一份
-      const request = serviceConfirmRequestOf({
-        survey,
-        plan: activePlan,
-        report,
-        mobile: phone.trim(),
-        smsCodeId,
-        smsValidCode: smsCode.trim()
-      });
-      const result = await confirmServicePlan(CONFIRM_ENDPOINT, request);
-      // 服务端结果 + 这次提交的选择，一起交给 App 落本地：下次进来直接进第 3 步
-      record = planConfirmOf(result, request);
-    } catch (error) {
-      // 确认没落库就不往下走：接口失败 / 未成功 / 路径没配都停在这一步，弹窗不关，可直接重试
-      setConfirmError(error instanceof Error ? error.message : '确认方案失败，请稍后重试');
-      return;
-    } finally {
-      setIsConfirming(false);
-    }
-
-    setShowPhoneModal(false);
-    if (onUpdatePlan) {
-      onUpdatePlan(activePlan);
-    }
-    showToast('手机号验证通过');
-    onProceed(phone, record);
-  };
-
   /**
-   * 已经确认过（本地有凭据，且凭据与当前方案一致）时走这里：直接进第 3 步，不再调确认接口。
-   * 再调一次会在服务端多出一份委托单，而用户什么都没改，没有任何理由重发。
+   * 前往支付：这一页**没有接口调用** —— 手机号在第 1 步验过、委托单号也是第 1 步建好的，
+   * 这里只把当前这套选择（档位 / 自选项，影响的是前端报价）刷进本地存档再往下一步走。
    */
-  const handleConfirmedProceed = () => {
+  const handleProceed = () => {
     if (onUpdatePlan) {
       onUpdatePlan(activePlan);
     }
-    onProceed(undefined, null);
+    onProceed();
   };
 
   // Handler to switch tier
@@ -242,10 +120,6 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
   const activePlan = (plan.selectedTier === selectedTier && JSON.stringify(plan.selectedAddons || []) === JSON.stringify(selectedAddons))
     ? plan
     : buildPlan(survey, quoteFor(selectedTier, selectedAddons));
-
-  // 本地那份确认凭据是否仍然代表这套方案：档位或自选项改过就作废（App 会把它清掉，
-  // 这里再判一次是为了「改回原样后没重新确认」也不至于拿旧凭据进支付页）
-  const alreadyConfirmed = confirm !== null && !isPlanConfirmStale(confirm, activePlan);
 
   // 基础核心服务项目（固定高度，不因下方增值服务勾选而增减行，避免上下抖动）
   const basePackageItems = activePlan.items.filter(item => !item.id.startsWith('addon-'));
@@ -834,9 +708,11 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
           </button>
 
           <div className="flex items-center gap-2.5">
-            {alreadyConfirmed && (
-              <span className="hidden sm:inline text-[11px] text-slate-400" title={confirm?.recordId}>
-                已确认 · 单号 {confirm?.recordId}
+            {/* 单号是第 1 步生成方案时服务端就建好的：这一页把它显示出来，
+                下单与查单都用它 */}
+            {recordId && (
+              <span className="hidden sm:inline text-[11px] text-slate-400" title={recordId}>
+                委托单号 {recordId}
               </span>
             )}
             <button
@@ -851,14 +727,10 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
             <button
               type="button"
               id="btn-confirm-proposal-proceed"
-              onClick={alreadyConfirmed ? handleConfirmedProceed : openPhoneModal}
+              onClick={handleProceed}
               className="px-6 py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <span>
-                {alreadyConfirmed
-                  ? '已确认，前往支付'
-                  : `确认方案（¥ ${formatMoney(activePlan.finalPrice)}）`}
-              </span>
+              <span>前往支付（¥ {formatMoney(activePlan.finalPrice)}）</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -934,131 +806,14 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
                 type="button"
                 onClick={() => {
                   setShowReportModal(false);
-                  if (alreadyConfirmed) {
-                    handleConfirmedProceed();
-                  } else {
-                    openPhoneModal();
-                  }
+                  handleProceed();
                 }}
                 className="px-6 py-2 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-semibold shadow-xs cursor-pointer"
               >
-                {alreadyConfirmed ? '已确认，前往支付' : '确认方案'}
+                前往支付（¥ {formatMoney(activePlan.finalPrice)}）
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Phone & SMS Verification Modal on Confirming Proposal */}
-      {showPhoneModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 border border-slate-200/80 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-[#E6F7F2] text-[#36B39E] flex items-center justify-center">
-                  <Smartphone className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-800">手机号验证</h3>
-                  <span className="text-[11px] text-slate-400">用于接收办理进度与实名通知</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowPhoneModal(false)}
-                disabled={isConfirming}
-                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-slate-100"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-xs">
-              {/* Mobile field */}
-              <div>
-                <label className="font-medium text-slate-700 block mb-1">
-                  手机号码 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="tel"
-                  maxLength={11}
-                  value={phone}
-                  disabled={isConfirming}
-                  onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#36B39E] disabled:bg-slate-50 disabled:text-slate-400"
-                  placeholder="请输入11位手机号码"
-                />
-              </div>
-
-              {/* SMS Code field */}
-              <div>
-                <label className="font-medium text-slate-700 block mb-1">
-                  短信验证码 <span className="text-red-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={smsCode}
-                    disabled={isConfirming}
-                    onChange={(e) => setSmsCode(e.target.value.trim())}
-                    placeholder="请输入短信验证码"
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:border-[#36B39E] disabled:bg-slate-50 disabled:text-slate-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSendSms}
-                    disabled={countdown > 0 || isSendingSms || isConfirming}
-                    className="px-3.5 py-2 rounded-xl text-xs font-medium shrink-0 bg-[#E6F7F2] text-[#2AA894] hover:bg-[#D1F2EB] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-[#E6F7F2]"
-                  >
-                    {countdown > 0 ? `${countdown}s` : isSendingSms ? '发送中…' : '获取验证码'}
-                  </button>
-                </div>
-                {smsError ? (
-                  <p className="mt-1.5 text-[11px] text-red-500 leading-relaxed">{smsError}</p>
-                ) : countdown > 0 ? (
-                  <p className="mt-1.5 text-[11px] text-slate-400 leading-relaxed">
-                    验证码已发送至 {smsSentTo}，请注意查收
-                  </p>
-                ) : null}
-              </div>
-
-              {confirmError && (
-                <p className="text-[11px] text-red-600 leading-relaxed bg-red-50 border border-red-100 rounded-xl px-3 py-2">
-                  {confirmError}
-                </p>
-              )}
-
-              <div className="pt-2 flex items-center justify-end gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => setShowPhoneModal(false)}
-                  disabled={isConfirming}
-                  className="px-4 py-2 rounded-full border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  id="btn-confirm-phone-sms-submit"
-                  onClick={handleConfirmAndProceed}
-                  disabled={isConfirming}
-                  className="px-5 py-2 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white font-bold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:bg-[#36B39E]"
-                >
-                  <span>{isConfirming ? '提交中…' : '确认并前往支付'}</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toastMessage && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-xl flex items-center gap-2 animate-in fade-in duration-150">
-          <span>{toastMessage}</span>
         </div>
       )}
 

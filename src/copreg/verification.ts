@@ -24,6 +24,18 @@ export interface SmsRequestResult {
   message?: string;
 }
 
+/**
+ * 「手机号验证通过」交出的一组凭据：手机号 + 短信会话 id + 用户填的验证码。
+ *
+ * 前端没有任何接口能自己校验这串码 —— 比对由**业务接口**在服务端完成（caa 同款信封里的
+ * phoneNumber 就是这个形状），所以这三个字段要原样带给调用方，不能只留个「已验证」的布尔。
+ */
+export interface PhoneVerification {
+  mobile: string;
+  smsCodeId: string;
+  smsValidCode: string;
+}
+
 const REQUEST_TIMEOUT_MS = 15_000;
 
 const buildSendSmsUrl = (mobile: string, ticket: string, randstr: string): string => {

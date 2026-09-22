@@ -8,8 +8,8 @@
  * （等价于 vite build --ssr scripts/check-copreg-entry.tsx --outDir node_modules/.cache/copreg-entry
  *   && node node_modules/.cache/copreg-entry/check-copreg-entry.js）
  *
- * 覆盖的就是「存档 → 首屏落点」这条链：确认凭据有效就直落第 3 步、过期/没配套就退回第 2 步、
- * 什么都没存就第 1 步。不联网、不开浏览器。
+ * 覆盖的就是「存档 → 首屏落点」这条链：有委托单号就直落第 3 步、有诊断结果才到第 2 步、
+ * 只有问卷或什么都没存就第 1 步。不联网、不开浏览器。
  */
 import { renderToString } from 'react-dom/server';
 import App from '../src/copreg/App';
@@ -35,7 +35,7 @@ const fakeWindow = {
 
 const FORM_KEY = '1b_copreg_plan_form';
 const REPORT_KEY = '1b_copreg_plan_report';
-const CONFIRM_KEY = '1b_copreg_plan_confirm';
+const RECORD_KEY = '1b_copreg_plan_record';
 const DETAILS_KEY = 'banbu-registration-20260913-v1';
 
 const survey = {
@@ -45,12 +45,26 @@ const survey = {
   shareholderType: ['自然人'], shareholderCount: '1 个', capitalRec: '是',
   capitalAmount: '', regAddress: '是（需推荐）', officeSpace: '否',
 };
+/** 第 1 步接口返回的诊断结果：**有它才算「有方案」**，刷新才会落在第 2 步 */
+const report = {
+  companyNameProposal: '甲乙丙科技有限公司',
+  companyType: '有限责任公司（2 名自然人股东）',
+  taxpayerIdentity: '小规模纳税人',
+  taxReason: '年开票额预计在 500 万以内',
+  capitalAmount: '建议 100 万元人民币（认缴）',
+  capitalAdvice: '五年内实缴到位',
+  registeredAddressAdvice: '可用园区集群注册地址',
+  preQualifications: ['增值电信业务经营许可证'],
+  postQualifications: [],
+  riskTips: ['及时完成税务报道'],
+};
 const form = { survey, tier: 'standard', addons: [{ id: 'addon-bank', name: '银行对公账户开通', price: 200 }] };
-const confirm = { recordId: 'VHpX5NqoXLHwPyMnVeBzCN', status: 'SUCCESS', tier: 'standard', addonIds: ['addon-bank'] };
+/** 委托单凭据：第 1 步诊断接口同一次响应里给的 recordId（服务端生成方案时建的单） */
+const record = { recordId: 'VHpX5NqoXLHwPyMnVeBzCN' };
 
 /** 每个场景开始前清空所有存档，避免上一个场景的状态串味 */
 const clearStorage = () => {
-  [FORM_KEY, REPORT_KEY, CONFIRM_KEY, DETAILS_KEY].forEach((key) => store.delete(key));
+  [FORM_KEY, REPORT_KEY, RECORD_KEY, DETAILS_KEY].forEach((key) => store.delete(key));
 };
 
 const render = (keys: Record<string, unknown>, hash = '') => {
@@ -80,104 +94,120 @@ const check = (label: string, ok: boolean, detail = '') => {
   else { fail += 1; console.error(`✗ ${label} ${detail}`); }
 };
 
-const withConfirm = render({ [FORM_KEY]: form, [CONFIRM_KEY]: confirm });
-check('有确认凭据 → 首屏第 3 步（协议确认与支付）', withConfirm.step3 && !withConfirm.step2, JSON.stringify(withConfirm));
+const withRecord = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record });
+check('有委托单号 → 首屏第 3 步（协议确认与支付）', withRecord.step3 && !withRecord.step2, JSON.stringify(withRecord));
 
 // 支付方式：支付宝还没接入，第 3 步只应列出微信支付
 check(
   '第 3 步的支付方式只列微信（支付宝选项已隐藏）',
-  withConfirm.step3 && !withConfirm.html.includes('支付宝') && withConfirm.html.includes('微信支付'),
-  `step3=${withConfirm.step3} 含支付宝=${withConfirm.html.includes('支付宝')}`
+  withRecord.step3 && !withRecord.html.includes('支付宝') && withRecord.html.includes('微信支付'),
+  `step3=${withRecord.step3} 含支付宝=${withRecord.html.includes('支付宝')}`
 );
 
 // 顾问是谁要由服务端 / 扫码后才知道，页面上不许再写死姓名或头衔
 check(
   '第 3 步不出现写死的顾问称呼',
-  !withConfirm.html.includes('李经理') && !withConfirm.html.includes('资深设立顾问'),
-  `李经理=${withConfirm.html.includes('李经理')}`
+  !withRecord.html.includes('李经理') && !withRecord.html.includes('资深设立顾问'),
+  `李经理=${withRecord.html.includes('李经理')}`
 );
 
+// 用户报的 bug：只有问卷存档（没有诊断结果）时刷新被送进第 2 步
 const withoutConfirm = render({ [FORM_KEY]: form });
-check('只有问卷存档 → 首屏第 2 步', withoutConfirm.step2 && !withoutConfirm.step3, JSON.stringify(withoutConfirm));
+check(
+  '只有问卷存档、没有诊断结果 → 首屏第 1 步（不跳方案页）',
+  withoutConfirm.step1 && !withoutConfirm.step2 && !withoutConfirm.step3,
+  JSON.stringify({ step1: withoutConfirm.step1, step2: withoutConfirm.step2 })
+);
 
-const staleConfirm = render({ [FORM_KEY]: form, [CONFIRM_KEY]: { ...confirm, tier: 'bundle_general' } });
-check('凭据与存档方案不符 → 退回第 2 步', staleConfirm.step2 && !staleConfirm.step3, JSON.stringify(staleConfirm));
+const withReport = render({ [FORM_KEY]: form, [REPORT_KEY]: report });
+check('问卷 + 诊断结果 → 首屏第 2 步', withReport.step2 && !withReport.step3, JSON.stringify({ step2: withReport.step2 }));
 
-const staleAddons = render({ [FORM_KEY]: form, [CONFIRM_KEY]: { ...confirm, addonIds: [] } });
-check('自选项与确认时不同 → 退回第 2 步', staleAddons.step2 && !staleAddons.step3, JSON.stringify(staleAddons));
+// 第 2 步不再有「确认」这一步：单号是第 1 步建单时给的，改套餐 / 换自选项都不该把它作废
+// （改的只是前端报价，服务端按单号复核价格）
+const recordWithOtherTier = render({
+  [FORM_KEY]: { ...form, tier: 'bundle_general', addons: [] },
+  [REPORT_KEY]: report,
+  [RECORD_KEY]: record,
+});
+check('换了套餐档位 → 单号照样有效，仍直落第 3 步', recordWithOtherTier.step3, JSON.stringify(recordWithOtherTier));
 
-const noForm = render({ [CONFIRM_KEY]: confirm });
-check('只有凭据没有问卷 → 回到第 1 步', noForm.step1 && !noForm.step3, JSON.stringify(noForm));
+const noForm = render({ [RECORD_KEY]: record });
+check('只有单号没有问卷 → 回到第 1 步', noForm.step1 && !noForm.step3, JSON.stringify(noForm));
+
+// 坏的单号不认（当作没生成过方案）
+const badRecord = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: { recordId: '   ' } });
+check('单号是空白串 → 不认，退回第 2 步', badRecord.step2 && !badRecord.step3, JSON.stringify(badRecord));
 
 const empty = render({});
 check('什么都没存 → 第 1 步', empty.step1 && !empty.step2 && !empty.step3, JSON.stringify(empty));
 
-const badStatus = render({ [FORM_KEY]: form, [CONFIRM_KEY]: { ...confirm, status: 'FAIL' } });
-check('凭据 status 不是 SUCCESS → 第 2 步', badStatus.step2 && !badStatus.step3, JSON.stringify(badStatus));
 
-const legacyAddons = render({ [FORM_KEY]: { ...form, addons: ['addon-bank'] }, [CONFIRM_KEY]: confirm });
-check('旧存档（addons 是字符串数组）+ 凭据 → 仍落在第 3 步', legacyAddons.step3, JSON.stringify(legacyAddons));
 
-// 手写的凭据：只有服务端返回的 recordId / status，没有前端附加的选择注解
-const bareConfirm = render({ [FORM_KEY]: form, [CONFIRM_KEY]: { recordId: 'VHpX5NqoXLHwPyMnVeBzCN', status: 'SUCCESS' } });
-check('只有 recordId/status 的凭据 → 同样落到第 3 步', bareConfirm.step3, JSON.stringify(bareConfirm));
+const legacyAddons = render({ [FORM_KEY]: { ...form, addons: ['addon-bank'] }, [REPORT_KEY]: report, [RECORD_KEY]: record });
+check('旧存档（addons 是字符串数组）+ 单号 → 仍落在第 3 步', legacyAddons.step3, JSON.stringify(legacyAddons));
 
-const bareOnBundle = render({
-  [FORM_KEY]: { ...form, tier: 'bundle_small', addons: [] },
-  [CONFIRM_KEY]: { recordId: 'VHpX5NqoXLHwPyMnVeBzCN', status: 'SUCCESS' },
-});
-check('bundle 档 + 只有 recordId/status 的凭据 → 也落到第 3 步', bareOnBundle.step3, JSON.stringify(bareOnBundle));
+// 手写的单号（只有 recordId 一个字段）照样认
+const bareRecord = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: { recordId: 'VHpX5NqoXLHwPyMnVeBzCN' } });
+check('只有 recordId 的单号 → 同样落到第 3 步', bareRecord.step3, JSON.stringify(bareRecord));
 
 /* --------------------------------------------------- URL hash 决定首屏落点 */
 
 // SSR 只渲染一次，不跑 effect，所以这里验的是「hash 决定首屏落在哪一步」（用户真正看到的结果）；
 // 「地址栏被改写成真实步骤」属于 effect 行为，由 scripts/check-step-route.ts 的 resolveStep 覆盖。
-const hashProposal = render({ [FORM_KEY]: form }, '#proposal');
-check('#proposal + 有问卷存档 → 第 2 步', hashProposal.step2, `step2=${hashProposal.step2}`);
+const hashProposal = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#proposal');
+check('#proposal + 有诊断结果 → 第 2 步', hashProposal.step2, `step2=${hashProposal.step2}`);
 
-const hashPayment = render({ [FORM_KEY]: form, [CONFIRM_KEY]: confirm }, '#payment');
-check('#payment + 有确认凭据 → 第 3 步', hashPayment.step3, `step3=${hashPayment.step3}`);
-
-// 第 3 步必须拿到确认单据号（下单要用它）：漏传时页面会显示「缺少确认单据号」，
-// 这条断言就是为上次那个「给废弃的 agreement 渲染点传了、真正在用的 payment 没传」的 bug 加的
-const noBusUnionIdNote = '缺少确认单据号';
+// 本次改动：没有诊断结果时，手敲 #proposal 也要收口回第 1 步（hash 只是请求，没解锁就不去）
+const hashProposalNoReport = render({ [FORM_KEY]: form }, '#proposal');
 check(
-  '第 3 步拿到了确认单据号（页面上不出现「缺少确认单据号」）',
+  '#proposal 但只有问卷存档 → 收口回第 1 步',
+  hashProposalNoReport.step1 && !hashProposalNoReport.step2,
+  `step1=${hashProposalNoReport.step1} step2=${hashProposalNoReport.step2}`
+);
+
+const hashPayment = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#payment');
+check('#payment + 有委托单号 → 第 3 步', hashPayment.step3, `step3=${hashPayment.step3}`);
+
+// 第 3 步必须拿到委托单号（下单要用它）：漏传时页面会显示「缺少委托单号」，
+// 这条断言就是为上次那个「给废弃的 agreement 渲染点传了、真正在用的 payment 没传」的 bug 加的
+const noBusUnionIdNote = '缺少委托单号';
+check(
+  '第 3 步拿到了委托单号（页面上不出现「缺少委托单号」）',
   hashPayment.step3 && !hashPayment.html.includes(noBusUnionIdNote),
   `含提示=${hashPayment.html.includes(noBusUnionIdNote)}`
 );
 
 
-const hashPaymentNoConfirm = render({ [FORM_KEY]: form }, '#payment');
-check('#payment 但没有确认凭据 → 收口回第 2 步（不能进空壳支付页）', hashPaymentNoConfirm.step2, `step2=${hashPaymentNoConfirm.step2}`);
+const hashPaymentNoConfirm = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#payment');
+check('#payment 但没有委托单号 → 收口回第 2 步（不能进空壳支付页）', hashPaymentNoConfirm.step2, `step2=${hashPaymentNoConfirm.step2}`);
 
-const hashProgress = render({ [FORM_KEY]: form, [CONFIRM_KEY]: confirm }, '#progress');
+const hashProgress = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#progress');
 check('#progress（没支付）→ 收口回第 3 步，不是第 6 步', hashProgress.step3, `step3=${hashProgress.step3}`);
 
-const hashGroup = render({ [FORM_KEY]: form }, '#group');
+const hashGroup = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#group');
 check('#group（没支付）→ 收口回第 2 步，不是第 4 步', hashGroup.step2, `step2=${hashGroup.step2}`);
 
-const hashSurvey = render({ [FORM_KEY]: form, [CONFIRM_KEY]: confirm }, '#survey');
+const hashSurvey = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#survey');
 check('#survey 手敲回第 1 步（已解锁的都能去）', hashSurvey.step1, `step1=${hashSurvey.step1}`);
 
-const hashUnknown = render({ [FORM_KEY]: form }, '#nonsense');
+const hashUnknown = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#nonsense');
 check('认不出的 hash → 按没给处理，落到本该在的第 2 步', hashUnknown.step2, `step2=${hashUnknown.step2}`);
 
-const hashSlash = render({ [FORM_KEY]: form }, '#/proposal');
+const hashSlash = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#/proposal');
 check('#/proposal 这种写法也认 → 第 2 步', hashSlash.step2, `step2=${hashSlash.step2}`);
 
-const hashFillDetails = render({ [FORM_KEY]: form, [CONFIRM_KEY]: confirm }, '#fill-details');
+const hashFillDetails = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#fill-details');
 check('#fill-details（没到那一步）→ 收口回第 3 步', hashFillDetails.step3, `step3=${hashFillDetails.step3}`);
 
-const hashPaid = render({ [FORM_KEY]: form, [CONFIRM_KEY]: confirm }, '#paid');
+const hashPaid = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#paid');
 check(
-  '#paid + 有确认凭据 → 首帧先按第 3 步渲染（待核实，核实通过才切支付成功界面）',
+  '#paid + 有委托单号 → 首帧先按第 3 步渲染（待核实，核实通过才切支付成功界面）',
   hashPaid.step3,
   `step3=${hashPaid.step3}`
 );
 
-const hashPaidNoConfirm = render({ [FORM_KEY]: form }, '#paid');
-check('#paid 但没有确认凭据 → 没有单据号可查，收口回第 2 步', hashPaidNoConfirm.step2, `step2=${hashPaidNoConfirm.step2}`);
+const hashPaidNoConfirm = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#paid');
+check('#paid 但没有委托单号 → 没有单号可查，收口回第 2 步', hashPaidNoConfirm.step2, `step2=${hashPaidNoConfirm.step2}`);
 
 const hashPaidNoDraft = render({}, '#paid');
 check('#paid 且什么都没有 → 第 1 步', hashPaidNoDraft.step1, `step1=${hashPaidNoDraft.step1}`);
@@ -191,22 +221,26 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   // 用户报的 bug：申报资料填完、刷新却被送回第 3 步支付页
   const submittedDraft = { status: 'submitted', basic: {}, people: {}, shareholders: [], roles: [] };
   const afterSubmit = render(
-    { [FORM_KEY]: form, [CONFIRM_KEY]: confirm, [DETAILS_KEY]: submittedDraft },
+    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
     ''
   );
   check(
-    '申报资料已提交 + 有确认凭据 → 刷新落在第 6 步进度页，而不是支付页',
+    '申报资料已提交 + 有委托单号 → 刷新落在第 6 步进度页，而不是支付页',
     afterSubmit.html.includes('企业开办与政务交付办理进度') && !afterSubmit.step3,
     `进度页=${afterSubmit.html.includes('企业开办与政务交付办理进度')} 支付页=${afterSubmit.step3}`
   );
 
-  // 只填了问卷：仍应落在第 2 步
+  // 只填了问卷、还没拿到诊断结果：落在第 1 步（问卷答案还在，接着填/重新生成即可）
   const onlyForm = render({ [FORM_KEY]: form }, '');
-  check('只填过问卷 → 第 2 步（没被后面的判断带偏）', onlyForm.step2 && !onlyForm.step3);
+  check('只填过问卷 → 第 1 步（没有诊断结果就不进方案页）', onlyForm.step1 && !onlyForm.step2 && !onlyForm.step3);
+
+  // 拿到诊断结果 → 第 2 步（别再被这条新规则带偏）
+  const formAndReport = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '');
+  check('问卷 + 诊断结果 → 第 2 步', formAndReport.step2 && !formAndReport.step1);
 
   // 已提交时手敲 #payment 也应该能回去看（六步都解锁了）
   const backToPayment = render(
-    { [FORM_KEY]: form, [CONFIRM_KEY]: confirm, [DETAILS_KEY]: submittedDraft },
+    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
     '#payment'
   );
   check('已提交后手敲 #payment 仍可回到支付页（已解锁）', backToPayment.step3);
@@ -238,7 +272,7 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
       contactPhone="13800000000"
       onUpdateDetails={() => {}}
       onSubmitForReview={() => {}}
-      onBackToGroup={() => {}}
+      onBackToPaid={() => {}}
     />,
   );
 

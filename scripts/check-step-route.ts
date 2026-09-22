@@ -80,33 +80,43 @@ function ok(label: string, condition: boolean) {
 /* ------------------------------------------- 刷新落点：从后往前看进度证据 */
 
 {
-  const nothing = progressRouteOf({ hasPlanForm: false, hasConfirm: false, orderPaid: false, detailsSubmitted: false });
+  const nothing = progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: false });
   ok('什么都没做 → 落在第 1 步', nothing.landing === 'survey');
-  ok('什么都没做也解锁到第 2 步（方案页随时可点，与既有行为一致）', nothing.unlocked.join(',') === 'survey,proposal');
+  ok('什么都没做只解锁第 1 步（没有诊断结果就没有方案可看）', nothing.unlocked.join(',') === 'survey');
 
-  const form = progressRouteOf({ hasPlanForm: true, hasConfirm: false, orderPaid: false, detailsSubmitted: false });
-  ok('填过问卷 → 第 2 步', form.landing === 'proposal' && form.unlocked.join(',') === 'survey,proposal');
+  // 用户报的 bug：本地只存了问卷（1b_copreg_plan_form）、没拿到接口返回的诊断结果时，
+  // 刷新却跳进了方案页 —— 那一页的行业内容全来自诊断接口，进去只有本地模板
+  const formOnly = progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: false });
+  ok('只填过问卷、没有诊断结果 → 仍是第 1 步，且不解锁第 2 步', formOnly.landing === 'survey' && formOnly.unlocked.join(',') === 'survey');
 
-  const confirmed = progressRouteOf({ hasPlanForm: true, hasConfirm: true, orderPaid: false, detailsSubmitted: false });
-  ok('确认过方案 → 第 3 步', confirmed.landing === 'payment');
-  ok('确认过只解锁到第 3 步（没支付不给进服务群）', confirmed.unlocked.join(',') === 'survey,proposal,payment');
+  const report = progressRouteOf({ hasPlanReport: true, hasRecord: false, orderPaid: false, detailsSubmitted: false });
+  ok('拿到接口返回的诊断结果 → 第 2 步', report.landing === 'proposal');
+  ok('拿到诊断结果才解锁第 2 步', report.unlocked.join(',') === 'survey,proposal');
 
-  const paid = progressRouteOf({ hasPlanForm: true, hasConfirm: true, orderPaid: true, detailsSubmitted: false });
+  const recorded = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: false, detailsSubmitted: false });
+  ok('拿到过委托单号 → 第 3 步', recorded.landing === 'payment');
+  ok('拿到过单号只解锁到第 3 步（没支付不给进服务群）', recorded.unlocked.join(',') === 'survey,proposal,payment');
+  ok(
+    '有委托单号但诊断结果本地丢了 → 仍进第 3 步（单号本身就说明那次请求成功过）',
+    progressRouteOf({ hasPlanReport: false, hasRecord: true, orderPaid: false, detailsSubmitted: false }).landing === 'payment'
+  );
+
+  const paid = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: false });
   ok('订单已支付 → 落在第 3 步的「支付成功」界面（hash 为 #paid）', paid.landing === 'payment');
   ok('已支付时服务群也解锁了（能直达，但不默认跳进去）', paid.unlocked.join(',') === 'survey,proposal,payment,group');
 
   // 用户报的 bug：申报资料填完了，刷新却被送回支付页
-  const submitted = progressRouteOf({ hasPlanForm: true, hasConfirm: true, orderPaid: true, detailsSubmitted: true });
+  const submitted = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: true });
   ok('申报资料已提交 → 第 6 步进度页（不再被送回支付页）', submitted.landing === 'progress');
   ok('已提交时六步全解锁（可以回去改申报资料）', submitted.unlocked.length === 6 && submitted.unlocked.join(',') === STEP_ORDER.join(','));
 
   ok(
     '后面的证据优先：同时满足「已支付」与「已提交」时取更靠后的',
-    progressRouteOf({ hasPlanForm: true, hasConfirm: true, orderPaid: true, detailsSubmitted: true }).landing === 'progress'
+    progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: true }).landing === 'progress'
   );
   ok(
     '没有凭据却有已提交的申报表（本地凭据被删）→ 仍按最远的证据落点',
-    progressRouteOf({ hasPlanForm: false, hasConfirm: false, orderPaid: false, detailsSubmitted: true }).landing === 'progress'
+    progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: true }).landing === 'progress'
   );
 
   // 与 hash 收口配合：已解锁的 hash 直接生效，没解锁的才回退
@@ -114,8 +124,12 @@ function ok(label: string, condition: boolean) {
   ok('#fill-details + 已提交 → 第 5 步（可回去改）', resolveStep('fill_details', submitted.unlocked, submitted.landing) === 'fill_details');
   ok('#group + 已支付 → 第 4 步', resolveStep('group', paid.unlocked, paid.landing) === 'group');
   ok(
-    '#progress 但只确认过 → 仍收口回第 3 步',
-    resolveStep('progress', confirmed.unlocked, confirmed.landing) === 'payment'
+    '#proposal 但没有诊断结果 → 收口回第 1 步（方案页不是随便看看的页面）',
+    resolveStep('proposal', nothing.unlocked, nothing.landing) === 'survey'
+  );
+  ok(
+    '#progress 但只是拿到过单号（没支付）→ 仍收口回第 3 步',
+    resolveStep('progress', recorded.unlocked, recorded.landing) === 'payment'
   );
 }
 

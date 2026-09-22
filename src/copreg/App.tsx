@@ -24,17 +24,18 @@ import { RegistrationDetailsStep } from './components/RegistrationDetailsStep';
 import { STORAGE_KEY as REGISTRATION_STORAGE_KEY } from './registration/defaultData';
 import { buildPlan } from './plan';
 import { addonsOf, quoteFor } from './components/proposalQuote';
-import { applyPlanSuggestion, generatePlanReport, requestPlanCaptcha, PlanSuggestion } from './planGenerate';
+import { applyPlanSuggestion, generatePlanReport, PlanSuggestion } from './planGenerate';
+import type { PhoneVerification } from './verification';
 import {
-  clearPlanConfirm,
   clearPlanDraft,
+  clearPlanRecord,
   clearPlanReport,
   loadPlanDraft,
-  savePlanConfirm,
   savePlanForm,
-  savePlanReport
+  savePlanRecord,
+  savePlanReport,
+  type PlanRecord
 } from './planDraft';
-import { isPlanConfirmStale, planConfirmWithSelection, type PlanConfirm } from './serviceConfirm';
 import {
   PAID_HASH,
   advanceOnPaid,
@@ -128,10 +129,10 @@ const readDetailsSubmitted = (): boolean => {
 };
 
 export default function App() {
-  // 上次留下的本地存档（见 planDraft.ts，分「填写的」「返回的」「确认凭据」三份键）：
-  // 有「填写的」就从第 2 步开始 —— 问卷答案与选过的套餐都还在；
-  // 有「确认凭据」再往前一步，直接落到第 3 步（协议与支付），不必重新验证手机号；
-  // 有「返回的」再把服务端诊断叠上去。只在首帧读一次，之后一切以 state 为准。
+  // 上次留下的本地存档（见 planDraft.ts，分「填写的」「返回的」「委托单凭据」三份键）：
+  // 有「返回的」（诊断结果）就落到第 2 步 —— 问卷答案、套餐与方案内容都还在；
+  // 有「委托单凭据」（第 1 步给的 recordId）再往前一步，直接落到第 3 步（协议与支付）。
+  // 只在首帧读一次，之后一切以 state 为准。
   const [planDraft] = useState(loadPlanDraft);
 
   // Proposal / Plan state (defaults to bundle_small: 小规模纳税人)
@@ -147,26 +148,21 @@ export default function App() {
       : buildPlan(emptySurvey(), quoteFor('bundle_small'))
   );
 
-  // 确认凭据（confirm-proposal 返回的 recordId/status + 当时那套选择）：有它就能直接进第 3 步。
-  // 改套餐 / 换自选项 / 重新提交问卷都会把它作废，见下面的 clearPlanConfirm 调用点。
-  //
-  // 首帧这里还要再判一次「是否仍是这套方案」：正常路径下写过 form 就会顺带清凭据，
-  // 但两次 localStorage 写入之间崩溃、或存档被手改过，都可能留下「新问卷 + 旧凭据」，
-  // 那会把人直接送进一份与自己填的问卷不符的支付页。
-  const initialConfirm =
-    planDraft?.confirm && !isPlanConfirmStale(planDraft.confirm, plan) ? planDraft.confirm : null;
-  const [planConfirm, setPlanConfirm] = useState<PlanConfirm | null>(initialConfirm);
+  // 委托单凭据（第 1 步诊断接口返回的 recordId）：有它就能直接进第 3 步，下单与查单都用它。
+  // 提交新问卷 / 重置问卷会作废它（旧单号是上一份问卷建的单）。
+  const [planRecord, setPlanRecord] = useState<PlanRecord | null>(planDraft?.record ?? null);
 
-  // 首屏落在哪一步：先按本地存档算出「本来该在哪」（有确认凭据 = 第 3 步，有问卷 = 第 2 步），
-  // 再看地址栏有没有 hash 请求别的步骤 —— hash 只是请求，没解锁的步骤会被收口回这一步
-  // （见 stepRoute.ts，以及下面同步 hash 的两个 effect）
+  // 首屏落在哪一步：先按本地存档算出「本来该在哪」（有委托单号 = 第 3 步，
+  // 拿到过接口返回的诊断结果 = 第 2 步），再看地址栏有没有 hash 请求别的步骤 —— hash 只是请求，
+  // 没解锁的步骤会被收口回这一步（见 stepRoute.ts，以及下面同步 hash 的两个 effect）
   // 刷新时的落点由**已知进度**决定，而且从后往前判断：申报资料已提交 > 订单已支付 >
-  // 确认过方案 > 填过问卷。只按「有确认凭据」就落到第 3 步是错的 —— 那会把已经填完申报资料
-  // 的人送回支付页。订单是否已支付只有异步查单才知道，所以首帧先按本地证据算，查回来后
-  // 由下面的核实 effect 解锁服务群。
+  // 拿到过委托单号 > 拿到过诊断结果。只按「有委托单号」就落到第 3 步是错的 —— 那会把已经填完申报资料
+  // 的人送回支付页；只看「有问卷存档」就落到第 2 步同样是错的 —— 方案页的内容来自诊断接口，
+  // 只填了一半问卷（或诊断失败/超时）时进去只有本地模板。订单是否已支付只有异步查单才知道，
+  // 所以首帧先按本地证据算，查回来后由下面的核实 effect 解锁服务群。
   const { landing: fallbackStep, unlocked: initialUnlocked } = progressRouteOf({
-    hasPlanForm: planDraft !== null,
-    hasConfirm: initialConfirm !== null,
+    hasPlanReport: planDraft?.report != null,
+    hasRecord: planRecord !== null,
     orderPaid: false,
     detailsSubmitted: readDetailsSubmitted(),
   });
@@ -178,7 +174,8 @@ export default function App() {
       hash: window.location.hash,
       请求的步骤: stepOfHash(window.location.hash),
       有问卷存档: planDraft !== null,
-      有确认凭据: initialConfirm !== null,
+      有诊断结果: planDraft?.report != null,
+      有委托单号: planRecord !== null,
       申报资料已提交: readDetailsSubmitted(),
       解锁: initialUnlocked.join(','),
       落点: initialStep,
@@ -254,31 +251,13 @@ export default function App() {
   useEffect(() => {
     planRef.current = plan;
   }, [plan]);
-  // 确认凭据也留一份镜像：方案页切套餐时要在回调里判「凭据是否已过期」，
-  // 用 state 会被闭包锁在上一次渲染的值上
-  const planConfirmRef = useRef(planConfirm);
-  useEffect(() => {
-    planConfirmRef.current = planConfirm;
-  }, [planConfirm]);
-
-  // 凭据里没记「是为哪套选择确认的」（手写的、或早于这次改动的版本写进去的，只有服务端
-  // 给的 recordId/status）：这种凭据照样认，但要把当前选择补记上去 ——
-  // 不补的话以后改套餐也判断不出过期，用户会拿着一份旧确认进支付页。
-  useEffect(() => {
-    if (!planConfirm) return;
-    const filled = planConfirmWithSelection(planConfirm, plan);
-    if (filled === planConfirm) return; // 已经有注解，不用动
-    setPlanConfirm(filled);
-    savePlanConfirm(filled);
-  }, [planConfirm, plan]);
-
   // ---------------------------------------------------------------- URL hash
   // 步骤 ↔ 地址栏保持同步：刷新 / 收藏 / 转发能回到同一步，浏览器前进后退也能按步走。
   // 两个 effect 一个「写」一个「读」，互相不会打架：写之前先比一次 hash，
   // 读回来的步骤与当前一致时 setState 是同一个值，React 直接跳过。
   //
   // 唯一需要等一等的是 `#paid`：它声称「已支付」，而支付状态只有服务端知道。
-  // 首帧先拿确认单据号去查（下面那个 effect），结论出来之前**不写地址栏**，
+  // 首帧先拿委托单号去查（下面那个 effect），结论出来之前**不写地址栏**，
   // 否则会把 #paid 先改成 #payment、查到已支付再改回来，地址栏白闪两下。
   const [paidCheck, setPaidCheck] = useState<'idle' | 'checking' | 'done'>('idle');
   const isPaidOrder = order.status === 'paid';
@@ -322,10 +301,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', onHashChange);
   }, [unlockedSteps, isPaidOrder]);
 
-  // 订单状态核实：只要手上有确认单据号、而且还不知道这笔已支付，就问一次服务端。两件事都靠它：
+  // 订单状态核实：只要手上有委托单号、而且还不知道这笔已支付，就问一次服务端。两件事都靠它：
   //   ① 地址栏是 `#paid` 时能不能真的显示「支付成功」；
   //   ② **刷新后落回「待支付」、但订单其实早就付过了** —— 不问这一下，用户一点「立即支付」
-  //      就会被服务端以「当前订单已完成支付，或请联系客服」拒掉（本地凭据丢失时最容易撞上）。
+  //      就会被服务端以「当前订单已完成支付，或请联系客服」拒掉（本地单号丢失时最容易撞上）。
   // 查不动（路径没配 / 超时 / 网络不通 / 响应认不出）一律当没付：收口回 `#payment`，用户照常付款。
   // 闸门要在 StrictMode 的「挂载 → 清理 → 再挂载」下也成立：同一个单据号复用同一个请求，
   // 第一轮的结果虽然被取消丢弃，第二轮仍会拿到同一个 promise 并落地（详见 orderStatusCheck.ts）
@@ -338,7 +317,7 @@ export default function App() {
 
   useEffect(() => {
     if (isPaidOrder) return;
-    const pending = statusCheckerRef.current!.check(planConfirm?.recordId ?? '');
+    const pending = statusCheckerRef.current!.check(planRecord?.recordId ?? '');
     if (pending === null) return; // 空号 / 已核实过：不发请求
 
     let cancelled = false;
@@ -372,7 +351,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [planConfirm, isPaidOrder]);
+  }, [planRecord, isPaidOrder]);
 
   // Helper to unlock step
   const unlockStep = (step: ProcessStep) => {
@@ -382,17 +361,17 @@ export default function App() {
   };
 
   // Step 1: Submit Survey -> S-->>U: 生成注册方案与服务报价
-  const handleSurveySubmit = async () => {
-    // 腾讯行为验证码：与「AI 智能填充」同一道闸门，没有 ticket 的请求会被服务端直接拒绝。
-    // 弹窗必须放在下面那串本地动作**之前** —— 用户自己关掉弹窗（requestPlanCaptcha 返回 null）
-    // 时，问卷与方案存档都不该被动过，也不该把人往前送一步：原地不动、不报错，等他再点一次。
-    // 组件加载失败等真故障则原样抛出，由 SurveyStep 弹中文提示（这时接口一个请求都没发）。
-    const captcha = await requestPlanCaptcha();
-    if (captcha === null) return;
-
+  /**
+   * 手机验证通过后提交问卷：调架构诊断接口（带上手机号与短信凭据，服务端比对验证码）。
+   *
+   * 失败**原样抛出**（不吞、不用本地规则兜底）：手机号没验过就不该出方案、更不该往下一步走，
+   * 由 SurveyStep 把原因写在手机验证弹框里让人原地重试。只有本地存档写不进去这类
+   * 「不拦人前进」的毛病才走 warnings。
+   */
+  const handleSurveySubmit = async (verification: PhoneVerification) => {
     // 载荷用的是点击那一刻的问卷快照 —— 请求在途时用户还能接着改问卷，
     // 那些改动要重新点一次「生成需求方案」才会进方案。
-    // 提示攒着：接口失败与本地存不下都可能发生，最后合成一条说，别让后一条把前一条顶掉。
+    // 提示攒着：本地存不下、诊断结果存不下都可能发生，最后合成一条说，别让后一条把前一条顶掉。
     const warnings: string[] = [];
 
     // 套餐与加购取 planRef（请求在途时用户可能已经去方案页切过档）；价格只由前端报价决定，
@@ -407,27 +386,36 @@ export default function App() {
     // 上一次成功返回的诊断结果对应的是上一份问卷，这次已经提交了新问卷，先作废；
     // 本次成功后再写新的（写不进去也不拦人，只是下次进来要重新生成）
     clearPlanReport();
-    // 确认凭据同理：它是为上一份问卷 + 上一套选项确认的，新问卷一提交就不再代表当前方案。
-    // 不清掉的话，用户改完问卷反而会被直接送进支付页，支付的是旧方案
-    clearPlanConfirm();
-    setPlanConfirm(null);
+    // 委托单凭据同理：旧单号是上一份问卷建的，新问卷一提交就不再代表当前方案。
+    // 不清掉的话，用户改完问卷反而会被直接送进支付页，支付的是旧单
+    clearPlanRecord();
+    setPlanRecord(null);
 
-    let suggestion: PlanSuggestion | null = null;
-    try {
-      suggestion = await generatePlanReport(survey, captcha);
-    } catch (error) {
-      // 接口不通不拦人前进：本地方案本身就是完整可用的（价格、套餐只由前端报价决定），
-      // 但也不静默降级 —— 把原因说出来，用户才知道这版方案的行业内容是本地规则给的。
-      warnings.push(
-        `${error instanceof Error ? error.message : '生成需求方案失败'}，已先按本地规则生成方案`
-      );
-    }
+    // 远程诊断不再有本地兜底：手机号与短信验证码就压在这次请求里，服务端比对通过才算数。
+    // 失败（含验证码不对 / 超时 / 服务端不可用）原样抛回 SurveyStep，弹框不关、可原地重试 ——
+    // 手机没验过就不该出方案，也不该往下一步走。存档写不进去那几条 warning 先说出来
+    // （下面这次请求可能直接抛回去，那时就没机会再报了）
+    if (warnings.length > 0) setNotice(warnings.join('；'));
+    const { recordId, suggestion } = await generatePlanReport(survey, verification);
 
     setPlanSuggestion(suggestion);
 
-    // 「返回的」只在接口成功后存：它和上面那份问卷是配套的，下次进来靠它把诊断结果叠回方案上
-    if (suggestion !== null && !savePlanReport(suggestion)) {
-      warnings.push('诊断结果本地保存失败，下次进入需要重新生成方案');
+    // 「返回的」只在接口成功后存：它和上面那份问卷是配套的，下次进来靠它把诊断结果叠回方案上。
+    // 提示是追加不是覆盖：前面那条「问卷没存下」同样重要
+    if (!savePlanReport(suggestion)) {
+      setNotice([...warnings, '诊断结果本地保存失败，下次进入需要重新生成方案'].join('；'));
+    }
+
+    // 手机号已经验过了：记在订单上，支付页的「经办联系电话」直接用它（手机号按约定不落本地，
+    // 刷新后由查单响应里的 mobile 补回来）
+    setOrder(prev => ({ ...prev, contactPhone: verification.mobile }));
+
+    // 委托单号（诊断接口同一次响应里给的，服务端那时就建好单了）：支付下单与查单都用它，
+    // 存不下就得说 —— 丢了它下次进来要重新生成方案
+    const record: PlanRecord = { recordId };
+    setPlanRecord(record);
+    if (!savePlanRecord(record)) {
+      setNotice('委托单号本地保存失败，下次进入需要重新生成方案');
     }
 
     // 按「本次问卷 + 当前套餐选择」重算一份，而不是把响应叠到旧方案上：旧方案里还留着上一次
@@ -443,25 +431,11 @@ export default function App() {
       setCurrentStep('proposal');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-
-    if (warnings.length > 0) setNotice(warnings.join('；'));
   };
 
-  // Step 2: Confirm Proposal -> Go to Payment (Merged Agreement & Payment)
-  // confirm 只在这次点击真的调了确认接口、且服务端返回 SUCCESS 时非空；
-  // 已经确认过再点一次（ProposalStep 里判断凭据仍然有效）传的是 null，不重复保存也不重复下单
-  const handleProposalProceed = (phone: string | undefined, confirm: PlanConfirm | null) => {
-    if (phone) {
-      setOrder(prev => ({ ...prev, contactPhone: phone }));
-    }
-    if (confirm) {
-      setPlanConfirm(confirm);
-      if (!savePlanConfirm(confirm)) {
-        // 凭据存不下不拦人（本次已经确认成功，能正常进支付），但要说清楚后果：
-        // 下次进来会回到第 2 步，重新确认会在服务端多出一份委托单
-        setNotice('确认结果本地保存失败，下次进入需要重新确认（可能产生重复委托单）');
-      }
-    }
+  // Step 2 -> Step 3: 方案页只是把第 1 步给的结果展示出来，点「前往支付」就走一步，
+  // **这一页没有任何接口调用**（手机号与委托单号都是第 1 步的事了）
+  const handleProposalProceed = () => {
     unlockStep('payment');
     setCurrentStep('payment');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -602,10 +576,11 @@ export default function App() {
             survey={survey}
             onChange={setSurvey}
             onSubmit={handleSurveySubmit}
+            contactPhone={order.contactPhone}
             onReset={() => {
               // 重置问卷 = 第 1 步的存档作废，否则刷新一下又跳回第 2 步、看的还是上一份问卷的方案
               clearPlanDraft();
-              setPlanConfirm(null);
+              setPlanRecord(null);
               setPlanSuggestion(null);
             }}
           />
@@ -615,9 +590,7 @@ export default function App() {
           <ProposalStep
             plan={plan}
             survey={survey}
-            report={planSuggestion}
-            confirm={planConfirm}
-            contactPhone={order.contactPhone}
+            recordId={planRecord?.recordId ?? ''}
             onUpdatePlan={(newPlan) => {
               // 方案页切套餐 / 勾加购会按本地模板重建一份方案，别把服务端给的行业诊断丢掉
               const merged = applyPlanSuggestion(newPlan, planSuggestion);
@@ -631,12 +604,6 @@ export default function App() {
                 tier: merged.selectedTier,
                 addons: addonsOf(merged.items)
               });
-              // 方案改过（档位 / 自选项与确认时不同）→ 那份确认凭据作废：它代表的已经不是
-              // 页面上这份方案了，继续用会把人送进一份与价格不符的支付页
-              if (planConfirmRef.current && isPlanConfirmStale(planConfirmRef.current, merged)) {
-                clearPlanConfirm();
-                setPlanConfirm(null);
-              }
             }}
             onProceed={handleProposalProceed}
             onBack={() => {
@@ -650,7 +617,7 @@ export default function App() {
           <AgreementAndPaymentStep
             plan={plan}
             order={order}
-            busUnionId={planConfirm?.recordId ?? ''}
+            busUnionId={planRecord?.recordId ?? ''}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
             onProceedToFillDetails={handleProceedToFillDetails}
@@ -665,7 +632,7 @@ export default function App() {
           <AgreementAndPaymentStep
             plan={plan}
             order={order}
-            busUnionId={planConfirm?.recordId ?? ''}
+            busUnionId={planRecord?.recordId ?? ''}
             isDetailsSubmitted={isDetailsSubmitted}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
@@ -699,8 +666,11 @@ export default function App() {
             contactPhone={order.contactPhone}
             onUpdateDetails={setDetails}
             onSubmitForReview={handleSubmitForReview}
-            onBackToGroup={() => {
-              setCurrentStep('group');
+            onBackToPaid={() => {
+              // 回到第 3 步的支付成功界面（order 已支付时 hash 会写成 #paid）：办理清单在那一页上。
+              // 服务群（#group）仍然解锁，只是不再是填报页的返回目标
+              unlockStep('payment');
+              setCurrentStep('payment');
               window.scrollTo({ top: 0, behavior: 'smooth' });
             }}
           />

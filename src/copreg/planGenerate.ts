@@ -4,15 +4,19 @@
  */
 
 /**
- * 生成需求方案（架构诊断）：过完腾讯行为验证码，把整份问卷发给
+ * 生成需求方案（架构诊断）：把整份问卷 + **刚验证过的手机号**发给
  * `POST /api/company-plan/diagnose-architecture`，换回一份「组织形式 / 纳税人身份 / 注册资本 /
- * 注册地址 / 许可资质 / 风险提示」的诊断结果，覆盖到本地方案上。
+ * 注册地址 / 许可资质 / 风险提示」的诊断结果，以及服务端当场建好的**委托单号 `recordId`**。
  *
- * 和 AI 智能填充（aiFill.ts）一样是「验证码通过才发请求」的接口，票据走 query
- * （captchaAppId / userIp / jcaptchaCode / jcaptchaId），没有 ticket 的请求会被服务端直接拒绝。
- * 区别只在调用姿势：这里的弹窗由调用方先调 requestPlanCaptcha 拿票据、再把它交给
- * generatePlanReport —— 见 requestPlanCaptcha 的注释（提交问卷在弹窗之前还有一串本地动作，
- * 用户取消时那些都不该发生）。
+ * 手机号与短信验证码在这一步一起提交（body 的 `phoneNumber`，caa 同款信封）：服务端拿
+ * `smsCodeId` + `smsValidCode` 比对短信验证码，比对不过这一次请求就不算成功。
+ * 所以**验证手机号是出方案的前置条件**，调用方（SurveyStep）先过手机验证弹框再调这里，
+ * 失败就把人留在弹框里改验证码重试 —— 不再有「接口失败就按本地规则生成一份」的兜底。
+ *
+ * `recordId` 也回在这一步（响应形如 `{ …, recordId, status, model }`），第 2 步的确认接口
+ * 因此不再需要：那一页只把结果展示出来，点「前往支付」直接拿这个单号下单
+ * （支付接口的 `busUnionId`）与查单。所以这里**没拿到单号就算失败** —— 没有它下不了单，
+ * 与其让人走到支付页才发现，不如当场把话说明白。
  *
  * 接口地址与完整响应字段见 src/config/api.ts 的 COMPANY_PLAN_HOST 段；请求参数**以前端为准** ——
  * 下面 PlanFormData 就是问卷 SurveyData 的逐字段镜像（字段名完全一致），
@@ -23,15 +27,10 @@
  * 服务端给什么都不改 —— 报价是产品定价，不是模型能决定的事。
  */
 
-import {
-  COMPANY_PLAN_HOST,
-  PLAN_DIAGNOSE_PATH,
-  TENCENT_CAPTCHA_APP_ID,
-  TENCENT_CAPTCHA_USER_IP,
-} from '../config/api';
+import { COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH } from '../config/api';
 import { joinUrl, optionalListOf, optionalStringOf, postJson } from './apiClient';
 import { RegistrationPlan, SurveyData } from './types';
-import { CaptchaCancelledError, showTencentCaptcha, type CaptchaTicket } from '../utils/tencentCaptcha';
+import type { PhoneVerification } from './verification';
 
 /** 失败提示的主语，拼进 apiClient 的几种失败文案里 */
 const LABEL = '生成需求方案';
@@ -78,9 +77,14 @@ export interface PlanFormData {
   officeSpace: string;
 }
 
-/** 请求体：问卷字段全在 formData 下，和 caa 同接口的信封保持一致 */
+/** 请求体：问卷字段全在 formData 下，外加刚验证过的手机号，和 caa 同接口的信封保持一致 */
 export interface PlanGenerateRequest {
   formData: PlanFormData;
+  /**
+   * 手机号 + 短信凭据（caa 同款信封里的 phoneNumber）。服务端据此比对短信验证码；
+   * 三个字段都由第 1 步的手机验证弹框给出（见 verification.ts 的 PhoneVerification）。
+   */
+  phoneNumber: PhoneVerification;
 }
 
 /**
@@ -173,60 +177,46 @@ export const hasPlanContent = (suggestion: PlanSuggestion): boolean =>
   ].some((field) => field !== null);
 
 /**
- * 「生成需求方案」的腾讯行为验证码闸门：弹出验证码，通过后 resolve 出服务端校验所需的票据。
+ * 「生成需求方案」的返回：诊断结果 + 服务端当场建好的委托单号。
  *
- * 顺序不能颠倒 —— 和 AI 智能填充（aiFill.ts 的 aiFillSurvey）一样，没有 ticket 的请求
- * 会被服务端直接拒绝。只是这里把弹窗单独拆成一步给调用方先调，而不是塞在请求函数里：
- * 提交问卷在弹窗之前还有一串本地动作（存问卷、作废上一份诊断与确认凭据），
- * 用户自己关掉弹窗时那些都不该发生，页面也该原地不动 —— 放在请求函数里就拦不住它们。
- *
- * 用户取消返回 null（不是失败，调用方原地不动、不要报错）；
- * 组件加载不出来等真故障抛带中文提示的 Error（此时接口一个请求都没发）。
+ * 单号与结果分开拿：`suggestion` 是给页面看 / 覆盖到方案上的，`recordId` 是给支付用的
+ * （下单的 `busUnionId`、查单的键），两者都来自同一次响应。
  */
-export const requestPlanCaptcha = async (): Promise<CaptchaTicket | null> => {
-  try {
-    return await showTencentCaptcha(TENCENT_CAPTCHA_APP_ID);
-  } catch (error) {
-    if (error instanceof CaptchaCancelledError) return null;
-    throw error;
-  }
-};
+export interface PlanReport {
+  /**
+   * 委托单号（服务端生成方案时就建好了单）。**必给**：没有它下不了单、也查不了订单状态，
+   * 所以缺了就当这次接口失败（见 generatePlanReport）。
+   */
+  recordId: string;
+  /** 架构诊断结果，覆盖到本地方案上 */
+  suggestion: PlanSuggestion;
+}
 
 /**
- * 验证码票据走 query，参数名沿用 caa 同款接口的约定：jcaptchaCode = 腾讯 ticket、
- * jcaptchaId = randstr。不重复塞进 body —— body 的 DTO 只声明了 formData（caa 那边还有
- * phoneNumber），严格反序列化下多出来的字段会直接换回 400，而 query 参数不会。
- */
-const buildUrl = ({ ticket, randstr }: CaptchaTicket): string => {
-  // 用 URLSearchParams 拼串而不是 new URL：host 被配成相对路径（本地代理）时 new URL 会抛原生
-  // TypeError，那会绕过 apiClient 的中文错误归一化，把一句英文弹给用户
-  const params = new URLSearchParams({
-    captchaAppId: TENCENT_CAPTCHA_APP_ID,
-    userIp: TENCENT_CAPTCHA_USER_IP,
-    jcaptchaCode: ticket,
-    jcaptchaId: randstr,
-  });
-  return `${joinUrl(COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH)}?${params.toString()}`;
-};
-
-/**
- * 请求架构诊断，票据取自 requestPlanCaptcha（没过验证码就没有票据可传）。
- * 失败抛带中文提示的 Error（超时 / 网络 / 后端文案 / 没有任何可用字段），
- * 由调用方决定怎么兜 —— App.tsx 是「不拦人前进，但把失败说出来」。
+ * 请求架构诊断，手机号与短信凭据取自第 1 步的手机验证弹框（没过验证就没有凭据可传）。
+ * 失败抛带中文提示的 Error（超时 / 网络 / 后端文案 / 没有任何可用字段 / 没给委托单号），
+ * 由调用方决定怎么兜 —— 现在没有本地兜底：失败留在手机验证弹框里，改验证码重试。
  *
  * 「响应是合法 JSON 但认不出任何字段」也算失败：那多半是字段名对不上，
  * 此时若当成成功，用户会看到一份本地模板方案却以为它是服务端给的。
  */
 export const generatePlanReport = async (
   survey: SurveyData,
-  captcha: CaptchaTicket
-): Promise<PlanSuggestion> => {
-  const body: PlanGenerateRequest = { formData: planFormFromSurvey(survey) };
-  const payload = await postJson(buildUrl(captcha), body, LABEL);
+  phoneNumber: PhoneVerification
+): Promise<PlanReport> => {
+  const body: PlanGenerateRequest = { formData: planFormFromSurvey(survey), phoneNumber };
+  const payload = await postJson(joinUrl(COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH), body, LABEL);
 
   const suggestion = parsePlanSuggestion(payload);
   if (!hasPlanContent(suggestion)) throw new Error('生成需求方案未返回可用内容');
-  return suggestion;
+
+  // 单号是这次响应里最要紧的一个字段（支付全靠它），缺了就等于这次请求白跑 ——
+  // 不当成「服务端没给这一项、沿用本地方案」那种可选项（响应里的 status 前端不读：
+  // 内容与单号都在，就是可用的一份方案；真失败时上面两条已经拦住了）
+  const recordId = optionalStringOf(payload.recordId);
+  if (recordId === null) throw new Error('生成需求方案未返回委托单号，请稍后重试');
+
+  return { recordId, suggestion };
 };
 
 /**

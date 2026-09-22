@@ -53,7 +53,12 @@ interface RegistrationDetailsStepProps {
   contactPhone?: string;
   onUpdateDetails: (details: RegistrationDetails) => void;
   onSubmitForReview: () => void;
-  onBackToGroup: () => void;
+  /**
+   * 返回第 3 步的**支付成功页**（`#paid`）：页头与底部操作条两颗「返回办理清单」都走它
+   * —— 办理清单（服务进度状态与办理清单）就在那一页上，所以按钮就照那一页的东西命名。
+   * （原来是回第 4 步服务群；服务群仍解锁、hash 仍可直达，只是不再是这一页的返回目标。）
+   */
+  onBackToPaid: () => void;
 }
 
 const CHAPTERS = [
@@ -71,7 +76,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   contactPhone,
   onUpdateDetails,
   onSubmitForReview,
-  onBackToGroup,
+  onBackToPaid,
 }) => {
   // Main form state
   const [form, setForm] = useState<RegistrationFullForm>(() => {
@@ -570,7 +575,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
 
             <button
               type="button"
-              onClick={onBackToGroup}
+              onClick={onBackToPaid}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 text-xs font-medium transition-all shadow-2xs cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
@@ -740,11 +745,11 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
           <div className="flex items-center gap-2 sm:gap-2.5">
             <button
               type="button"
-              onClick={currentChapter === 0 ? onBackToGroup : handlePrev}
+              onClick={currentChapter === 0 ? onBackToPaid : handlePrev}
               className="px-3.5 sm:px-5 py-2 rounded-full border border-slate-200 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span>{currentChapter === 0 ? '返回企微沟通群' : '上一项'}</span>
+              <span>{currentChapter === 0 ? '返回办理清单' : '上一项'}</span>
             </button>
 
             {/* 草稿已保存 / 保存草稿 */}

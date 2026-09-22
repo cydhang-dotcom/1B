@@ -20,24 +20,36 @@ import { SENSITIVE_OPTIONS } from '../plan';
 import { aiFillSurvey } from '../aiFill';
 import { surveyRequiredFields } from '../surveyCheck';
 import { CaptchaCancelledError } from '../../utils/tencentCaptcha';
+import { PhoneVerifyModal } from './PhoneVerifyModal';
+import type { PhoneVerification } from '../verification';
 
 interface SurveyStepProps {
   survey: SurveyData;
   onChange: (updated: SurveyData) => void;
-  /** 提交问卷生成方案：要等方案接口回来才算完（失败由 App 兜底并提示），所以是异步的 */
-  onSubmit: () => Promise<void>;
+  /**
+   * 提交问卷生成方案：先过手机验证弹框，验证通过后带着手机号调诊断接口
+   * （接口失败由 App 抛出，弹框留在原地显示原因、改验证码重试）
+   */
+  onSubmit: (verification: PhoneVerification) => Promise<void>;
   /** 重置问卷后通知 App 收尾（清掉第 1 步的本地快照），问卷本身由 onChange 清空 */
   onReset: () => void;
+  /** 预填的手机号：App 里还留着上一次验证过的号码就直接带出来 */
+  contactPhone?: string;
 }
 
 export const SurveyStep: React.FC<SurveyStepProps> = ({
   survey,
   onChange,
   onSubmit,
-  onReset
+  onReset,
+  contactPhone
 }) => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // 手机验证弹框：过了必填校验才弹，验证通过后才发「生成需求方案」的请求
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  // 诊断接口的失败原因，显示在弹框里（不关弹框、原地改验证码重试）
+  const [submitError, setSubmitError] = useState('');
   const [aiGenerated, setAiGenerated] = useState(false);
   const [aiTagInputScope, setAiTagInputScope] = useState('');
   const [aiTagInputLicense, setAiTagInputLicense] = useState('');
@@ -168,8 +180,9 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
     onChange({ ...survey, license: survey.license.filter(t => t !== tag) });
   };
 
-  // 提交前逐项拦：必填清单在 surveyCheck.ts，与页面上的必填标记一一对应
-  const handleValidateAndSubmit = async () => {
+  // 提交前逐项拦：必填清单在 surveyCheck.ts，与页面上的必填标记一一对应。
+  // 过了这一关才弹手机验证 —— 缺字段时先补字段，没必要先把验证码验了
+  const handleValidateAndSubmit = () => {
     const failed = surveyRequiredFields(survey).filter(field => !field.done);
     if (failed.length > 0) {
       const [first] = failed;
@@ -181,15 +194,25 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
       return;
     }
 
-    // 方案接口要跑十几秒，这期间把按钮锁住 —— 连点两下会发两次请求、跳两次页。
-    // 前面还有一段腾讯行为验证码弹窗（与 AI 智能填充同一道闸门）：弹窗期间按钮同样置灰，
-    // 否则再点一次会让后一次弹窗顶掉前一次，前一次只落得一个「已取消」被静默吞掉
+    setSubmitError('');
+    setShowPhoneModal(true);
+  };
+
+  /**
+   * 手机验证通过 → 带着手机号与短信凭据生成方案（服务端据此比对验证码）。
+   *
+   * 失败**不关弹框**：请求没成功就可能一个字段都没落库（手机号也未必算验证过），
+   * 失败原因写在弹框里，用户改验证码原地重试；成功才关框（随后 App 会跳去方案页）。
+   * 手机号必须验证过才出方案，所以这里没有「先用本地规则生成一份」的兜底。
+   */
+  const handlePhoneVerified = async (verification: PhoneVerification) => {
     setIsSubmitting(true);
+    setSubmitError('');
     try {
-      await onSubmit();
+      await onSubmit(verification);
+      setShowPhoneModal(false);
     } catch (error) {
-      // App 那边已把接口失败兜成本地方案，走到这里只可能是兜底本身也出了问题
-      showToast(error instanceof Error ? error.message : '生成需求方案失败，请稍后重试');
+      setSubmitError(error instanceof Error ? error.message : '生成需求方案失败，请稍后重试');
     } finally {
       setIsSubmitting(false);
     }
@@ -850,6 +873,21 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
 
         </div>
       </div>
+
+      {/* 手机号验证弹框：验证通过才发「生成需求方案」；取消 = 什么都不做，原地留在问卷页 */}
+      {showPhoneModal && (
+        <PhoneVerifyModal
+          initialPhone={contactPhone}
+          submitLabel="验证并生成方案"
+          busy={isSubmitting}
+          error={submitError}
+          onVerified={handlePhoneVerified}
+          onClose={() => {
+            setShowPhoneModal(false);
+            setSubmitError('');
+          }}
+        />
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (

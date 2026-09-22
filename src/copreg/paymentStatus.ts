@@ -11,8 +11,8 @@
  * `GET {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay?busUnionId=…`），不另起一套；
  * 状态判定复用 `mapOpenAccState`（只有 status='1' 算已支付）。
  *
- * 查询键用的就是确认单据号（`1b_copreg_plan_confirm` 的 recordId）—— 服务端的开户支付查单
- * 正是按它查的（参数名 busUnionId）。
+ * 查询键用的就是委托单号（`1b_copreg_plan_record` 的 recordId，第 1 步生成方案时服务端给的）
+ * —— 服务端的开户支付查单正是按它查的（参数名 busUnionId）。
  *
  * **三态，不是布尔**：
  *   'paid'    查单明确 SUCCESS → 才允许进「支付成功」界面
