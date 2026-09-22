@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { PersonRecord, ShareholderRecord, RoleRecord, FileAttachment, BasicInfoData, SetupInfoData } from './types';
 import { uid, formatSize } from './defaultData';
+import { useAttachmentUpload } from './useAttachmentUpload';
 import { X, Trash2, Upload, Eye, AlertCircle } from 'lucide-react';
 
 interface RecordModalProps {
@@ -126,6 +127,8 @@ export const RecordModal: React.FC<RecordModalProps> = ({
   });
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  /** 选完文件直接上传：拿到 fileUuid 才替换槽位里的旧附件 */
+  const { isUploading, upload } = useAttachmentUpload();
 
   // Pick list of existing people to reuse
   const allPeople = Object.values(people) as PersonRecord[];
@@ -152,32 +155,40 @@ export const RecordModal: React.FC<RecordModalProps> = ({
     }
   };
 
-  // Upload/Remove photos
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>, slot: 'idFront' | 'idBack' | 'license') => {
+  /**
+   * 选完文件直接上传（`useAttachmentUpload`）：一个槽位只留一张，上传成功了才替换掉旧的。
+   * 失败只 toast 原因、不动原来的附件 —— 把旧的删掉又没传上新的，用户就白填一次。
+   */
+  const handlePhotoUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    slot: 'idFront' | 'idBack' | 'license'
+  ) => {
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
     const file = fileList[0];
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const newFile: FileAttachment = {
-        id: uid(),
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        data: (reader.result as string) || '',
-        slot,
-      };
+    let newFile: FileAttachment | null = null;
+    try {
+      const uploaded = await upload([file], slot);
+      newFile = uploaded[0] ?? null;
+    } catch (error) {
+      // 用弹窗自己的错误条显示（和校验错误同一处），关掉弹窗才会消失
+      setErrorMsg(error instanceof Error ? error.message : '附件上传失败，请稍后重试');
+      return;
+    } finally {
+      // 同一个文件再选一次也要能触发 onChange
+      e.target.value = '';
+    }
+    if (!newFile) return;
+    setErrorMsg(null);
 
-      if (isNatural) {
-        const filtered = (currentPerson.files || []).filter((f) => f.slot !== slot);
-        setCurrentPerson({ ...currentPerson, files: [...filtered, newFile] });
-      } else {
-        const filtered = (currentShare.files || []).filter((f) => f.slot !== slot);
-        setCurrentShare({ ...currentShare, files: [...filtered, newFile] });
-      }
-    };
-    reader.readAsDataURL(file);
+    if (isNatural) {
+      const filtered = (currentPerson.files || []).filter((f) => f.slot !== slot);
+      setCurrentPerson({ ...currentPerson, files: [...filtered, newFile] });
+    } else {
+      const filtered = (currentShare.files || []).filter((f) => f.slot !== slot);
+      setCurrentShare({ ...currentShare, files: [...filtered, newFile] });
+    }
   };
 
   const handleRemovePhoto = (slot: 'idFront' | 'idBack' | 'license') => {
@@ -608,7 +619,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                   {frontFile ? (
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-800 truncate">{frontFile.name}</div>
+                        <div className="text-xs font-semibold text-slate-800 truncate">{frontFile.fileName}</div>
                         <div className="text-[11px] text-slate-400">{formatSize(frontFile.size)}</div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -633,12 +644,13 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                       <input
                         type="file"
                         accept="image/*"
+                        disabled={isUploading}
                         onChange={(e) => handlePhotoUpload(e, 'idFront')}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <Upload className="w-4 h-4 text-slate-400 group-hover:text-[#36B39E] mb-1" />
                       <span className="text-xs font-bold text-slate-700 group-hover:text-[#1D6C5E]">
-                        ＋ 上传人像面
+                        {isUploading ? '上传中…' : '＋ 上传人像面'}
                       </span>
                       <span className="text-[10px] text-slate-400 mt-0.5">支持 JPG / PNG 照片</span>
                     </label>
@@ -655,7 +667,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                   {backFile ? (
                     <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-slate-800 truncate">{backFile.name}</div>
+                        <div className="text-xs font-semibold text-slate-800 truncate">{backFile.fileName}</div>
                         <div className="text-[11px] text-slate-400">{formatSize(backFile.size)}</div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
@@ -680,12 +692,13 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                       <input
                         type="file"
                         accept="image/*"
+                        disabled={isUploading}
                         onChange={(e) => handlePhotoUpload(e, 'idBack')}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <Upload className="w-4 h-4 text-slate-400 group-hover:text-[#36B39E] mb-1" />
                       <span className="text-xs font-bold text-slate-700 group-hover:text-[#1D6C5E]">
-                        ＋ 上传国徽面
+                        {isUploading ? '上传中…' : '＋ 上传国徽面'}
                       </span>
                       <span className="text-[10px] text-slate-400 mt-0.5">支持 JPG / PNG 照片</span>
                     </label>
@@ -705,7 +718,7 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                 {licenseFile ? (
                   <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-800 truncate">{licenseFile.name}</div>
+                      <div className="text-xs font-semibold text-slate-800 truncate">{licenseFile.fileName}</div>
                       <div className="text-[11px] text-slate-400">{formatSize(licenseFile.size)}</div>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
@@ -730,12 +743,13 @@ export const RecordModal: React.FC<RecordModalProps> = ({
                     <input
                       type="file"
                       accept="image/*,.pdf"
+                      disabled={isUploading}
                       onChange={(e) => handlePhotoUpload(e, 'license')}
                       className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                     />
                     <Upload className="w-4 h-4 text-slate-400 group-hover:text-[#36B39E] mb-1" />
                     <span className="text-xs font-bold text-slate-700 group-hover:text-[#1D6C5E]">
-                      ＋ 上传营业执照照片
+                      {isUploading ? '上传中…' : '＋ 上传营业执照照片'}
                     </span>
                     <span className="text-[10px] text-slate-400 mt-0.5">加盖企业公章复印件或原件扫描</span>
                   </label>

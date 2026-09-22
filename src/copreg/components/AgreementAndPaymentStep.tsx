@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RegistrationPlan, PaymentOrder } from '../types';
 import {
   FileText,
@@ -46,6 +46,11 @@ interface AgreementAndPaymentStepProps {
   /** 申报资料是否已提交，决定清单里第一项的完成态与「查看/修改申报资料」入口 */
   isDetailsSubmitted?: boolean;
   /**
+   * 这一页该显示「支付成功」还是「待支付」：由 App 按 `showsPaidView(orderPaid, detailsSubmitted)`
+   * 算好传进来（申报资料已提交 ⇒ 必然付过款，刷新时不必等查单）。不传就只看订单状态
+   */
+  paidView?: boolean;
+  /**
    * 进入第 5 步「企业注册申报资料填报」：清单里第一项（申报资料填报）的入口，
    * 提交后回来看/改也是它。
    * **支付成功后不再往第 4 步服务群引流** —— 付款后该做的是填申报资料（与 copreg 主线一致），
@@ -64,10 +69,11 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   onPaid,
   onBack,
   isDetailsSubmitted,
+  paidView,
   onProceedToFillDetails,
   busUnionId
 }) => {
-  const isPaid = order?.status === 'paid';
+  const isPaid = paidView ?? order?.status === 'paid';
 
   // 填报状态以持久化的那份申报存档为准：App 的 state 只在本次会话里有效，
   // 刷新后它从 localStorage 恢复，这里再兜一层，保证清单不会退回「待填报」
@@ -124,10 +130,22 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
 
   // Toast message
   const [toast, setToast] = useState<string | null>(null);
+  /**
+   * 提示。上一条的定时器要清掉：连着两条提示时，前一条的定时器会提前把后一条清掉，
+   * 用户就看不到真正要紧的那句（填报页踩过，这里同款修法）。
+   */
+  const toastTimerRef = useRef<number | null>(null);
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 3000);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3000);
   };
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    },
+    []
+  );
 
   // Triggered when user clicks "立即支付"
   const handleStartPayment = () => {

@@ -127,6 +127,19 @@ export interface KnownProgress {
 }
 
 /**
+ * 第 3 步该显示哪个界面：**支付成功界面**（`#paid`）还是待支付。
+ *
+ * 服务端说已支付当然算；**申报资料已提交也算** —— 填报页（第 5 步）只有支付成功页上的
+ * 「申报资料填报」按钮能进，所以「资料已提交」本身就说明这笔早就付过款了。
+ * 刷新时不必等查单结果：等的话会先渲染出一屏「待支付」，查不动时还会一直停在那儿
+ * （这正是之前修过的 bug）。
+ *
+ * 纯函数，App 用它决定地址栏写 `#paid` 还是 `#payment`，也用它告诉第 3 步渲染哪个界面。
+ */
+export const showsPaidView = (orderPaid: boolean, detailsSubmitted: boolean): boolean =>
+  orderPaid || detailsSubmitted;
+
+/**
  * 由已知进度推出「最远能到哪一步」与「该解锁哪些步骤」。
  *
  * 申报资料已提交 ⇒ 必然走过支付与服务群；订单已支付 ⇒ 必然下过单；下过单 ⇒ 必然拿到过委托单号；
@@ -148,8 +161,10 @@ export const progressRouteOf = (progress: KnownProgress): ProgressRoute => {
   //
   // hasRecord 那一档不看 hasPlanReport：单号是服务端在生成方案时建的，有它就说明那次请求成功过，
   // 本地那份诊断结果被清掉/存不下（隐私模式、配额满）不该把人挡在支付页外。
+  // 已提交也落第 3 步（不是第 6 步）：那一页就是「支付成功 + 服务进度状态与办理清单」，
+  // 提交完正好回来看清单变成「资料已提交 · 专员初审中」；进度页仍然解锁，#progress 手敲可达。
   const landing: ProcessStep = progress.detailsSubmitted
-    ? 'progress'
+    ? 'payment'
     : progress.orderPaid
     ? 'payment'
     : progress.hasRecord

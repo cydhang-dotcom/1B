@@ -120,6 +120,36 @@ export const AI_FILL_PATH = import.meta.env.VITE_AI_FILL_PATH || '/api/company-p
 export const PLAN_DIAGNOSE_PATH =
   import.meta.env.VITE_PLAN_DIAGNOSE_PATH || '/api/company-plan/diagnose-architecture';
 /**
+ * 第 5 步（#fill-details）申报资料的保存 / 提交：
+ *   POST {DOC_HOST}/xcx/yqt-co/subscribe/open-info
+ *   body { busUnionId, var2, savaType }（var2 是本地存档的 JSON 字符串；
+ *   savaType 0 = 临时保存「保存草稿」，1 = 保存「确认并提交申请」）
+ * 与微信支付、企微码同一个 host（/xcx/yqt-co/… 这一族都挂在 DOC_HOST 上）。
+ * 见 src/copreg/registration/openInfo.ts。
+ */
+export const OPEN_INFO_PATH =
+  import.meta.env.VITE_OPEN_INFO_PATH || '/xcx/yqt-co/subscribe/open-info';
+
+/**
+ * 申报资料附件上传（第 5 步 #fill-details：选完文件直接上传）。
+ *
+ * POST {站点根}/zuul/v1/xcx/yqt-co/subscribe/upload/file，multipart/form-data，字段名 file；
+ * 成功后返回 { fileUuid, fileName }，之后图片 / 附件地址用全局工具 fileUrlOf(fileUuid) 现拼
+ * （{DOC_HOST}/doc/uuid/{fileUuid}/get，与上传不是同一个 host）。见 src/utils/fileUpload.ts
+ * 与 src/copreg/registration/useAttachmentUpload.ts。
+ *
+ * ★ **上传要加 zuul 前缀**（接口方给的地址是 `http://testv3001.yowits.net/zuul/v1/`）：
+ *   老项目里上传也是走 `{站点根}/zuul/v1/…`（axios 的 uploadConfig.baseURL），与普通接口的
+ *   `{站点根}/v1/…` 是两个前缀 —— 所以这里把 VITE_API_HOST 结尾的 `/v1` 换成 `/zuul/v1`
+ *   作为站点根，路径再带上 zuul/v1。某个环境地址不同时用 .env 的
+ *   VITE_FILE_UPLOAD_HOST / VITE_FILE_UPLOAD_PATH 覆盖即可，无需改代码。
+ */
+const API_SITE_ROOT = API_HOST.replace(/\/v1\/?$/, '');
+export const FILE_UPLOAD_HOST = import.meta.env.VITE_FILE_UPLOAD_HOST || API_SITE_ROOT;
+export const FILE_UPLOAD_PATH =
+  import.meta.env.VITE_FILE_UPLOAD_PATH || '/zuul/v1/xcx/yqt-co/subscribe/upload/file';
+
+/**
  * 腾讯云行为验证码 appId。appId 是前端公开值，真正的票据校验在服务端完成，可安全暴露。
  * userIp 供腾讯侧做风控，取的是网关出口 IP，caa 同款接口即固定传此值。
  */

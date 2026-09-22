@@ -55,12 +55,22 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
   const [aiTagInputLicense, setAiTagInputLicense] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  /**
+   * 提示。上一条的定时器要清掉：连着两条提示时，前一条的定时器会提前把后一条清掉，
+   * 用户就看不到真正要紧的那句（填报页踩过，这里同款修法）。
+   */
+  const toastTimerRef = useRef<number | null>(null);
   const showToast = (msg: string) => {
     setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 2800);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 2800);
   };
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    },
+    []
+  );
 
   // AI 请求要跑十几秒，这期间用户还能接着改表单；用 ref 留住最新一版，
   // 免得回调里拿着发起请求那一刻的旧值，把这段输入覆盖回去

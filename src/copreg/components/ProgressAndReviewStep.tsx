@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { TimelineNode, RegistrationPlan, RegistrationDetails, PaymentOrder, ReviewBranch } from '../types';
 import {
   Activity,
@@ -172,16 +172,28 @@ export const ProgressAndReviewStep: React.FC<ProgressAndReviewStepProps> = ({
 
   /**
    * 企业名称、法定代表人、收件地址来自第 5 步「企业注册申报资料填报」提交时回写的摘要
-   * （见 RegistrationDetailsStep 的 handleVerifySuccess）。没提交就进不来这一页，但摘要里
+   * （见 RegistrationDetailsStep 的 handleSubmit）。没提交就进不来这一页，但摘要里
    * 仍可能有个别字段是空的（例如申报表没填经营地址）——直接渲染会出现「法定代表人：【】」，
    * 所以空值统一给个占位，不编造。
    */
   const pendingSync = '待同步';
 
+  /**
+   * 提示。上一条的定时器要清掉：连着两条提示时，前一条的定时器会提前把后一条清掉，
+   * 用户就看不到真正要紧的那句（填报页踩过，这里同款修法）。
+   */
+  const toastTimerRef = useRef<number | null>(null);
   const showToast = (msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2500);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 2500);
   };
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    },
+    []
+  );
 
   const handleFixAndResubmit = () => {
     setIsFixSubmitted(true);

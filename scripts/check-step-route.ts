@@ -11,6 +11,7 @@ import {
   advanceOnPaid,
   hashClaimsPaid,
   progressRouteOf,
+  showsPaidView,
   resolveStep,
   stepHash,
   stepOfHash,
@@ -105,22 +106,26 @@ function ok(label: string, condition: boolean) {
   ok('订单已支付 → 落在第 3 步的「支付成功」界面（hash 为 #paid）', paid.landing === 'payment');
   ok('已支付时服务群也解锁了（能直达，但不默认跳进去）', paid.unlocked.join(',') === 'survey,proposal,payment,group');
 
-  // 用户报的 bug：申报资料填完了，刷新却被送回支付页
+  // 用户报的 bug（已两次）：申报资料填完了，刷新却落到别处
   const submitted = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: true });
-  ok('申报资料已提交 → 第 6 步进度页（不再被送回支付页）', submitted.landing === 'progress');
+  ok('申报资料已提交 → 第 3 步的支付成功界面（#paid），不是第 6 步', submitted.landing === 'payment');
+  ok(
+    '已提交时首帧还没查单也照样按支付成功界面渲染（不用等 orderPaid）',
+    progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: false, detailsSubmitted: true }).landing === 'payment'
+  );
   ok('已提交时六步全解锁（可以回去改申报资料）', submitted.unlocked.length === 6 && submitted.unlocked.join(',') === STEP_ORDER.join(','));
 
   ok(
-    '后面的证据优先：同时满足「已支付」与「已提交」时取更靠后的',
-    progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: true }).landing === 'progress'
+    '后面的证据优先：同时满足「已支付」与「已提交」时同样落在支付成功界面',
+    progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: true }).landing === 'payment'
   );
   ok(
-    '没有凭据却有已提交的申报表（本地凭据被删）→ 仍按最远的证据落点',
-    progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: true }).landing === 'progress'
+    '没有委托单号却有已提交的申报表（本地凭据被删）→ 仍落支付成功界面',
+    progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: true }).landing === 'payment'
   );
 
   // 与 hash 收口配合：已解锁的 hash 直接生效，没解锁的才回退
-  ok('#progress + 已提交 → 第 6 步', resolveStep('progress', submitted.unlocked, submitted.landing) === 'progress');
+  ok('#progress + 已提交 → 第 6 步（进度页仍解锁、手敲可达）', resolveStep('progress', submitted.unlocked, submitted.landing) === 'progress');
   ok('#fill-details + 已提交 → 第 5 步（可回去改）', resolveStep('fill_details', submitted.unlocked, submitted.landing) === 'fill_details');
   ok('#group + 已支付 → 第 4 步', resolveStep('group', paid.unlocked, paid.landing) === 'group');
   ok(
@@ -131,6 +136,15 @@ function ok(label: string, condition: boolean) {
     '#progress 但只是拿到过单号（没支付）→ 仍收口回第 3 步',
     resolveStep('progress', recorded.unlocked, recorded.landing) === 'payment'
   );
+}
+
+/* ------------------------------------------- 第 3 步显示哪个界面（#paid / #payment） */
+
+{
+  ok('服务端说已支付 → 支付成功界面', showsPaidView(true, false));
+  ok('申报资料已提交（查单还没回来）→ 也按支付成功界面', showsPaidView(false, true));
+  ok('两者都不成立 → 待支付界面', !showsPaidView(false, false));
+  ok('两者都成立 → 支付成功界面', showsPaidView(true, true));
 }
 
 /* --------------------------------------- 异步查回「已支付」后要不要往前推 */

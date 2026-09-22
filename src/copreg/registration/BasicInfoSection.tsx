@@ -5,13 +5,13 @@
 
 import React, { useEffect, useRef } from 'react';
 import { BasicInfoData, FileAttachment } from './types';
-import { uid, formatSize } from './defaultData';
+import { formatSize } from './defaultData';
+import { useAttachmentUpload } from './useAttachmentUpload';
 import {
   Plus,
   Trash2,
   Building,
   MapPin,
-  Sparkles,
   ShieldCheck,
   UserCheck,
   Info,
@@ -77,37 +77,33 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
      currentSingleDirector?.includes('代行') ||
      currentSingleDirector?.includes('不设董事'));
 
+  // 选完文件直接上传：拿到 fileUuid 才往表单里加行（见 handleFileUpload）
+  const { isUploading, upload } = useAttachmentUpload();
+
   const isSupervisorSelected =
     data.singleSupervisor === '设 1 名监事' ||
     data.singleSupervisor === '设1名监事' ||
     data.singleSupervisor === '一名监事';
 
-  const handleFileUpload = (files: FileList | null, target: 'reg' | 'work') => {
+  /**
+   * 选完文件直接上传（`useAttachmentUpload`）：拿到 fileUuid 才往表单里加行。
+   * 失败只 toast 原因、不加行 —— 一行没有 fileUuid 的附件既显示不出图，也提交不上去。
+   */
+  const handleFileUpload = async (files: FileList | null, target: 'reg' | 'work') => {
     if (!files || files.length === 0) return;
-    const fileArray = Array.from(files);
-
-    fileArray.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const newAttachment: FileAttachment = {
-          id: uid(),
-          name: file.name,
-          size: file.size,
-          type: file.type || 'application/octet-stream',
-          data: (reader.result as string) || '',
-          slot: target === 'reg' ? 'regAddressProof' : 'workAddressProof',
-        };
-        if (target === 'reg') {
-          const current = data.regFiles || [];
-          update({ regFiles: [...current, newAttachment] });
-        } else {
-          const current = data.workFiles || [];
-          update({ workFiles: [...current, newAttachment] });
-        }
-      };
-      reader.readAsDataURL(file);
-    });
-    if (onToast) onToast('已添加场地证明材料');
+    const slot = target === 'reg' ? 'regAddressProof' : 'workAddressProof';
+    try {
+      const uploaded = await upload(files, slot);
+      if (uploaded.length === 0) return;
+      if (target === 'reg') {
+        update({ regFiles: [...(data.regFiles || []), ...uploaded] });
+      } else {
+        update({ workFiles: [...(data.workFiles || []), ...uploaded] });
+      }
+      if (onToast) onToast(`已上传 ${uploaded.length} 份场地证明材料`);
+    } catch (error) {
+      if (onToast) onToast(error instanceof Error ? error.message : '附件上传失败，请稍后重试');
+    }
   };
 
   const handleRemoveFile = (fileId: string, target: 'reg' | 'work') => {
@@ -117,37 +113,6 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       update({ workFiles: (data.workFiles || []).filter((f) => f.id !== fileId) });
     }
     if (onToast) onToast('已移除附件');
-  };
-
-  const handleAddSampleProof = (target: 'reg' | 'work') => {
-    if (target === 'reg') {
-      const sampleFile: FileAttachment = {
-        id: uid(),
-        name: '房屋租赁合同及不动产权属证明（已备案）.pdf',
-        size: 1420500,
-        type: 'application/pdf',
-        slot: 'regAddressProof',
-        data: 'data:application/pdf;base64,JVBERi0xLjQKJeLjz9MKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCg==',
-      };
-      update({
-        regAddressNature: data.regAddressNature || '租赁用房',
-        regFiles: [...(data.regFiles || []), sampleFile],
-      });
-    } else {
-      const sampleFile: FileAttachment = {
-        id: uid(),
-        name: '实际经营办公场所租赁协议与物业入驻证明.pdf',
-        size: 985200,
-        type: 'application/pdf',
-        slot: 'workAddressProof',
-        data: 'data:application/pdf;base64,JVBERi0xLjQKJeLjz9MKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZy9QYWdlcyAyIDAgUj4+ZW5kb2JqCg==',
-      };
-      update({
-        workAddressNature: data.workAddressNature || '商业租赁',
-        workFiles: [...(data.workFiles || []), sampleFile],
-      });
-    }
-    if (onToast) onToast('已载入合规示例场地证明材料');
   };
 
   const handleOrgSelect = (org: string) => {
@@ -539,14 +504,6 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                       <span className="text-rose-500">*</span>
                       <span className="text-[11px] text-slate-400 font-normal">（如租赁合同、房产证复印件或场地使用证明）</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => handleAddSampleProof('reg')}
-                      className="text-[11px] text-[#2AA894] hover:underline cursor-pointer flex items-center gap-1"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>载入示例证明</span>
-                    </button>
                   </div>
 
                   {/* Upload Box */}
@@ -554,17 +511,21 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     ref={regFileInputRef}
                     type="file"
                     multiple
+                    disabled={isUploading}
                     accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
                     className="hidden"
                     onChange={(e) => handleFileUpload(e.target.files, 'reg')}
                   />
                   <div
-                    onClick={() => regFileInputRef.current?.click()}
+                    onClick={() => {
+                      if (isUploading) return;
+                      regFileInputRef.current?.click();
+                    }}
                     className="border-2 border-dashed border-slate-200 hover:border-[#36B39E] rounded-xl p-4 text-center bg-white hover:bg-emerald-50/20 transition-all cursor-pointer group"
                   >
                     <UploadCloud className="w-6 h-6 text-slate-400 group-hover:text-[#2AA894] mx-auto mb-1 transition-colors" />
                     <p className="text-xs font-medium text-slate-700">
-                      点击或将证明文件拖拽至此处上传
+                      {isUploading ? '上传中…' : '点击或将证明文件拖拽至此处上传'}
                     </p>
                     <p className="text-[11px] text-slate-400 mt-0.5">
                       支持 JPG、PNG、PDF 格式，单个文件不超过 20MB（可上传多份）
@@ -582,7 +543,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                           <div className="flex items-center gap-2 min-w-0">
                             <FileText className="w-4 h-4 text-[#2AA894] shrink-0" />
                             <span className="text-slate-800 font-medium truncate max-w-[240px] sm:max-w-md">
-                              {f.name}
+                              {f.fileName}
                             </span>
                             <span className="text-[10px] text-slate-400 shrink-0">
                               ({formatSize(f.size)})
@@ -738,14 +699,6 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                       <span className="text-rose-500">*</span>
                       <span className="text-[11px] text-slate-400 font-normal">（如租赁合同、物业入驻证明或场地使用协议）</span>
                     </label>
-                    <button
-                      type="button"
-                      onClick={() => handleAddSampleProof('work')}
-                      className="text-[11px] text-[#2AA894] hover:underline cursor-pointer flex items-center gap-1"
-                    >
-                      <Sparkles className="w-3 h-3" />
-                      <span>载入示例证明</span>
-                    </button>
                   </div>
 
                   {/* Upload Box */}
@@ -753,12 +706,16 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     ref={workFileInputRef}
                     type="file"
                     multiple
+                    disabled={isUploading}
                     accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
                     className="hidden"
                     onChange={(e) => handleFileUpload(e.target.files, 'work')}
                   />
                   <div
-                    onClick={() => workFileInputRef.current?.click()}
+                    onClick={() => {
+                      if (isUploading) return;
+                      workFileInputRef.current?.click();
+                    }}
                     className="border-2 border-dashed border-slate-200 hover:border-[#36B39E] rounded-xl p-4 text-center bg-white hover:bg-emerald-50/20 transition-all cursor-pointer group"
                   >
                     <UploadCloud className="w-6 h-6 text-slate-400 group-hover:text-[#2AA894] mx-auto mb-1 transition-colors" />
@@ -781,7 +738,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                           <div className="flex items-center gap-2 min-w-0">
                             <FileText className="w-4 h-4 text-[#2AA894] shrink-0" />
                             <span className="text-slate-800 font-medium truncate max-w-[240px] sm:max-w-md">
-                              {f.name}
+                              {f.fileName}
                             </span>
                             <span className="text-[10px] text-slate-400 shrink-0">
                               ({formatSize(f.size)})

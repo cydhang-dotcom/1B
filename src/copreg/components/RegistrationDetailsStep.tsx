@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RegistrationDetails } from '../types';
 import {
   RegistrationFullForm,
@@ -23,11 +23,14 @@ import { AuthorizationSection } from '../registration/AuthorizationSection';
 import { ReviewSection } from '../registration/ReviewSection';
 import { RecordModal } from '../registration/RecordModal';
 import { ShareholderTypeModal } from '../registration/ShareholderTypeModal';
-import { VerificationModal } from '../registration/VerificationModal';
 import { HelpModal } from '../registration/HelpModal';
 import { FilePreviewModal } from '../registration/FilePreviewModal';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
 import { registrationSeedFrom } from '../registrationSeed';
+import { sanitizeFormAttachments } from '../registration/attachments';
+import { conflictErrorsOf } from '../registration/conflicts';
+import { OPEN_INFO_TIMEOUT_MS, saveOpenInfo, type OpenInfoEndpoint } from '../registration/openInfo';
+import { DOC_HOST, OPEN_INFO_PATH } from '../../config/api';
 import type { RegistrationPlan, SurveyData } from '../types';
 import {
   ArrowLeft,
@@ -51,6 +54,8 @@ interface RegistrationDetailsStepProps {
   plan: RegistrationPlan;
   /** 确认/支付步骤用过的手机号（本地不落，拿到就带上） */
   contactPhone?: string;
+  /** 委托单号（第 1 步生成方案时服务端给的 recordId）：保存 / 提交接口的 busUnionId */
+  busUnionId: string;
   onUpdateDetails: (details: RegistrationDetails) => void;
   onSubmitForReview: () => void;
   /**
@@ -60,6 +65,9 @@ interface RegistrationDetailsStepProps {
    */
   onBackToPaid: () => void;
 }
+
+/** 只有 React 这一层读 config/api.ts：它依赖 import.meta.env，是 Vite 专有的 */
+const OPEN_INFO_ENDPOINT: OpenInfoEndpoint = { host: DOC_HOST, path: OPEN_INFO_PATH };
 
 const CHAPTERS = [
   { id: 0, num: '01', title: '基本信息', fullTitle: '企业基本信息' },
@@ -74,6 +82,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   survey,
   plan,
   contactPhone,
+  busUnionId,
   onUpdateDetails,
   onSubmitForReview,
   onBackToPaid,
@@ -103,7 +112,9 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
           if (next.basic.unanimous === undefined || next.basic.unanimous === null) next.basic.unanimous = true;
           if (!next.basic.regAddressNature) next.basic.regAddressNature = '租赁用房';
           if (!next.basic.workAddressNature) next.basic.workAddressNature = '商业租赁';
-          return next;
+          // 附件逐项收口：旧版本存档里存的是 dataURL（本地文件内容），服务端并不知道那些文件，
+          // 现在只认上传接口给过 fileUuid 的附件 —— 没有的丢掉，免得渲染出裂图、提交上空附件
+          return sanitizeFormAttachments(next);
         }
       }
     } catch (e) {
@@ -116,6 +127,8 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   const [currentChapter, setCurrentChapter] = useState<number>(0);
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  // 保存 / 提交接口在途：按钮置灰，避免同一份资料连发两次
+  const [isSaving, setIsSaving] = useState(false);
 
   // Modals state
   const [showTypeModal, setShowTypeModal] = useState<boolean>(false);
@@ -128,16 +141,27 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
 
   const [previewFile, setPreviewFile] = useState<FileAttachment | null>(null);
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
-  const [showVerifyModal, setShowVerifyModal] = useState<boolean>(false);
   const [showWecomModal, setShowWecomModal] = useState<boolean>(false);
 
   // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图
   const wecomQr = useCustomerServiceQr(showWecomModal);
 
+  /**
+   * 提示。**必须把上一条的定时器清掉**：连着两条提示（例如「保存草稿失败」→ 紧接着「提交失败」）时，
+   * 前一条的定时器会提前把后一条清掉，用户就看不到真正要紧的那句。
+   */
+  const toastTimerRef = useRef<number | null>(null);
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 3000);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToastMsg(null), 3000);
   };
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    },
+    []
+  );
 
   const updateForm = (partial: Partial<RegistrationFullForm>) => {
     setForm((prev) => ({ ...prev, ...partial }));
@@ -321,7 +345,13 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     return errs;
   };
 
-  const allErrors = useMemo(() => validate(), [form]);
+  /**
+   * 提交前的完整门槛 = 逐项校验（`validate()`，管「填了没有 / 格式对不对」）
+   * + **关联冲突**（`conflictErrorsOf()`，管「几项之间是否自相矛盾」，如注册资本 ↔ 股东出资、
+   * 治理结构 ↔ 实际指派的董事/监事、企业名称 ↔ 组织形式）。两者共用同一套错误结构，
+   * 所以章节顶部的「本章节尚有 N 项需完善」会一并列出，点提交时也会跳到第一个出错章节。
+   */
+  const allErrors = useMemo(() => [...validate(), ...conflictErrorsOf(form)], [form]);
 
   // Chapter completion states
   const chapterStates = useMemo(() => {
@@ -341,8 +371,12 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     return map;
   }, [currentChapterErrors]);
 
-  // Save draft locally
-  const handleSaveDraft = (silent = false) => {
+  /**
+   * 保存草稿：**先写本地**（绝不因为服务端不通而丢掉用户刚填的东西），
+   * 再调保存接口的「临时保存」（savaType 0）。服务端没存上要说出来，
+   * 但不能把本地那份撤掉 —— 两份是各自独立的存档，本地这份照样能让用户接着填。
+   */
+  const handleSaveDraft = async (silent = false) => {
     const nowStr = new Date().toLocaleString('zh-CN', { hour12: false });
     const snapshot: RegistrationFullForm = {
       ...form,
@@ -352,12 +386,24 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
       setForm(snapshot);
       setIsDirty(false);
-      if (!silent) showToast(`申报草稿已成功保存 · ${nowStr}`);
-      return true;
     } catch (e) {
-      showToast('草稿保存完成');
-      return false;
+      showToast('本地草稿保存失败（浏览器可能禁用了本地存储）');
     }
+
+    setIsSaving(true);
+    try {
+      await saveOpenInfo(OPEN_INFO_ENDPOINT, { busUnionId, form: snapshot, savaType: '0' });
+      if (!silent) showToast(`申报草稿已保存 · ${nowStr}`);
+    } catch (error) {
+      showToast(
+        `${
+          error instanceof Error ? error.message : '保存到服务端失败'
+        }（本地草稿已保存，可继续填写）`
+      );
+    } finally {
+      setIsSaving(false);
+    }
+    return true;
   };
 
   const handleRefillFromPlan = () => {
@@ -385,32 +431,38 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     }
   };
 
-  // Submit trigger
-  const handleSubmitStart = () => {
-    if (form.status === 'submitted') {
-      showToast('正在前往“服务进度状态与办理清单”...');
-      onSubmitForReview();
-      return;
-    }
-    if (allErrors.length > 0) {
-      const firstErr = allErrors[0];
-      handleGoChapter(firstErr.s);
-      showToast(`仍有 ${allErrors.length} 项信息待完善，请先补充`);
-      return;
-    }
-    setShowVerifyModal(true);
-  };
-
-  // Verification success
-  const handleVerifySuccess = (phone: string) => {
-    setShowVerifyModal(false);
+  /**
+   * 提交申报资料。
+   *
+   * 顺序：**先调保存接口（savaType 1），成功了才落本地并把状态置为已提交**。
+   * 接口失败（含没接通 / 没委托单号 / 超时 / 服务端报错）一律拦在填报页：
+   * 提示原因、状态仍是草稿，用户改完再点一次即可 —— 反过来的话，服务端没有这份资料、
+   * 页面却显示「已提交」，进度页会一直等一个不存在的初审。
+   *
+   * 经办手机号沿用申报表里已有的那份（第 1 步手机验证通过后由 seed 带进来的
+   * `submissionPhone`，拿不到就回落到 App 传下来的 `contactPhone`）—— 这一步不再收手机号。
+   */
+  const handleSubmit = async () => {
     const nowStr = new Date().toLocaleString('zh-CN', { hour12: false });
+    const verifiedPhone = form.submissionPhone || contactPhone || '';
     const updated: RegistrationFullForm = {
       ...form,
       status: 'submitted',
       submittedAt: nowStr,
-      submissionPhone: phone,
+      submissionPhone: verifiedPhone,
     };
+
+    setIsSaving(true);
+    try {
+      // var2 就是「本地存档那份 JSON」：这里提交的与下面写进 localStorage 的是同一份快照
+      await saveOpenInfo(OPEN_INFO_ENDPOINT, { busUnionId, form: updated, savaType: '1' });
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '申报资料提交失败，请稍后重试');
+      setIsSaving(false);
+      return;
+    }
+    setIsSaving(false);
+
     setForm(updated);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -444,7 +496,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
         name: repPerson?.name ?? '',
         // 申报表只收身份证正反面照片，没有证件号文本，这里补不出来
         idCard: details.legalRepresentative.idCard,
-        phone: repPerson?.phone || phone,
+        phone: repPerson?.phone || verifiedPhone,
         email: repPerson?.email ?? '',
       },
       supervisor: {
@@ -463,7 +515,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
           id: s.id,
           name: s.type === '自然人' ? sp?.name ?? '' : s.name,
           idCard: '',
-          phone: sp?.phone ?? phone,
+          phone: sp?.phone ?? verifiedPhone,
           // 转不出数字就给 0，不编一个「看着像真的」的股比与出资额
           ratio: Number(s.ratio) || 0,
           capitalAmount: Number(s.amount) || 0,
@@ -480,6 +532,24 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     setTimeout(() => {
       onSubmitForReview();
     }, 400);
+  };
+
+  // Submit trigger
+  const handleSubmitStart = () => {
+    if (form.status === 'submitted') {
+      showToast('正在前往“服务进度状态与办理清单”...');
+      onSubmitForReview();
+      return;
+    }
+    if (allErrors.length > 0) {
+      const firstErr = allErrors[0];
+      handleGoChapter(firstErr.s);
+      showToast(`仍有 ${allErrors.length} 项信息待完善，请先补充`);
+      return;
+    }
+    // 校验与关联冲突都过了就直接提交：**不再弹那个演示用的短信验证弹框**
+    // （验证码是页面上现编的，验证不了任何东西，只多一次点击）
+    void handleSubmit();
   };
 
   // Modal Save/Delete Handlers
@@ -716,8 +786,6 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
           {currentChapter === 3 && (
             <AuthorizationSection
               data={form.authorization}
-              roles={form.roles}
-              people={form.people}
               onChange={(authorization) => updateForm({ authorization })}
               onPreviewFile={(file) => setPreviewFile(file)}
               onToast={showToast}
@@ -755,12 +823,13 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
             {/* 草稿已保存 / 保存草稿 */}
             <button
               type="button"
-              onClick={() => handleSaveDraft(false)}
-              className="px-3 py-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              onClick={() => void handleSaveDraft(false)}
+              disabled={isSaving}
+              className="px-3 py-1.5 rounded-full border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs disabled:opacity-60 disabled:cursor-not-allowed"
               title="点击手动保存当前填报草稿"
             >
               <Save className="w-3.5 h-3.5 text-[#36B39E]" />
-              <span>{isDirty ? '保存草稿' : '草稿已保存'}</span>
+              <span>{isSaving ? '保存中…' : isDirty ? '保存草稿' : '草稿已保存'}</span>
             </button>
 
             {/* 填报须知 */}
@@ -795,10 +864,11 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
               <button
                 type="button"
                 onClick={handleSubmitStart}
-                className="px-6 sm:px-7 py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-[#36B39E]/20"
+                disabled={isSaving}
+                className="px-6 sm:px-7 py-2.5 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-md shadow-[#36B39E]/20 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>确认并提交申请</span>
+                <span>{isSaving ? '提交中…' : '确认并提交申请'}</span>
               </button>
             )}
           </div>
@@ -876,15 +946,6 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
           onRefillFromPlan={handleRefillFromPlan}
           onClose={() => setShowHelpModal(false)}
           onOpenWecom={() => setShowWecomModal(true)}
-        />
-      )}
-
-      {/* SMS Phone Verification Modal */}
-      {showVerifyModal && (
-        <VerificationModal
-          defaultPhone={form.submissionPhone || contactPhone || ''}
-          onVerifySuccess={handleVerifySuccess}
-          onClose={() => setShowVerifyModal(false)}
         />
       )}
 

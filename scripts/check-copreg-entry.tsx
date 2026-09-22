@@ -82,6 +82,8 @@ const render = (keys: Record<string, unknown>, hash = '') => {
     step1: html.includes('id="sec-core"'),
     step2: html.includes('id="btn-confirm-proposal-proceed"'),
     step3: html.includes('id="btn-click-pay"'),
+    // 第 3 步的另一个界面：支付成功（与「待支付」二选一）
+    paidView: html.includes('支付成功 · 委托代办已生效'),
     step4: html.includes('专属服务群') || html.includes('id="group-chat"'),
     recordShown: html.includes('VHpX5NqoXLHwPyMnVeBzCN'),
   };
@@ -224,10 +226,15 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
     { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
     ''
   );
+  // 注：SSR 只渲染首帧、不跑 effect，所以地址栏写没写成 #paid 看不了（那一步由真机验证覆盖）
   check(
-    '申报资料已提交 + 有委托单号 → 刷新落在第 6 步进度页，而不是支付页',
-    afterSubmit.html.includes('企业开办与政务交付办理进度') && !afterSubmit.step3,
-    `进度页=${afterSubmit.html.includes('企业开办与政务交付办理进度')} 支付页=${afterSubmit.step3}`
+    '申报资料已提交 + 有委托单号 → 刷新落在支付成功界面，不是进度页也不是待支付页',
+    afterSubmit.paidView && !afterSubmit.step3 && !afterSubmit.html.includes('企业开办与政务交付办理进度'),
+    `支付成功界面=${afterSubmit.paidView} 待支付页=${afterSubmit.step3}`
+  );
+  check(
+    '已提交时清单显示「资料已提交 · 专员初审中」并给出「查看/修改申报资料」入口',
+    afterSubmit.html.includes('资料已提交 · 专员初审中') && afterSubmit.html.includes('查看/修改申报资料')
   );
 
   // 只填了问卷、还没拿到诊断结果：落在第 1 步（问卷答案还在，接着填/重新生成即可）
@@ -238,12 +245,26 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   const formAndReport = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '');
   check('问卷 + 诊断结果 → 第 2 步', formAndReport.step2 && !formAndReport.step1);
 
+  // 进度页本身：已提交后手敲 #progress 应当真的渲染出进度页（落点不再是它，但步骤仍解锁）
+  const progressPage = render(
+    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
+    '#progress'
+  );
+  check(
+    '已提交后手敲 #progress → 渲染进度页（企业开办与政务交付办理进度）',
+    progressPage.html.includes('企业开办与政务交付办理进度') && progressPage.hash === '#progress',
+    `hash=${progressPage.hash}`
+  );
+
   // 已提交时手敲 #payment 也应该能回去看（六步都解锁了）
   const backToPayment = render(
     { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
     '#payment'
   );
-  check('已提交后手敲 #payment 仍可回到支付页（已解锁）', backToPayment.step3);
+  check(
+    '已提交后手敲 #payment 也按支付成功界面渲染（同一页的两个状态，已付过款就不该再显示待支付）',
+    backToPayment.paidView
+  );
 }
 
 /* --------------------------------- 第 5 步：必须是转换来的数据，不是假示例 */
@@ -270,6 +291,7 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
       survey={survey}
       plan={buildPlan(survey, quoteFor('standard', ['addon-bank']))}
       contactPhone="13800000000"
+      busUnionId="TEST-RECORD-1"
       onUpdateDetails={() => {}}
       onSubmitForReview={() => {}}
       onBackToPaid={() => {}}

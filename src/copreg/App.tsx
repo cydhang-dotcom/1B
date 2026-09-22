@@ -42,6 +42,7 @@ import {
   hashClaimsPaid,
   progressRouteOf,
   resolveStep,
+  showsPaidView,
   stepHash,
   stepOfHash,
 } from './stepRoute';
@@ -89,7 +90,7 @@ const emptySurvey = (): SurveyData => ({
  * 空注册资料。
  *
  * 这张表是给「办理进度」页看的摘要（企业名称、法定代表人、收件地址、材料清单），
- * 由第 5 步「企业注册申报资料填报」在提交时回写（见 RegistrationDetailsStep 的 handleVerifySuccess）。
+ * 由第 5 步「企业注册申报资料填报」在提交时回写（见 RegistrationDetailsStep 的 handleSubmit）。
  * 还没提交时保持空壳，进度页对空值显示占位，不编造。
  *
  * docs 保留：那份清单是「要交哪些材料」的产品规格，不是用户数据；每条状态回到 pending。
@@ -261,12 +262,18 @@ export default function App() {
   // 否则会把 #paid 先改成 #payment、查到已支付再改回来，地址栏白闪两下。
   const [paidCheck, setPaidCheck] = useState<'idle' | 'checking' | 'done'>('idle');
   const isPaidOrder = order.status === 'paid';
+  /**
+   * 第 3 步该显示哪一个界面：查单说已支付，或者**申报资料已提交**（填报页只有支付成功页的
+   * 入口能进，所以那本身就说明付过款了）。地址栏写 `#paid`、第 3 步渲染支付成功界面都用它 ——
+   * 刷新时不必等查单，不会先闪一屏「待支付」。
+   */
+  const paidView = showsPaidView(isPaidOrder, isDetailsSubmitted);
 
   const skipFirstHashWrite = useRef(true);
   useEffect(() => {
     if (paidCheck === 'checking') return; // 核实中，地址栏先不动
     // 已支付的支付页有自己的 hash（#paid）；其余情况按当前步骤的 hash
-    const target = isPaidOrder && currentStep === 'payment' ? PAID_HASH : stepHash(currentStep);
+    const target = paidView && currentStep === 'payment' ? PAID_HASH : stepHash(currentStep);
     if (skipFirstHashWrite.current) {
       // 首帧只做规范化（例如地址栏是 #progress 但实际只能到第 1 步）：用 replace，
       // 不给自己多塞一条历史，否则用户按后退会退回到同一个页面
@@ -276,14 +283,15 @@ export default function App() {
     }
     // 之后每换一步压一条历史，后退就是退回上一步
     if (window.location.hash !== target) window.location.hash = target;
-  }, [currentStep, isPaidOrder, paidCheck]);
+  }, [currentStep, paidView, paidCheck]);
 
   useEffect(() => {
     const onHashChange = () => {
       const requested = stepOfHash(window.location.hash);
       // `#paid` 不是「请求哪一步」而是「声称已支付」：本次会话里没确认过已支付就不认，
-      // 改回真实步骤（下一次刷新时首帧核实会再给一次机会）
-      if (hashClaimsPaid(window.location.hash) && !isPaidOrder) {
+      // 改回真实步骤（下一次刷新时首帧核实会再给一次机会）。
+      // 申报资料已提交的人按支付成功界面算（见 showsPaidView），所以这种人也认 `#paid`
+      if (hashClaimsPaid(window.location.hash) && !paidView) {
         window.history.replaceState(null, '', stepHash(stepRef.current));
         return;
       }
@@ -299,7 +307,7 @@ export default function App() {
     };
     window.addEventListener('hashchange', onHashChange);
     return () => window.removeEventListener('hashchange', onHashChange);
-  }, [unlockedSteps, isPaidOrder]);
+  }, [unlockedSteps, paidView]);
 
   // 订单状态核实：只要手上有委托单号、而且还不知道这笔已支付，就问一次服务端。两件事都靠它：
   //   ① 地址栏是 `#paid` 时能不能真的显示「支付成功」；
@@ -458,8 +466,11 @@ export default function App() {
   // Step 5: Submit details for review -> 跳转到「服务进度状态与办理清单」页
   const handleSubmitForReview = () => {
     setIsDetailsSubmitted(true);
+    // 第 6 步仍然解锁（进度页要能进：刷新落点也是它），但**提交成功回的是支付成功页**
+    // （#paid）—— 那一页的「服务进度状态与办理清单」会立刻变成「资料已提交 · 专员初审中」，
+    // 并给出「查看/修改申报资料」入口，比直接甩到进度时间线更像「刚提交完该看的东西」
     unlockStep('progress');
-    setCurrentStep('progress');
+    setCurrentStep('payment');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -634,6 +645,7 @@ export default function App() {
             order={order}
             busUnionId={planRecord?.recordId ?? ''}
             isDetailsSubmitted={isDetailsSubmitted}
+            paidView={paidView}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
             onProceedToFillDetails={handleProceedToFillDetails}
@@ -664,6 +676,7 @@ export default function App() {
             survey={survey}
             plan={plan}
             contactPhone={order.contactPhone}
+            busUnionId={planRecord?.recordId ?? ''}
             onUpdateDetails={setDetails}
             onSubmitForReview={handleSubmitForReview}
             onBackToPaid={() => {

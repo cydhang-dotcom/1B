@@ -3,12 +3,22 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/**
+ * 一个已上传的附件。**选完文件就调上传接口**（见 `useAttachmentUpload.ts`），
+ * 这里只留服务端给的文件编号 —— 不存 dataURL：那份 base64 既会撑爆 localStorage，
+ * 也没法交给服务端出单。要显示 / 下载时用全局工具 `fileUrlOf(fileUuid)` 现拼地址。
+ */
 export interface FileAttachment {
+  /** 本地行 key（React key、删除用）；与服务端的 fileUuid 无关 */
   id: string;
-  name: string;
+  /** 上传接口返回的文件 id：取图 / 下载都靠它（`fileUrlOf(fileUuid)`） */
+  fileUuid: string;
+  /** 上传接口返回的文件名；服务端没给时回落到本地文件名 */
+  fileName: string;
+  /** 本地文件大小（服务端不回这一项，仅用于展示） */
   size: number;
+  /** MIME（本地读到的，判断图片 / PDF 用） */
   type: string;
-  data: string; // Data URL or placeholder
   slot?: 'idFront' | 'idBack' | 'license' | 'regAddressProof' | 'workAddressProof' | string;
 }
 

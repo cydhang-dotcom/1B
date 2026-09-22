@@ -16,6 +16,8 @@
  * 只有 Vite 提供），所以 scripts/ 下的 tsx 自检能直接引它。
  */
 
+import { docUuidUrl } from './docUuidUrl';
+
 /** 通用兜底客服码：只在 www 上有一份，所以写死绝对地址（换域名/子路径部署也不会 404） */
 export const FALLBACK_CUSTOMER_SERVICE_QR =
   'https://www.ibanbu.com/image-yqt/customer-service-qr.png';
@@ -38,12 +40,13 @@ export const perShareQrEndpoint = (docHost: string, shareUserUuid: string | null
  * 查到的响应 → 该显示的图片地址。
  *
  * 服务端给了 `perShareEwmFile` 就用文件服务上的那张（`{host}/doc/uuid/{file}/get`，
- * 文件 id 要转义）；没给、给的不是字符串、或 host 缺失 → 回落到通用兜底图。
+ * 拼法见 utils/docUuidUrl.ts，与附件地址共用同一份逻辑）；没给、给的不是字符串、或 host
+ * 缺失 → 回落到通用兜底图。
  * 这里永远返回一个可用的地址，调用方不必再判空。
  */
 export const perShareQrUrl = (docHost: string, payload: unknown): string => {
   const data = (payload ?? {}) as Record<string, unknown>;
   const file = typeof data.perShareEwmFile === 'string' ? data.perShareEwmFile.trim() : '';
-  if (file === '' || docHost.trim() === '') return FALLBACK_CUSTOMER_SERVICE_QR;
-  return joinUrl(docHost, `doc/uuid/${encodeURIComponent(file)}/get`);
+  const url = docUuidUrl(docHost, file);
+  return url === '' ? FALLBACK_CUSTOMER_SERVICE_QR : url;
 };

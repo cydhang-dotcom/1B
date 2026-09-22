@@ -113,8 +113,8 @@
 
 | 字段 | 类型 | 注释 |
 |---|---|---|
-| `trusteeName` | 文本 | 受托人，默认取「联系人」角色的人员姓名 |
-| `trusteeIdNumber` | 文本 | 本版不强制收集 |
+| `trusteeName` | 文本 | **初始化留空、由用户填写**（不再默认取「联系人」那个人的姓名 —— 受托人要与「一窗通」公章经办人一致，未必是联系人）；委托书正文、打印件与下载件都用它 |
+| `trusteeIdNumber` | 文本 | 同上，留空可填；键入时只收数字与结尾的 X。本版不强制收集（校验里只要求上传签字盖章后的委托书） |
 | `entrustDate` | 日期 | 委托日期 |
 | `files` | 附件 | 已签字盖章的委托书扫描件，提交前至少 1 份 |
 
@@ -132,22 +132,107 @@
 ## 二、草稿与校验
 
 - **草稿**：手动「保存草稿」按钮与提交成功时都写 `localStorage[STORAGE_KEY]`，整份
-  `RegistrationFullForm` 一起存（含附件 dataURL），`savedAt` 记录保存时间。页面初始化时
-  先读这份存档；读不到就地生成一份示例表单，方便直接走通演示。
+  `RegistrationFullForm` 一起存，`savedAt` 记录保存时间。页面初始化时先读这份存档；
+  读不到就按第〇节从前面步骤转换一份（不再有示例表单）。
+  **附件只存 `fileUuid`**（不存 dataURL，见下面「附件」小节），所以存档很小。
 - **读取旧存档**：`RegistrationDetailsStep` 初始化时会对缺字段做兜底（`board` / `singleDirector` /
-  `unanimous` / `regAddressNature` / `workAddressNature`），旧结构不会让页面白屏。
+  `unanimous` / `regAddressNature` / `workAddressNature`），旧结构不会让页面白屏；
+  附件再走一遍 `sanitizeFormAttachments` —— **没有 `fileUuid` 的一律丢掉**（旧版本存的是
+  dataURL，服务端并不知道那些文件，留着只会渲染出裂图、提交上空附件）。
+
+### 附件：选完文件直接上传
+
+- **时机**：选完文件的当下就调上传接口（`useAttachmentUpload` 的 `upload()`，三处选文件的地方
+  都走它：场地证明 / 证件照与营业执照 / 委托书）。上传中那些入口置灰，成功后表单里只多一行
+  `{ id, fileUuid, fileName, size, type, slot }`；**失败只提示原因、不加行**（半截的附件比没有更糟）。
+- **接口**：`POST {API 站点根}/zuul/v1/xcx/yqt-co/subscribe/upload/file`（dev：`http://testv3001.yowits.net/zuul/v1/…`），
+  `multipart/form-data`、字段名 `file`，返回 `{ fileUuid, fileName }`（`src/utils/fileUpload.ts`
+  负责请求与错误文案）。**上传走 zuul 网关**（与普通接口的 `/v1` 是两个前缀，老项目的
+  `axios.defaults.uploadConfig.baseURL` 也是 `{站点根}/zuul/v1`），而**取图走 DOC_HOST**
+  （`{DOC_HOST}/doc/uuid/{fileUuid}/get`）—— 两者不是同一个 host。
+  某个环境地址不同时用 `.env` 的 `VITE_FILE_UPLOAD_HOST` / `VITE_FILE_UPLOAD_PATH` 覆盖。
+- **图片 / 附件地址**：全局工具函数 **`fileUrlOf(fileUuid)`**（`src/utils/fileUrl.ts`）现拼
+  `{DOC_HOST}/doc/uuid/{fileUuid}/get`；空 id 返回空串。表单里不存地址（会过期），也不存文件内容。
+- 预览弹窗（`FilePreviewModal`）图片走这个地址；PDF / 其它格式给「在新窗口打开」链接。
+### 关联冲突校验（`src/copreg/registration/conflicts.ts`）
+
+`validate()` 只管「这一项填了没有、格式对不对」；**几项之间自相矛盾**由 `conflictErrorsOf()` 管：
+产出同样是 `ValidationErrorItem`，调用方（`RegistrationDetailsStep`）把它并进 `allErrors`，
+于是它和普通校验完全同权 —— 章节顶部「本章节尚有 N 项需完善」会列出来、点提交会跳到第一个
+出错章节、**不解决就提交不出去**。自检：`npx tsx scripts/check-conflicts.ts`（58 项）。
+
+| 章节 | 冲突 | 例子 |
+|---|---|---|
+| 股东出资 | 出资比例合计 ≠ 100% | 「合计 90%，应为 100%（还差 10%）」 |
+| 股东出资 | **出资额合计 ≠ 注册资本**（全部填了才算） | 「各股东认缴出资合计 90 万元，与基本信息里的注册资本 100 万元不一致（差 10 万元）」 |
+| 股东出资 | 出资额**只填了一部分**（填就得填全，否则没法对账） | 「有 1 位股东没填认缴出资金额（共 2 位）：请补齐，或全部留空」 |
+| 股东出资 | 单行：**比例 × 注册资本 ≠ 出资额** | 「股东 1：按出资比例 30% × 注册资本 100 万元 = 30 万元，与填写的 50 万元不一致」（挂到那一行） |
+| 股东出资 | 自然人股东没关联人员（或关联到不存在的人） | 「必须关联一位已录入的人员（当前未关联，姓名与证件照都取不到）」 |
+| 主要人员 | 法定代表人 / 财务负责人多于一位 | 「法定代表人由 2 位人员同时担任（张三、李四），只能有一位」 |
+| 主要人员 | 设董事会 N 名董事 ↔ 实际指派「董事」的人数 | 「基本信息里设 3 名董事，但主要人员里指派了 1 位董事，请对齐」 |
+| 主要人员 | 不设董事会（由总经理代行）却指派了董事 | 「两者矛盾」 |
+| 主要人员 | 不设监事却指派了监事 / 设 1 名监事却不是 1 位 | 「两者矛盾」/「请对齐」 |
+| 基本信息 | 企业名称含「股份」/「合伙」↔ 组织形式不符 | 「名称『甲乙丙股份有限公司』含『股份』，但与组织形式『有限责任公司』不符」（挂到那个名称输入框） |
+| 基本信息 | 组织形式选了股份 / 合伙，但名称里都没该字样 | 「请核对」 |
+| 委托书 | 受托人姓名与身份证号**只填了一半**（或都填、或都留空交申请人手写） | 「委托书上两项都要有」 |
+| 委托书 | 身份证号不是 18 位（17 位数字 + 数字或 X） | 带原值回显 |
+| 确认页 | 勾了「股东均为自然人」的免申报承诺，却有非自然人股东 | 「两者矛盾」并点名那几位股东 |
+
+两条口径：
+
+1. **只报「矛盾」，不报「没填」**。「不设董事会时必须有总经理」这类属于必填（`validate()` 的
+   `requiredRoles` 已经管了），不在这里重复报。
+2. **宁可不报，也不误报**。认缴出资额是选填：**一份都没填就不跟注册资本对账**，全填了才比合计；
+   金额/比例的浮点尾巴留 0.01 的容差（33.33 + 33.33 + 33.34 不会误报）。
+
+**看过但没做的**（连同理由，免得以后重复讨论）：
+
+- 手机号重复 / 同名不同人：可疑但不构成矛盾，做了会误报（一人多号、同名常见）—— 想做的话
+  更适合做「提示级」而不是拦提交；
+- 注册资本 vs 问卷里填的金额 / 方案建议值：那句建议本来就是给用户覆盖的，不算冲突；
+- 股东行数 vs 问卷里的「股东人数」：问卷只用来铺行，行数才是准的；
+- 委托书受托人 vs 法定代表人：允许不是同一人（受托人要跟「一窗通」公章经办人一致）；
+- 地址性质 vs 是否自有房产、`setup.*` 那套旧治理字段：前者语义上不矛盾，后者界面上已无入口。
+
 - **校验**：`validate()` 在组件内，按章节返回 `ValidationErrorItem[]`（`s` = 章节下标，
   `record` 用于把错误挂回具体股东 / 人员记录）。点「确认并提交申请」时若还有错误，会跳到
   第一个出错章节并在顶部列出本章节的待完善项；导航圆圈只按校验结果标记完成，与提交动作无关。
 
-## 三、提交链路
+## 三、保存与提交链路
 
-1. 点「确认并提交申请」→ 无错误则弹出 `VerificationModal`（演示短信：验证码页面上直接给出）。
-2. 验证通过后把 `status: 'submitted'`、`submittedAt`、`submissionPhone` 写回表单并落盘。
-3. `onUpdateDetails(...)` 把申报结果回写成 `App.tsx` 的 `details: RegistrationDetails`
-   （企业名称、备选名称、注册资本、法定代表人 / 财务负责人 / 监事、股东结构、收件地址）。
-   申报表里没有的字段（身份证号）保留原值，不用示例常量兜底。
-4. `onSubmitForReview()` → `App.tsx` 把 `isDetailsSubmitted` 置真并切到第 6 步「办理进度」。
+**保存 / 提交接口**：`POST {DOC_HOST}/xcx/yqt-co/subscribe/open-info`（与微信支付、企微码同一个
+host），请求体恰好三个字段（后端 DTO 原文，`savaType` 就是这个拼写）：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `busUnionId` | `string` | 开户业务关联 id = **第 1 步生成方案时服务端给的委托单号**（`planRecord.recordId`）；App 以 `busUnionId` prop 传给填报页，缺了就地拦住不发请求 |
+| `var2` | `string` | **本地存档那份 JSON 的字符串**（就是写进 `localStorage[STORAGE_KEY]` 的那份表单，含附件 `fileUuid`） |
+| `savaType` | `string` | `0` = 临时保存（「保存草稿」）、`1` = 保存（「确认并提交申请」） |
+
+响应体前端**不解析：2xx 即成功**（接口说明里没有响应字段，不猜 `code`/`status` 误判）；
+非 2xx 用响应体文字当错误文案，超时 15s。请求与错误文案在
+`src/copreg/registration/openInfo.ts`，自检 `scripts/check-open-info.ts`（30 项）。
+
+两条链路：
+
+1. **保存草稿**（`savaType: '0'`）：**先写本地**（服务端不通也不丢用户刚填的东西），再调接口做临时保存；
+   服务端没存上会提示「…（本地草稿已保存，可继续填写）」，但不撤掉本地那份。
+2. **确认并提交申请**（`savaType: '1'`）：
+   1. 点「确认并提交申请」→ 逐项校验 + 关联冲突都过了就**直接提交**（不再弹演示短信验证弹框：
+      验证码是页面上现编的，验证不了任何东西，只多一次点击）；
+   2. **先调保存接口**，成功了才把 `status: 'submitted'`、`submittedAt`、`submissionPhone`
+      写回表单并落盘 —— 手机号沿用申报表里已有的那份（第 1 步手机验证通过后由 seed 带进来的
+      `submissionPhone`，拿不到回落到 App 的 `contactPhone`），这一步不再收手机号；
+   3. 接口失败（未接通 / 没委托单号 / 超时 / 服务端报错）一律**拦在填报页**：toast 出原因、
+      状态仍是草稿、可原地重试 —— 反过来的话服务端没有这份资料、页面却显示「已提交」，
+      进度页会一直等一个不存在的初审；
+   4. `onUpdateDetails(...)` 把申报结果回写成 `App.tsx` 的 `details: RegistrationDetails`
+      （企业名称、备选名称、注册资本、法定代表人 / 财务负责人 / 监事、股东结构、收件地址）；
+      申报表里没有的字段（身份证号）保留原值，不用示例常量兜底；
+   5. `onSubmitForReview()` → `App.tsx` 把 `isDetailsSubmitted` 置真，**切回第 3 步的支付成功页
+      （`#paid`）**：那一页的「服务进度状态与办理清单」当场变成「资料已提交 · 专员初审中」，
+      并出现「查看/修改申报资料」入口。**刷新落点同样是它**（`#paid`，见 `docs/copreg-steps.md`）；
+      第 6 步进度页仍然解锁、手敲 `#progress` 可达，只是不再是提交后的落点。
 
 ## 四、与其它步骤的联动
 
@@ -166,7 +251,9 @@
 | 章节标题、校验规则、提交链路、弹窗编排 | `src/copreg/components/RegistrationDetailsStep.tsx` |
 | 基本信息字段与地址性质选项 | `src/copreg/registration/BasicInfoSection.tsx` |
 | 股东 / 人员记录弹窗（字段、附件位、角色互斥） | `src/copreg/registration/RecordModal.tsx` |
+| 附件的上传（hook）与收口（纯函数） | `src/copreg/registration/useAttachmentUpload.ts`、`attachments.ts` |
+| 上传请求与错误文案 / 附件地址拼法 | `src/utils/fileUpload.ts`、`src/utils/fileUrl.ts`、`src/utils/docUuidUrl.ts` |
 | 委托书模板、打印与下载 | `src/copreg/registration/AuthorizationSection.tsx` |
 | 确认页展示与真实性确认 | `src/copreg/registration/ReviewSection.tsx` |
-| 空白表单、示例表单、`STORAGE_KEY` | `src/copreg/registration/defaultData.ts` |
+| 空白表单与 `STORAGE_KEY` | `src/copreg/registration/defaultData.ts` |
 | 填报状态在支付页 / 进度页的呈现 | `src/copreg/components/AgreementAndPaymentStep.tsx`、`ProgressAndReviewStep.tsx`、`App.tsx` |

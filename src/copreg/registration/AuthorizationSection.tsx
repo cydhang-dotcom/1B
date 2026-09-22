@@ -4,14 +4,13 @@
  */
 
 import React from 'react';
-import { AuthorizationData, FileAttachment, RoleRecord, PersonRecord } from './types';
+import { AuthorizationData, FileAttachment } from './types';
 import { Printer, Download, Upload, Eye, Trash2, Check, FileText } from 'lucide-react';
-import { formatSize, uid } from './defaultData';
+import { formatSize } from './defaultData';
+import { useAttachmentUpload } from './useAttachmentUpload';
 
 interface AuthorizationSectionProps {
   data: AuthorizationData;
-  roles: RoleRecord[];
-  people: Record<string, PersonRecord>;
   onChange: (data: AuthorizationData) => void;
   onPreviewFile: (file: FileAttachment) => void;
   onToast: (msg: string) => void;
@@ -19,19 +18,17 @@ interface AuthorizationSectionProps {
 
 export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
   data,
-  roles,
-  people,
   onChange,
   onPreviewFile,
   onToast,
 }) => {
-  // Find contact person to automatically fill as trustee
-  const contactRole = roles.find((r) => r.roles.includes('联系人')) || roles[0];
-  const contactPerson = contactRole ? people[contactRole.personId] : null;
-  // 受托人取申报表里的值或「联系人」，都没有就留空 —— 委托书上按下划线占位交申请人手写，
-  // 绝不回落成写死的示例姓名
-  const trusteeName = data.trusteeName || contactPerson?.name || '';
-    const trusteeIdNumber = data.trusteeIdNumber || '';
+  // 选完文件直接上传：拿到 fileUuid 才替掉旧的委托书附件
+  const { isUploading, upload } = useAttachmentUpload();
+
+  // 受托人两项**初始化留空、由用户自己填**：不再回落到「联系人」那个人 ——
+  // 受托人未必是联系人（要与「一窗通」公章经办人一致），拿别人的名字顶上去只会印错委托书
+  const trusteeName = data.trusteeName;
+  const trusteeIdNumber = data.trusteeIdNumber;
 
   const dateVal = data.entrustDate || new Date().toISOString().split('T')[0];
   const [y, m, d] = dateVal.split('-');
@@ -39,27 +36,24 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
   const hasFile = data.files && data.files.length > 0;
   const firstFile = hasFile ? data.files[0] : null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  /** 选完文件直接上传（`useAttachmentUpload`）：拿到 fileUuid 才替掉旧的委托书附件 */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
     const file = fileList[0];
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const newFile: FileAttachment = {
-        id: uid(),
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        data: (reader.result as string) || '',
-      };
-      onChange({
-        ...data,
-        files: [newFile],
-      });
-      onToast('已上传签署完成的委托书！');
-    };
-    reader.readAsDataURL(file);
+    try {
+      const uploaded = await upload([file]);
+      if (uploaded.length > 0) {
+        onChange({ ...data, files: [uploaded[0]] });
+        onToast('已上传签署完成的委托书！');
+      }
+    } catch (error) {
+      onToast(error instanceof Error ? error.message : '附件上传失败，请稍后重试');
+    } finally {
+      // 同一个文件再选一次也要能触发 onChange
+      e.target.value = '';
+    }
   };
 
   const handleRemoveFile = () => {
@@ -148,8 +142,41 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
             <div className="mb-2.5">
               <h3 className="text-xs sm:text-sm font-bold text-slate-800">第 1 步：生成并打印委托书</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                系统已依据经办人信息自动排版 A4 授权委托书，可直接打印或下载。
+                填写下面的受托人信息后，A4 委托书会同步排版；确认无误再打印或下载。
               </p>
+            </div>
+
+            {/* 受托人信息：委托书正文与打印件都取这两项（初始为空，可随时改） */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1 block">受托人姓名</label>
+                <input
+                  type="text"
+                  value={data.trusteeName}
+                  maxLength={20}
+                  onChange={(e) => onChange({ ...data, trusteeName: e.target.value })}
+                  placeholder="请填写受托人姓名"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#36B39E]"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-700 mb-1 block">受托人身份证号码</label>
+                <input
+                  type="text"
+                  value={data.trusteeIdNumber}
+                  maxLength={18}
+                  // 身份证号只可能是数字与结尾的 X：边输边滤，免得打印出来一串怪字符
+                  onChange={(e) =>
+                    onChange({
+                      ...data,
+                      trusteeIdNumber: e.target.value.replace(/[^0-9Xx]/g, '').toUpperCase(),
+                    })
+                  }
+                  placeholder="请填写 18 位身份证号码"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#36B39E]"
+                />
+                <p className="text-[11px] text-slate-400 mt-1">需与「一窗通」公章经办人一致。</p>
+              </div>
             </div>
 
             {/* Paper Presentation Stage */}
@@ -265,7 +292,10 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
                       <FileText className="w-4 h-4 text-[#36B39E]" />
                     </div>
                     <div className="min-w-0">
-                      <div className="text-xs font-bold text-slate-800 truncate">{firstFile.name}</div>
+                      {/* 文件名取上传接口返回的那个（服务端没给才回落到本地文件名，见 attachmentFromUpload） */}
+                      <div className="text-xs font-bold text-slate-800 truncate" title={firstFile.fileName}>
+                        {firstFile.fileName || '已上传的委托书'}
+                      </div>
                       <div className="text-[11px] text-slate-400 font-mono">
                         {formatSize(firstFile.size)} · 已就绪
                       </div>
@@ -312,6 +342,7 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
                   <input
                     type="file"
                     accept="image/*,.pdf"
+                    disabled={isUploading}
                     onChange={handleFileUpload}
                     className="hidden"
                   />

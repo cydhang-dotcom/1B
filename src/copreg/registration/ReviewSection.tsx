@@ -29,11 +29,9 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
 
   const isPureNatural = shareholders.length > 0 && shareholders.every((s) => s.type === '自然人');
 
-  const contactRole = roles.find((r) => r.roles.includes('联系人')) || roles[0];
-  const contactPerson = contactRole ? people[contactRole.personId] : null;
-  // 受托人取申报表里的值或「联系人」，都没有就留空，不回落成写死的示例姓名
-  const trusteeName = authorization.trusteeName || contactPerson?.name || '';
-    const trusteeIdNumber = authorization.trusteeIdNumber || '';
+  // 受托人只看申报表里填了什么：不再回落到「联系人」（受托人未必是联系人，见 AuthorizationSection）
+  const trusteeName = authorization.trusteeName;
+  const trusteeIdNumber = authorization.trusteeIdNumber;
 
   const renderFilesList = (files: FileAttachment[]) => {
     if (!files || files.length === 0) {
@@ -49,7 +47,7 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-[#E6F7F2] hover:text-[#1D6C5E] border border-slate-200 text-slate-700 text-xs font-medium cursor-pointer transition-colors shadow-2xs"
           >
             <FileText className="w-3.5 h-3.5 text-slate-400" />
-            <span className="truncate max-w-[160px]">{f.name}</span>
+            <span className="truncate max-w-[160px]">{f.fileName}</span>
             <span className="text-slate-400 text-[10px]">({formatSize(f.size)})</span>
           </button>
         ))}
@@ -294,11 +292,11 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs sm:text-sm mb-3">
           <div>
             <dt className="text-slate-400 font-medium">受托经办人姓名：</dt>
-            <dd className="text-slate-800 font-semibold mt-0.5">{trusteeName}</dd>
+            <dd className="text-slate-800 font-semibold mt-0.5">{trusteeName || '—'}</dd>
           </div>
           <div>
             <dt className="text-slate-400 font-medium">受托人身份证号：</dt>
-            <dd className="text-slate-800 font-semibold mt-0.5">{trusteeIdNumber}</dd>
+            <dd className="text-slate-800 font-semibold mt-0.5">{trusteeIdNumber || '—'}</dd>
           </div>
         </dl>
 
