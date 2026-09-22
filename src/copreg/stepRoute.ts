@@ -135,8 +135,8 @@ export interface ProgressRoute {
 
 export const progressRouteOf = (progress: KnownProgress): ProgressRoute => {
   // 落点：从最靠后的证据往回退。已支付落「支付成功」界面（第 3 步的已支付态，hash 为 #paid），
-  // 而不是直接跳进服务群 —— 用户刚付完款，先看到「支付成功」这个milestone 更清楚，
-  // 那一页本身就有进服务群的入口。
+  // 而不是直接跳进服务群或填报页 —— 用户刚付完款，先看到「支付成功」这个 milestone 更清楚；
+  // 那一页的主按钮是「申报资料填报」（第 5 步），服务群仍在导航里可直达。
   const landing: ProcessStep = progress.detailsSubmitted
     ? 'progress'
     : progress.orderPaid

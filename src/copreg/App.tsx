@@ -24,7 +24,7 @@ import { RegistrationDetailsStep } from './components/RegistrationDetailsStep';
 import { STORAGE_KEY as REGISTRATION_STORAGE_KEY } from './registration/defaultData';
 import { buildPlan } from './plan';
 import { addonsOf, quoteFor } from './components/proposalQuote';
-import { applyPlanSuggestion, generatePlanReport, PlanSuggestion } from './planGenerate';
+import { applyPlanSuggestion, generatePlanReport, requestPlanCaptcha, PlanSuggestion } from './planGenerate';
 import {
   clearPlanConfirm,
   clearPlanDraft,
@@ -383,6 +383,13 @@ export default function App() {
 
   // Step 1: Submit Survey -> S-->>U: 生成注册方案与服务报价
   const handleSurveySubmit = async () => {
+    // 腾讯行为验证码：与「AI 智能填充」同一道闸门，没有 ticket 的请求会被服务端直接拒绝。
+    // 弹窗必须放在下面那串本地动作**之前** —— 用户自己关掉弹窗（requestPlanCaptcha 返回 null）
+    // 时，问卷与方案存档都不该被动过，也不该把人往前送一步：原地不动、不报错，等他再点一次。
+    // 组件加载失败等真故障则原样抛出，由 SurveyStep 弹中文提示（这时接口一个请求都没发）。
+    const captcha = await requestPlanCaptcha();
+    if (captcha === null) return;
+
     // 载荷用的是点击那一刻的问卷快照 —— 请求在途时用户还能接着改问卷，
     // 那些改动要重新点一次「生成需求方案」才会进方案。
     // 提示攒着：接口失败与本地存不下都可能发生，最后合成一条说，别让后一条把前一条顶掉。
@@ -407,7 +414,7 @@ export default function App() {
 
     let suggestion: PlanSuggestion | null = null;
     try {
-      suggestion = await generatePlanReport(survey);
+      suggestion = await generatePlanReport(survey, captcha);
     } catch (error) {
       // 接口不通不拦人前进：本地方案本身就是完整可用的（价格、套餐只由前端报价决定），
       // 但也不静默降级 —— 把原因说出来，用户才知道这版方案的行业内容是本地规则给的。
@@ -465,14 +472,9 @@ export default function App() {
     unlockStep('group');
   };
 
-  // Proceed from Payment to Service Group
-  const handleProceedToGroup = () => {
-    unlockStep('group');
-    setCurrentStep('group');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // Proceed from Service Group to Fill Details —— 服务群之后就是填报企业注册申报资料
+  // Proceed from Payment to Fill Details —— 付款后该做的是填申报资料（第 5 步）。
+  // 不再从 #paid 引流到第 4 步服务群：服务群仍在导航里可直达，只是不再是主按钮。
+  // 服务群页面里的入口也走这个函数
   const handleProceedToFillDetails = () => {
     unlockStep('fill_details');
     setCurrentStep('fill_details');
@@ -651,7 +653,7 @@ export default function App() {
             busUnionId={planConfirm?.recordId ?? ''}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
-            onProceedToGroup={handleProceedToGroup}
+            onProceedToFillDetails={handleProceedToFillDetails}
             onBack={() => {
               setCurrentStep('proposal');
               window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -667,7 +669,6 @@ export default function App() {
             isDetailsSubmitted={isDetailsSubmitted}
             onUpdateOrder={setOrder}
             onPaymentSuccess={handlePaymentSuccess}
-            onProceedToGroup={handleProceedToGroup}
             onProceedToFillDetails={handleProceedToFillDetails}
             onBack={() => {
               setCurrentStep('proposal');

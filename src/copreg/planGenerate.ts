@@ -4,9 +4,15 @@
  */
 
 /**
- * 生成需求方案（架构诊断）：把整份问卷发给 `POST /api/company-plan/diagnose-architecture`，
- * 换回一份「组织形式 / 纳税人身份 / 注册资本 / 注册地址 / 许可资质 / 风险提示」的诊断结果，
- * 覆盖到本地方案上。
+ * 生成需求方案（架构诊断）：过完腾讯行为验证码，把整份问卷发给
+ * `POST /api/company-plan/diagnose-architecture`，换回一份「组织形式 / 纳税人身份 / 注册资本 /
+ * 注册地址 / 许可资质 / 风险提示」的诊断结果，覆盖到本地方案上。
+ *
+ * 和 AI 智能填充（aiFill.ts）一样是「验证码通过才发请求」的接口，票据走 query
+ * （captchaAppId / userIp / jcaptchaCode / jcaptchaId），没有 ticket 的请求会被服务端直接拒绝。
+ * 区别只在调用姿势：这里的弹窗由调用方先调 requestPlanCaptcha 拿票据、再把它交给
+ * generatePlanReport —— 见 requestPlanCaptcha 的注释（提交问卷在弹窗之前还有一串本地动作，
+ * 用户取消时那些都不该发生）。
  *
  * 接口地址与完整响应字段见 src/config/api.ts 的 COMPANY_PLAN_HOST 段；请求参数**以前端为准** ——
  * 下面 PlanFormData 就是问卷 SurveyData 的逐字段镜像（字段名完全一致），
@@ -17,9 +23,15 @@
  * 服务端给什么都不改 —— 报价是产品定价，不是模型能决定的事。
  */
 
-import { COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH } from '../config/api';
+import {
+  COMPANY_PLAN_HOST,
+  PLAN_DIAGNOSE_PATH,
+  TENCENT_CAPTCHA_APP_ID,
+  TENCENT_CAPTCHA_USER_IP,
+} from '../config/api';
 import { joinUrl, optionalListOf, optionalStringOf, postJson } from './apiClient';
 import { RegistrationPlan, SurveyData } from './types';
+import { CaptchaCancelledError, showTencentCaptcha, type CaptchaTicket } from '../utils/tencentCaptcha';
 
 /** 失败提示的主语，拼进 apiClient 的几种失败文案里 */
 const LABEL = '生成需求方案';
@@ -161,15 +173,56 @@ export const hasPlanContent = (suggestion: PlanSuggestion): boolean =>
   ].some((field) => field !== null);
 
 /**
- * 请求架构诊断。失败抛带中文提示的 Error（超时 / 网络 / 后端文案 / 没有任何可用字段），
+ * 「生成需求方案」的腾讯行为验证码闸门：弹出验证码，通过后 resolve 出服务端校验所需的票据。
+ *
+ * 顺序不能颠倒 —— 和 AI 智能填充（aiFill.ts 的 aiFillSurvey）一样，没有 ticket 的请求
+ * 会被服务端直接拒绝。只是这里把弹窗单独拆成一步给调用方先调，而不是塞在请求函数里：
+ * 提交问卷在弹窗之前还有一串本地动作（存问卷、作废上一份诊断与确认凭据），
+ * 用户自己关掉弹窗时那些都不该发生，页面也该原地不动 —— 放在请求函数里就拦不住它们。
+ *
+ * 用户取消返回 null（不是失败，调用方原地不动、不要报错）；
+ * 组件加载不出来等真故障抛带中文提示的 Error（此时接口一个请求都没发）。
+ */
+export const requestPlanCaptcha = async (): Promise<CaptchaTicket | null> => {
+  try {
+    return await showTencentCaptcha(TENCENT_CAPTCHA_APP_ID);
+  } catch (error) {
+    if (error instanceof CaptchaCancelledError) return null;
+    throw error;
+  }
+};
+
+/**
+ * 验证码票据走 query，参数名沿用 caa 同款接口的约定：jcaptchaCode = 腾讯 ticket、
+ * jcaptchaId = randstr。不重复塞进 body —— body 的 DTO 只声明了 formData（caa 那边还有
+ * phoneNumber），严格反序列化下多出来的字段会直接换回 400，而 query 参数不会。
+ */
+const buildUrl = ({ ticket, randstr }: CaptchaTicket): string => {
+  // 用 URLSearchParams 拼串而不是 new URL：host 被配成相对路径（本地代理）时 new URL 会抛原生
+  // TypeError，那会绕过 apiClient 的中文错误归一化，把一句英文弹给用户
+  const params = new URLSearchParams({
+    captchaAppId: TENCENT_CAPTCHA_APP_ID,
+    userIp: TENCENT_CAPTCHA_USER_IP,
+    jcaptchaCode: ticket,
+    jcaptchaId: randstr,
+  });
+  return `${joinUrl(COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH)}?${params.toString()}`;
+};
+
+/**
+ * 请求架构诊断，票据取自 requestPlanCaptcha（没过验证码就没有票据可传）。
+ * 失败抛带中文提示的 Error（超时 / 网络 / 后端文案 / 没有任何可用字段），
  * 由调用方决定怎么兜 —— App.tsx 是「不拦人前进，但把失败说出来」。
  *
  * 「响应是合法 JSON 但认不出任何字段」也算失败：那多半是字段名对不上，
  * 此时若当成成功，用户会看到一份本地模板方案却以为它是服务端给的。
  */
-export const generatePlanReport = async (survey: SurveyData): Promise<PlanSuggestion> => {
+export const generatePlanReport = async (
+  survey: SurveyData,
+  captcha: CaptchaTicket
+): Promise<PlanSuggestion> => {
   const body: PlanGenerateRequest = { formData: planFormFromSurvey(survey) };
-  const payload = await postJson(joinUrl(COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH), body, LABEL);
+  const payload = await postJson(buildUrl(captcha), body, LABEL);
 
   const suggestion = parsePlanSuggestion(payload);
   if (!hasPlanContent(suggestion)) throw new Error('生成需求方案未返回可用内容');

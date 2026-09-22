@@ -181,7 +181,9 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
       return;
     }
 
-    // 方案接口要跑十几秒，这期间把按钮锁住 —— 连点两下会发两次请求、跳两次页
+    // 方案接口要跑十几秒，这期间把按钮锁住 —— 连点两下会发两次请求、跳两次页。
+    // 前面还有一段腾讯行为验证码弹窗（与 AI 智能填充同一道闸门）：弹窗期间按钮同样置灰，
+    // 否则再点一次会让后一次弹窗顶掉前一次，前一次只落得一个「已取消」被静默吞掉
     setIsSubmitting(true);
     try {
       await onSubmit();

@@ -45,9 +45,12 @@ interface AgreementAndPaymentStepProps {
   onBack: () => void;
   /** 申报资料是否已提交，决定清单里第一项的完成态与「查看/修改申报资料」入口 */
   isDetailsSubmitted?: boolean;
-  /** 支付后的下一步：专属服务群 */
-  onProceedToGroup?: () => void;
-  /** 直接进入第 5 步「企业注册申报资料填报」，或提交后回来看/改 */
+  /**
+   * 进入第 5 步「企业注册申报资料填报」：清单里第一项（申报资料填报）的入口，
+   * 提交后回来看/改也是它。
+   * **支付成功后不再往第 4 步服务群引流** —— 付款后该做的是填申报资料（与 copreg 主线一致），
+   * 服务群仍在导航里可直达，只是不再是这一页的主按钮。
+   */
   onProceedToFillDetails?: () => void;
   /** 确认接口返回的 recordId：下单时的业务关联 id（busUnionId）。没有它下不了单 */
   busUnionId?: string;
@@ -61,7 +64,6 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   onPaid,
   onBack,
   isDetailsSubmitted,
-  onProceedToGroup,
   onProceedToFillDetails,
   busUnionId
 }) => {
@@ -616,7 +618,7 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                     </div>
                   </div>
                   <span className="text-xs text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200/70 self-start sm:self-auto font-medium">
-                    {effectiveSubmitted ? '资料已提交 · 专员初审中' : '第 1 步待填报'}
+                    {effectiveSubmitted ? '资料已提交 · 专员初审中' : '申报资料待填报'}
                   </span>
                 </div>
 
@@ -678,15 +680,15 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
 
                         <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-center">
                           <span className="text-[11px] text-slate-400">{item.time}</span>
-                          {isCurrentActive && (
+                          {isCurrentActive && !effectiveSubmitted && (
                             <button
                               type="button"
                               onClick={() => {
-                                if (onProceedToGroup) onProceedToGroup();
+                                if (onProceedToFillDetails) onProceedToFillDetails();
                               }}
                               className="px-4 py-1.5 rounded-xl bg-[#2AA894] hover:bg-[#1D6C5E] text-white font-bold text-xs shadow-sm hover:shadow transition-all cursor-pointer flex items-center gap-1"
                             >
-                              <span>进入专属服务群</span>
+                              <span>申报资料填报</span>
                               <ArrowRight className="w-3.5 h-3.5" />
                             </button>
                           )}

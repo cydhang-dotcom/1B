@@ -45,6 +45,14 @@
 - 调整 支付模块契约由原先假设的微信 Native（bizType/bizId + tradeState）换成真实开户支付（payAmount/busUnionId + status '1'/'0'），下单只承诺 codeURL（订单号以查单返回的 orderNo 为准）
 - 调整 查单失败不再抛异常：路径未配 / 超时 / 网络不通 / 缺 status 一律回 unknown，只读预判不拦人；未知 status 只 warn 且仍当未支付
 - 调整 金额由前端传（= 页面实付金额），服务端必须按 busUnionId 复核价格，已在代码注释里写明这条资损风险
+- 新增 「生成需求方案」接口接入腾讯行为验证码：点按钮先弹验证码，票据走 query（captchaAppId / userIp / jcaptchaCode / jcaptchaId），与「AI 智能填充」同一道闸门；弹窗放在所有本地存档动作之前，用户自己关掉＝整件事没发生过（不发请求、存档不动、原地留在第 1 步且不报错）
+- 新增 planGenerate.ts 的 requestPlanCaptcha 与带票据的 buildUrl，generatePlanReport 改为必须传入票据，没过闸门就发不出请求
+- 调整 验证码通过后接口失败仍按原样降级到本地方案（不拦人前进）；验证码组件加载失败则弹中文提示留在原地，一个请求都不发
+- 真机验证（无头 Chrome + 桩替 window.TencentCaptcha / fetch）：取消时 0 个请求且 hash 保持 #survey，通过后 URL 带上四个验证码参数、body 仍是 { formData }
+- 调整 支付成功界面（#paid）清单第一项的主按钮由「进入专属服务群」改为「申报资料填报」，直接进第 5 步；服务群仍然解锁、导航里可直达，只是不再是这一页的下一步（与 copreg 主线一致：付完款该做的是填申报资料）
+- 调整 同一处的状态徽标由「第 1 步待填报」改为「申报资料待填报」（copreg 用的就是这句；这份清单说的是申报资料，跟第 1 步问卷不是同一件事）
+- 删除 AgreementAndPaymentStep 的 onProceedToGroup 与 App 的 handleProceedToGroup：改完就没有调用点了（copreg 里这个函数也是死的）
+- 真机验证（无头 Chrome + 查单桩 + 本地存档）：#paid 上「进入专属服务群」0 处、主按钮为「申报资料填报」，点击后落 #fill-details 并渲染出申报资料填报页
 
 ### 售前咨询页
 - 修复 客服二维码兜底图由根相对路径改为绝对地址，页面被部署到子路径或别的域名下打开时不再失效
@@ -52,6 +60,8 @@
 
 ### 文档
 - 更新 docs/copreg-plan-api.md 与 docs/copreg-registration-fields.md，反映并入后的流程与字段
+- 更新 docs/copreg-plan-api.md 第 2.1 / 四节：diagnose-architecture 补验证码 query 参数、只走 query 的理由，以及用户取消验证码时的界面行为
+- 更新 docs/copreg-steps.md：第 5 步的解锁条件与支付成功界面的下一步（申报资料填报）
 
 - 新增 stepRoute.ts：六个步骤各有一个 URL hash（#survey / #proposal / #payment / #group / #fill-details / #progress），刷新、收藏、转发与浏览器前进后退都能回到同一步
 - 新增 hash 只是请求：没解锁的步骤（没确认就想进支付页、没支付就想进服务群）收口回实际能到的那一步，并把地址栏改写成真实步骤

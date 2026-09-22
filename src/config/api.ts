@@ -76,10 +76,14 @@ export const SMS_SCENE_TYPE = import.meta.env.VITE_SMS_SCENE_TYPE || '20260311';
  *      三个字段都是「无建议给空数组」，不是 null。
  *
  * ── 生成需求方案（架构诊断）────────────────────────────────────────────
- * 请求  POST  {host}/api/company-plan/diagnose-architecture
+ * 请求  POST  {host}/api/company-plan/diagnose-architecture?captchaAppId=&userIp=&jcaptchaCode=&jcaptchaId=
+ *      query 腾讯行为验证码票据：jcaptchaCode = ticket、jcaptchaId = randstr，
+ *            由 src/utils/tencentCaptcha.ts 弹窗取得（调用点见 planGenerate.ts 的
+ *            requestPlanCaptcha）；和 ai-fill 一样，没有 ticket 的请求会被直接拒绝
  *      body  { formData: <问卷字段，逐项见 planGenerate.ts 的 PlanFormData> }
  *            caa 同接口的 body 是 { formData, phoneNumber }，phoneNumber 承载短信校验信息；
  *            问卷提交这一步前端还没有手机号（下一步确认方案时才收并验证），所以先不发这个字段。
+ *            验证码四件套也只走 query，不塞进 body（body 的 DTO 没声明它们，严格反序列化会 400）。
  * 响应  架构诊断结果（都是长文本 / 清单）：
  *      companyNameProposal    企业名称方案建议
  *      companyType            组织形式（含股东结构建议）

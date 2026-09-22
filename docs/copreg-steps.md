@@ -9,7 +9,7 @@ copreg.html 是一个六步向导，每一步有独立的 URL hash：刷新、�
 | 2 | `proposal` | `#proposal` | `components/ProposalStep.tsx` | 始终（有问题案可回看） |
 | 3 | `payment` | `#payment` | `components/AgreementAndPaymentStep.tsx` | 确认接口返回 SUCCESS 并落本地凭据后 |
 | 4 | `group` | `#group` | `components/ServiceGroupStep.tsx` | 支付成功后 |
-| 5 | `fill_details` | `#fill-details` | `components/RegistrationDetailsStep.tsx` | 服务群之后（进入填报） |
+| 5 | `fill_details` | `#fill-details` | `components/RegistrationDetailsStep.tsx` | 支付成功后（`#paid` 的「申报资料填报」，或服务群页里的入口） |
 | 6 | `progress` | `#progress` | `components/ProgressAndReviewStep.tsx` | 填报之后 |
 
 `agreement` 是已废弃的步骤（协议确认并进了支付），没有任何入口，它的 hash 也归到 `#payment`。
@@ -20,6 +20,10 @@ copreg.html 是一个六步向导，每一步有独立的 URL hash：刷新、�
 |---|---|---|
 | 待支付（协议 + 立即支付） | `#payment` | `order.status !== 'paid'` |
 | 支付成功（委托代办已生效） | `#paid` | `order.status === 'paid'` 且已核实 |
+
+支付成功界面「服务进度状态与办理清单」里第一项（申报资料填报）的主按钮是**「申报资料填报」**，
+直接进第 5 步；第 4 步服务群仍然解锁、导航里可直达，但不再是这一页的下一步
+（与 copreg 主线一致：付完款该做的是填申报资料）。
 
 已支付界面上「订单编号 / 经办联系电话 / 支付时间」三格的数据来源是**查单响应**
 （`orderNo` / `mobile` / `payTime`）；`经办人姓名` 目前没有任何地方采集，空着时显示破折号。
