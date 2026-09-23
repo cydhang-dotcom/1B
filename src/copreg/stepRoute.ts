@@ -6,8 +6,6 @@
 /**
  * 步骤 ↔ URL hash。
  *
- * 每一步一个 hash，刷新、收藏、转发都能直接回到同一步，浏览器前进/后退也能按步走：
- *
  *   #survey       第 1 步 业务信息调研
  *   #proposal     第 2 步 注册方案与报价
  *   #payment      第 3 步 协议确认与支付（待支付）
@@ -16,30 +14,30 @@
  *   #fill-details 第 5 步 申报资料填报
  *   #progress     第 6 步 办理进度
  *
- * 三条约定：
+ * 四条约定：
  *
- * 1. **hash 只是请求，不是命令**。`#payment` 只有在「确认凭据已落本地」时才作数；
- *    没有方案就想进支付页、没支付就想进服务群，一律收口回实际能到的那一步，
- *    并把地址栏改回真实步骤。地址栏与页面必须说的是同一件事 —— 否则用户复制出去的链接
- *    会把别人带到一份空壳页面。
- * 2. **`#paid` 比别的 hash 更严格**：它声称「已支付」，而支付状态是服务端说了算的，
- *    前端没有凭据。所以它到不了第 3 步就算完 —— 调用方要拿确认单据号去服务端核实
- *    （见 paymentStatus.ts）之后才敢显示「支付成功」界面；核实不通过就收口回 `#payment`。
- *    详见 App.tsx 的首帧核实与 writeTarget。
- * 3. **映射写死在这张表里**，不直接拿 ProcessStep 当 slug：`fill_details` 带下划线做 URL
+ * 1. **刷新时忽略 hash**：首屏落点只由本地进度证据算（`progressRouteOf`），
+ *    `resolveStep` 不参与首帧；落点确定后由 App 的 effect 把地址栏改写成真实步骤。
+ *    收藏 / 转发出去的链接会过期、也会在别人手里，照 hash 进会把人带进空壳页面 ——
+ *    谁该看到哪一步，只有本地证据说了算。
+ * 2. **地址栏只读**：没人会去解析 hash 决定去哪一步（`stepOfHash` / `resolveStep` 因此都删掉了）。
+ *    App 只在跳步时把当前步骤**写**进地址栏（`replaceState`，不压历史条目），
+ *    手敲 / 前进后退改出来的 hash 会被立刻改回来。地址栏与页面必须说的是同一件事，
+ *    但地址栏不指挥页面。
+ * 3. **`#paid` 只表示「第 3 步的已支付界面」**：写不写它由
+ *    `showsPaidView(订单已支付, 申报资料已提交)` 决定；支付状态本身仍以服务端查单为准
+ *    （见 paymentStatus.ts）。
+ * 4. **映射写死在这张表里**，不直接拿 ProcessStep 当 slug：`fill_details` 带下划线做 URL
  *    不好看，而且内部步骤名以后要改时不该连带把已经发出去的链接改掉。
  *    已废弃的 `agreement` 归到 `#payment`（它本来就并进了支付）。
- * 4. 解析容错：`#/payment`、`#Payment`、`#fill_details` 都认；认不出的值返回 null
- *    （调用方按「没给 hash」处理，不报错、不停在空白页）。
  *
- * 纯函数，不碰 DOM：读写 hash 的部分留在 App（见 App.tsx 的两个 effect）。
+ * 纯函数，不碰 DOM：写 hash 的部分留在 App（见 App.tsx 的两个 effect）。
  */
 
 import type { ProcessStep } from './types';
 
 /** 「已支付」那个界面自己的 hash。它是第 3 步内部的状态，不占 ProcessStep 的位置 */
 export const PAID_HASH = '#paid';
-const PAID_SLUG = 'paid';
 
 /** 步骤 → slug */
 const STEP_SLUGS: Record<ProcessStep, string> = {
@@ -53,45 +51,8 @@ const STEP_SLUGS: Record<ProcessStep, string> = {
   progress: 'progress',
 };
 
-/** slug → 步骤（由上面那张表反向生成，两处不会各写一份） */
-const SLUG_STEPS: Record<string, ProcessStep> = Object.entries(STEP_SLUGS).reduce(
-  (acc, [step, slug]) => {
-    // agreement 与 payment 共用 'payment' 这个 slug：反向映射只认 payment 本身，
-    // 绝不能让它把 #payment 解析成那个已经没有任何入口的 agreement
-    if (step === 'agreement') return acc;
-    acc[slug] = step as ProcessStep;
-    return acc;
-  },
-  {} as Record<string, ProcessStep>
-);
-
-/** 步骤对应的 hash（带 `#`），直接赋给 location.hash 用 */
+/** 步骤对应的 hash（带 `#`）：写地址栏用 */
 export const stepHash = (step: ProcessStep): string => `#${STEP_SLUGS[step] ?? STEP_SLUGS.survey}`;
-
-/** 归一化 hash 文本：去掉 # 与前后斜杠、下划线换连字符、转小写。认不出时返回空串 */
-const slugOf = (hash: string): string =>
-  String(hash ?? '')
-    .trim()
-    .replace(/^#/, '')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
-    .replace(/_/g, '-')
-    .toLowerCase();
-
-/**
- * 解析 hash。认不出返回 null，交给调用方决定兜底到哪一步。
- * `#paid` 也是第 3 步（它只是那一页的另一个状态），所以在这里一并归到 'payment'。
- * 大小写、多余的前后斜杠、下划线写法都容错。
- */
-export const stepOfHash = (hash: string): ProcessStep | null => {
-  const slug = slugOf(hash);
-  if (slug === '') return null;
-  if (slug === PAID_SLUG) return 'payment';
-  return SLUG_STEPS[slug] ?? null;
-};
-
-/** 这个 hash 是不是在声称「已支付」（`#paid`）。声称不等于事实，调用方要拿凭据去核实 */
-export const hashClaimsPaid = (hash: string): boolean => slugOf(hash) === PAID_SLUG;
 
 /** 步骤先后顺序（从早到晚）：解锁范围与「最远进度」都按它算 */
 export const STEP_ORDER: ProcessStep[] = [
@@ -203,19 +164,4 @@ export const advanceOnPaid = (
   if (current !== initial) return null;
   if (STEP_ORDER.indexOf(current) >= STEP_ORDER.indexOf('payment')) return null;
   return 'payment';
-};
-
-/**
- * 收口出**实际要显示**的步骤：
- * 请求的步骤已解锁就用它；没解锁、认不出、或压根没给 hash，用 fallback（App 按本地存档算出来的那一步）。
- * fallback 自己都不在解锁列表里（不该发生）时，退到第一个解锁的步骤。
- */
-export const resolveStep = (
-  requested: ProcessStep | null,
-  unlockedSteps: ProcessStep[],
-  fallback: ProcessStep
-): ProcessStep => {
-  if (requested !== null && unlockedSteps.includes(requested)) return requested;
-  if (unlockedSteps.includes(fallback)) return fallback;
-  return unlockedSteps[0] ?? 'survey';
 };

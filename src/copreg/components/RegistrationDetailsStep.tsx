@@ -443,6 +443,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
    * `submissionPhone`，拿不到就回落到 App 传下来的 `contactPhone`）—— 这一步不再收手机号。
    */
   const handleSubmit = async () => {
+    const wasSubmitted = form.status === 'submitted';
     const nowStr = new Date().toLocaleString('zh-CN', { hour12: false });
     const verifiedPhone = form.submissionPhone || contactPhone || '';
     const updated: RegistrationFullForm = {
@@ -528,27 +529,33 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       },
     });
 
-    showToast('申报资料已成功提交！正在跳转到“服务进度状态与办理清单”...');
+    setIsDirty(false);
+    showToast(
+      wasSubmitted
+        ? '申报资料已更新并重新提交！正在跳转到“服务进度状态与办理清单”...'
+        : '申报资料已成功提交！正在跳转到“服务进度状态与办理清单”...'
+    );
     setTimeout(() => {
       onSubmitForReview();
     }, 400);
   };
 
-  // Submit trigger
+  /**
+   * 提交入口。**不管这份申报表是不是已经提交过，点一次就调一次接口**（savaType 1）：
+   * 已提交的人还能从「查看/修改申报资料」回来改，改完点按钮就该把改动存回服务端 ——
+   * 早先那种「已提交就直接跳走、一个请求都不发」的写法会让用户以为改动提交上去了，
+   * 实际上只落在本地。
+   *
+   * 拦在前面的只有校验与关联冲突：有问题先跳到第一个出错章节。
+   * （不再弹那个演示用的短信验证弹框：验证码是页面上现编的，验证不了任何东西。）
+   */
   const handleSubmitStart = () => {
-    if (form.status === 'submitted') {
-      showToast('正在前往“服务进度状态与办理清单”...');
-      onSubmitForReview();
-      return;
-    }
     if (allErrors.length > 0) {
       const firstErr = allErrors[0];
       handleGoChapter(firstErr.s);
       showToast(`仍有 ${allErrors.length} 项信息待完善，请先补充`);
       return;
     }
-    // 校验与关联冲突都过了就直接提交：**不再弹那个演示用的短信验证弹框**
-    // （验证码是页面上现编的，验证不了任何东西，只多一次点击）
     void handleSubmit();
   };
 

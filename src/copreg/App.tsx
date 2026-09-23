@@ -39,12 +39,9 @@ import {
 import {
   PAID_HASH,
   advanceOnPaid,
-  hashClaimsPaid,
   progressRouteOf,
-  resolveStep,
   showsPaidView,
   stepHash,
-  stepOfHash,
 } from './stepRoute';
 import { fetchPaymentStatus } from './paymentStatus';
 import { createOrderStatusChecker, type OrderStatusChecker } from './orderStatusCheck';
@@ -153,27 +150,31 @@ export default function App() {
   // 提交新问卷 / 重置问卷会作废它（旧单号是上一份问卷建的单）。
   const [planRecord, setPlanRecord] = useState<PlanRecord | null>(planDraft?.record ?? null);
 
-  // 首屏落在哪一步：先按本地存档算出「本来该在哪」（有委托单号 = 第 3 步，
-  // 拿到过接口返回的诊断结果 = 第 2 步），再看地址栏有没有 hash 请求别的步骤 —— hash 只是请求，
-  // 没解锁的步骤会被收口回这一步（见 stepRoute.ts，以及下面同步 hash 的两个 effect）
-  // 刷新时的落点由**已知进度**决定，而且从后往前判断：申报资料已提交 > 订单已支付 >
-  // 拿到过委托单号 > 拿到过诊断结果。只按「有委托单号」就落到第 3 步是错的 —— 那会把已经填完申报资料
-  // 的人送回支付页；只看「有问卷存档」就落到第 2 步同样是错的 —— 方案页的内容来自诊断接口，
-  // 只填了一半问卷（或诊断失败/超时）时进去只有本地模板。订单是否已支付只有异步查单才知道，
-  // 所以首帧先按本地证据算，查回来后由下面的核实 effect 解锁服务群。
-  const { landing: fallbackStep, unlocked: initialUnlocked } = progressRouteOf({
+  // 首屏落在哪一步：**刷新时忽略地址栏的 hash**，只按本地进度证据算（`progressRouteOf`），
+  // 落点确定后由下面的 effect 把地址栏改写成真实步骤。
+  //
+  // 为什么忽略 hash：hash 会过期、也会骗人 —— 收藏 / 转发出去的链接（甚至「已支付」那个
+  // `#paid`）在别人手里、或过几天之后，往往与本地证据不符；按 hash 进会把人带进一份空壳页面，
+  // 或让他看到一份自己没做过的东西。谁该看到哪一步，只有本地证据说了算。
+  //
+  // 判据从后往前：申报资料已提交 > 拿到过委托单号 > 拿到过诊断结果。
+  // 只看「有问卷存档」就落第 2 步是错的 —— 方案页的内容来自诊断接口，只填了一半问卷
+  // （或诊断失败/超时）时进去只有本地模板。订单是否已支付只有异步查单才知道，
+  // 所以首帧先按本地证据算（已提交 / 有单号都算「付过款」，见 showsPaidView），
+  // 查回来后由下面的核实 effect 解锁服务群、补订单信息。
+  //
+  // 地址栏是**只读**的：它只反映当前步骤，不接受手敲 / 前进后退来跳步（见下面两个 effect）。
+  const { landing: initialStep, unlocked: initialUnlocked } = progressRouteOf({
     hasPlanReport: planDraft?.report != null,
     hasRecord: planRecord !== null,
     orderPaid: false,
     detailsSubmitted: readDetailsSubmitted(),
   });
-  const initialStep = resolveStep(stepOfHash(window.location.hash), initialUnlocked, fallbackStep);
 
   if (import.meta.env.DEV) {
     // 落点决策只在首帧算一次，出问题时必须能一眼看出卡在哪条证据上（本地凭据缺失 / 过期最容易被误判）
-    console.info('[copreg] 首屏落点', {
-      hash: window.location.hash,
-      请求的步骤: stepOfHash(window.location.hash),
+    console.info('[copreg] 首屏落点（忽略地址栏 hash）', {
+      地址栏hash: window.location.hash,
       有问卷存档: planDraft !== null,
       有诊断结果: planDraft?.report != null,
       有委托单号: planRecord !== null,
@@ -269,45 +270,34 @@ export default function App() {
    */
   const paidView = showsPaidView(isPaidOrder, isDetailsSubmitted);
 
-  const skipFirstHashWrite = useRef(true);
+  /**
+   * 地址栏**只读**：它只反映「当前在哪一步」这一件事。
+   *
+   * - 每次跳步都走 `replaceState`：不压历史条目 —— 用户按后退是离开这个页面，
+   *   而不是回到上一个步骤（这个向导的步骤历史没有意义，回退请用页面上的「上一项 / 返回」）；
+   * - 不接受外部改写：手敲 hash、前进/后退都把地址栏改回来（见下面那个 hashchange 监听）。
+   *
+   * 唯一要等一等的是「已支付」那个界面：支付状态只有服务端知道，首帧先拿委托单号去查
+   * （下面那个 effect），结论出来之前不写地址栏，否则会先写成 #payment、查到已支付再改回来，
+   * 地址栏白闪两下。
+   */
   useEffect(() => {
     if (paidCheck === 'checking') return; // 核实中，地址栏先不动
     // 已支付的支付页有自己的 hash（#paid）；其余情况按当前步骤的 hash
     const target = paidView && currentStep === 'payment' ? PAID_HASH : stepHash(currentStep);
-    if (skipFirstHashWrite.current) {
-      // 首帧只做规范化（例如地址栏是 #progress 但实际只能到第 1 步）：用 replace，
-      // 不给自己多塞一条历史，否则用户按后退会退回到同一个页面
-      skipFirstHashWrite.current = false;
-      if (window.location.hash !== target) window.history.replaceState(null, '', target);
-      return;
-    }
-    // 之后每换一步压一条历史，后退就是退回上一步
-    if (window.location.hash !== target) window.location.hash = target;
+    if (window.location.hash !== target) window.history.replaceState(null, '', target);
   }, [currentStep, paidView, paidCheck]);
 
+  // 有人动了地址栏（手敲、或浏览器的前进/后退）→ 立刻改回当前步骤，页面不动。
+  // replaceState 不会再触发 hashchange，所以不会打架。
   useEffect(() => {
-    const onHashChange = () => {
-      const requested = stepOfHash(window.location.hash);
-      // `#paid` 不是「请求哪一步」而是「声称已支付」：本次会话里没确认过已支付就不认，
-      // 改回真实步骤（下一次刷新时首帧核实会再给一次机会）。
-      // 申报资料已提交的人按支付成功界面算（见 showsPaidView），所以这种人也认 `#paid`
-      if (hashClaimsPaid(window.location.hash) && !paidView) {
-        window.history.replaceState(null, '', stepHash(stepRef.current));
-        return;
-      }
-      // 认不出的 hash、或还没解锁的步骤：留在原地，并把地址栏改回真实步骤 ——
-      // 地址栏与页面必须一致，否则复制出去的链接会把别人带到空壳页面
-      if (requested === null || !unlockedSteps.includes(requested)) {
-        window.history.replaceState(null, '', stepHash(stepRef.current));
-        return;
-      }
-      if (requested === stepRef.current) return;
-      setCurrentStep(requested);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+    const restoreHash = () => {
+      const target = paidView && currentStep === 'payment' ? PAID_HASH : stepHash(currentStep);
+      if (window.location.hash !== target) window.history.replaceState(null, '', target);
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
-  }, [unlockedSteps, paidView]);
+    window.addEventListener('hashchange', restoreHash);
+    return () => window.removeEventListener('hashchange', restoreHash);
+  }, [currentStep, paidView]);
 
   // 订单状态核实：只要手上有委托单号、而且还不知道这笔已支付，就问一次服务端。两件事都靠它：
   //   ① 地址栏是 `#paid` 时能不能真的显示「支付成功」；
@@ -602,6 +592,7 @@ export default function App() {
             plan={plan}
             survey={survey}
             recordId={planRecord?.recordId ?? ''}
+            locked={paidView}
             onUpdatePlan={(newPlan) => {
               // 方案页切套餐 / 勾加购会按本地模板重建一份方案，别把服务端给的行业诊断丢掉
               const merged = applyPlanSuggestion(newPlan, planSuggestion);

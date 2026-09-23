@@ -73,7 +73,8 @@ export const SMS_SCENE_TYPE = import.meta.env.VITE_SMS_SCENE_TYPE || '20260311';
  *      scope     按重要性排序的标准经营范围条目，无则为空数组
  *      license   行政许可 / 备案资质全称，不需要时为空数组
  *      sensitive 业务涉及的敏感领域标签，取值限定在表单固定选项内（见 plan.ts 的 SENSITIVE_OPTIONS）
- *      三个字段都是「无建议给空数组」，不是 null。
+ *      三个字段都是「无建议给空数组」，不是 null —— **空数组就是「明确没有」**，
+ *      前端会照样写回（把该项清空），与诊断接口的覆盖口径一致。
  *
  * ── 生成需求方案（架构诊断）────────────────────────────────────────────
  * 请求  POST  {host}/api/company-plan/diagnose-architecture

@@ -41,6 +41,12 @@ interface ProposalStepProps {
    * 这里只是把它展示出来，点按钮就是往后走一步
    */
   onProceed: () => void;
+  /**
+   * 订单已支付（含申报资料已提交 —— 那说明必然付过款，见 `showsPaidView`）：
+   * **02 服务套餐与 03 自选增值服务转为不可选**。付款之后改套餐会让页面价格与那笔已支付订单
+   * 对不上（服务端按委托单号复核价格），改套餐本来要在付款前做。
+   */
+  locked?: boolean;
   onBack: () => void;
   onUpdatePlan?: (newPlan: RegistrationPlan) => void;
 }
@@ -51,6 +57,7 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
   recordId,
   onProceed,
   onBack,
+  locked = false,
   onUpdatePlan
 }) => {
   // Service tiers: 'bundle_small' (default) | 'bundle_general' | 'standard'
@@ -89,6 +96,7 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
 
   // Handler to switch tier
   const handleTierSelect = (tier: ServiceTierType) => {
+    if (locked) return; // 已支付：套餐锁定（按钮也置灰了，这里再兜一层）
     setSelectedTier(tier);
     // 企业注册服务：保留有效自选项；全年无忧套餐：已全部内置必选/默认服务，无需外挂自选项
     let nextAddons: string[];
@@ -106,6 +114,7 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
 
   // Handler to toggle optional addon service
   const handleToggleAddon = (addonId: string) => {
+    if (locked) return; // 已支付：增值服务锁定
     const isCurrentlyActive = selectedAddons.includes(addonId);
     const nextAddons = isCurrentlyActive
       ? selectedAddons.filter(id => id !== addonId)
@@ -259,8 +268,17 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
                 <span>02 · 服务套餐</span>
               </div>
-              <span className="text-xs text-slate-400">点击卡片切换方案 · 清单实时联动</span>
+              <span className="text-xs text-slate-400">
+                {locked ? '订单已支付 · 套餐已锁定' : '点击卡片切换方案 · 清单实时联动'}
+              </span>
             </div>
+
+            {locked && (
+              <div className="mb-4 p-3 rounded-xl bg-slate-50 border border-slate-200/80 text-[11px] text-slate-500 leading-relaxed">
+                订单已支付，服务套餐与自选增值服务已按付款时的选择锁定：付款后改档会让页面价格与那笔订单对不上，
+                如需调整请联系专属顾问。
+              </div>
+            )}
 
             <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-4">
               服务套餐选择
@@ -272,8 +290,11 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
               {/* Package 1: 企业注册服务 */}
               <div
                 id="tier-card-standard"
-                onClick={() => handleTierSelect('standard')}
-                className={`p-4 sm:p-4.5 rounded-xl cursor-pointer transition-colors flex flex-col justify-between ${
+                onClick={locked ? undefined : () => handleTierSelect('standard')}
+                aria-disabled={locked || undefined}
+                className={`p-4 sm:p-4.5 rounded-xl transition-colors flex flex-col justify-between ${
+                  locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                } ${
                   selectedTier === 'standard'
                     ? 'border border-[#36B39E] bg-[#F8FCFB]'
                     : 'border border-slate-200/80 bg-white hover:border-slate-300'
@@ -355,8 +376,11 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
               {/* Package 2: 全年无忧服务（小规模） */}
               <div
                 id="tier-card-bundle-small"
-                onClick={() => handleTierSelect('bundle_small')}
-                className={`p-4 sm:p-4.5 rounded-xl cursor-pointer transition-colors flex flex-col justify-between ${
+                onClick={locked ? undefined : () => handleTierSelect('bundle_small')}
+                aria-disabled={locked || undefined}
+                className={`p-4 sm:p-4.5 rounded-xl transition-colors flex flex-col justify-between ${
+                  locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                } ${
                   selectedTier === 'bundle_small'
                     ? 'border border-[#36B39E] bg-[#F8FCFB]'
                     : 'border border-slate-200/80 bg-white hover:border-slate-300'
@@ -438,8 +462,11 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
               {/* Package 3: 全年无忧服务（一般纳税人） */}
               <div
                 id="tier-card-bundle-general"
-                onClick={() => handleTierSelect('bundle_general')}
-                className={`p-4 sm:p-4.5 rounded-xl cursor-pointer transition-colors flex flex-col justify-between ${
+                onClick={locked ? undefined : () => handleTierSelect('bundle_general')}
+                aria-disabled={locked || undefined}
+                className={`p-4 sm:p-4.5 rounded-xl transition-colors flex flex-col justify-between ${
+                  locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                } ${
                   selectedTier === 'bundle_general'
                     ? 'border border-[#36B39E] bg-[#F8FCFB]'
                     : 'border border-slate-200/80 bg-white hover:border-slate-300'
@@ -607,8 +634,11 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
                 return (
                   <div
                     key={addon.id}
-                    onClick={() => handleToggleAddon(addon.id)}
-                    className="py-2.5 flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-50/70 transition-colors select-none group"
+                    onClick={locked ? undefined : () => handleToggleAddon(addon.id)}
+                    aria-disabled={locked || undefined}
+                    className={`py-2.5 flex items-center justify-between gap-2 transition-colors select-none group ${
+                      locked ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:bg-slate-50/70'
+                    }`}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
                       {/* 可选的 checkbox */}

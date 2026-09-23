@@ -13,7 +13,12 @@
  */
 import { renderToString } from 'react-dom/server';
 import App from '../src/copreg/App';
+import { ProposalStep } from '../src/copreg/components/ProposalStep';
 import { RegistrationDetailsStep } from '../src/copreg/components/RegistrationDetailsStep';
+import {
+  ProgressAndReviewStep,
+  INITIAL_TIMELINE_NODES,
+} from '../src/copreg/components/ProgressAndReviewStep';
 import { buildPlan } from '../src/copreg/plan';
 import { quoteFor } from '../src/copreg/components/proposalQuote';
 
@@ -152,23 +157,26 @@ check('旧存档（addons 是字符串数组）+ 单号 → 仍落在第 3 步',
 const bareRecord = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: { recordId: 'VHpX5NqoXLHwPyMnVeBzCN' } });
 check('只有 recordId 的单号 → 同样落到第 3 步', bareRecord.step3, JSON.stringify(bareRecord));
 
-/* --------------------------------------------------- URL hash 决定首屏落点 */
+/* ------------------------------------------------ 首屏忽略 URL hash：只看本地证据 */
 
-// SSR 只渲染一次，不跑 effect，所以这里验的是「hash 决定首屏落在哪一步」（用户真正看到的结果）；
-// 「地址栏被改写成真实步骤」属于 effect 行为，由 scripts/check-step-route.ts 的 resolveStep 覆盖。
-const hashProposal = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#proposal');
-check('#proposal + 有诊断结果 → 第 2 步', hashProposal.step2, `step2=${hashProposal.step2}`);
-
-// 本次改动：没有诊断结果时，手敲 #proposal 也要收口回第 1 步（hash 只是请求，没解锁就不去）
+// SSR 只渲染一次、不跑 effect，所以这里验的正是「首屏落在哪一步」（用户真正看到的结果）。
+// **刷新时地址栏的 hash 一律不看**：收藏/转发的链接（乃至 `#paid`）会过期、也会在别人手里，
+// 落点只由本地进度证据决定；地址栏随后被改写成真实步骤（那是 effect 行为，SSR 看不到，
+// 由真机验证覆盖）。会话内的 hash 导航（手敲、前进/后退）仍按「已解锁才认」收口，
+// 规则在 scripts/check-step-route.ts 的 resolveStep。
 const hashProposalNoReport = render({ [FORM_KEY]: form }, '#proposal');
 check(
-  '#proposal 但只有问卷存档 → 收口回第 1 步',
+  '#proposal 但只有问卷存档 → 忽略 hash，落第 1 步',
   hashProposalNoReport.step1 && !hashProposalNoReport.step2,
   `step1=${hashProposalNoReport.step1} step2=${hashProposalNoReport.step2}`
 );
 
+// 已解锁的 hash 也一样不看：手上只有「问卷 + 诊断结果」时，带 #proposal 与不带都必须落第 2 步
+const hashProposal = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#proposal');
+check('有诊断结果 → 第 2 步（带不带 #proposal 一样）', hashProposal.step2, `step2=${hashProposal.step2}`);
+
 const hashPayment = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#payment');
-check('#payment + 有委托单号 → 第 3 步', hashPayment.step3, `step3=${hashPayment.step3}`);
+check('有委托单号 → 第 3 步（带不带 #payment 一样）', hashPayment.step3, `step3=${hashPayment.step3}`);
 
 // 第 3 步必须拿到委托单号（下单要用它）：漏传时页面会显示「缺少委托单号」，
 // 这条断言就是为上次那个「给废弃的 agreement 渲染点传了、真正在用的 payment 没传」的 bug 加的
@@ -189,14 +197,19 @@ check('#progress（没支付）→ 收口回第 3 步，不是第 6 步', hashPr
 const hashGroup = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#group');
 check('#group（没支付）→ 收口回第 2 步，不是第 4 步', hashGroup.step2, `step2=${hashGroup.step2}`);
 
+// 关键回归：已解锁的 #survey 在**刷新时**也不生效 —— 证据在，就该落第 3 步
 const hashSurvey = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#survey');
-check('#survey 手敲回第 1 步（已解锁的都能去）', hashSurvey.step1, `step1=${hashSurvey.step1}`);
+check(
+  '#survey（已解锁）刷新时同样被忽略 → 仍按证据落第 3 步',
+  hashSurvey.step3 && !hashSurvey.step1,
+  `step1=${hashSurvey.step1} step3=${hashSurvey.step3}`
+);
 
 const hashUnknown = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#nonsense');
 check('认不出的 hash → 按没给处理，落到本该在的第 2 步', hashUnknown.step2, `step2=${hashUnknown.step2}`);
 
 const hashSlash = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '#/proposal');
-check('#/proposal 这种写法也认 → 第 2 步', hashSlash.step2, `step2=${hashSlash.step2}`);
+check('#/proposal 这种写法也认（同样是忽略，落点由证据给） → 第 2 步', hashSlash.step2, `step2=${hashSlash.step2}`);
 
 const hashFillDetails = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record }, '#fill-details');
 check('#fill-details（没到那一步）→ 收口回第 3 步', hashFillDetails.step3, `step3=${hashFillDetails.step3}`);
@@ -245,15 +258,38 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   const formAndReport = render({ [FORM_KEY]: form, [REPORT_KEY]: report }, '');
   check('问卷 + 诊断结果 → 第 2 步', formAndReport.step2 && !formAndReport.step1);
 
-  // 进度页本身：已提交后手敲 #progress 应当真的渲染出进度页（落点不再是它，但步骤仍解锁）
-  const progressPage = render(
-    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
-    '#progress'
+  // 进度页：刷新时 hash 被忽略（已提交一律落支付成功界面），所以它现在只能「进入页面后在会话内跳到」，
+  // SSR 里改为直接渲染组件，保住「这一页自己能不能渲染」的覆盖（页面本身仍要能用）。
+  const progressHtml = renderToString(
+    <ProgressAndReviewStep
+      timeline={INITIAL_TIMELINE_NODES}
+      plan={buildPlan(survey, quoteFor('standard', ['addon-bank']))}
+      details={{
+        primaryName: '甲乙丙科技有限公司',
+        backupName1: '',
+        backupName2: '',
+        industryCategory: '',
+        registeredCapital: '100 万元人民币',
+        legalRepresentative: { name: '张三', idCard: '', phone: '13800000000', email: '' },
+        supervisor: { name: '', idCard: '', phone: '' },
+        financeOfficer: { name: '', idCard: '', phone: '' },
+        shareholders: [],
+        officeAddress: { region: '', detail: '', propertyType: '', area: '' },
+        docs: [],
+      }}
+      order={{ orderNo: 'TEST-ORDER-1', createdAt: '', amount: 2280, paymentMethod: 'wechat', status: 'paid', paidAt: '2026-09-22 10:00:00' }}
+      onUpdateTimeline={() => {}}
+      reviewBranch="complete"
+      onUpdateReviewBranch={() => {}}
+      bankBooked={false}
+      onUpdateBankBooked={() => {}}
+      onGoToChat={() => {}}
+    />
   );
   check(
-    '已提交后手敲 #progress → 渲染进度页（企业开办与政务交付办理进度）',
-    progressPage.html.includes('企业开办与政务交付办理进度') && progressPage.hash === '#progress',
-    `hash=${progressPage.hash}`
+    '进度页组件本身能渲染（刷新时不再靠 #progress 进来，但页面要能用）',
+    progressHtml.includes('企业开办与政务交付办理进度'),
+    ''
   );
 
   // 已提交时手敲 #payment 也应该能回去看（六步都解锁了）
@@ -264,6 +300,47 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   check(
     '已提交后手敲 #payment 也按支付成功界面渲染（同一页的两个状态，已付过款就不该再显示待支付）',
     backToPayment.paidView
+  );
+}
+
+/* ------------------------------------------ 第 2 步：已支付时 02 / 03 锁定 */
+
+{
+  const plan = buildPlan(survey, quoteFor('standard', ['addon-bank']));
+  const render = (locked: boolean) =>
+    renderToString(
+      <ProposalStep
+        plan={plan}
+        survey={survey}
+        recordId="TEST-RECORD-1"
+        locked={locked}
+        onProceed={() => {}}
+        onBack={() => {}}
+      />
+    );
+
+  const unlockedHtml = render(false);
+  const lockedHtml = render(true);
+
+  check(
+    '方案页未支付 → 02 提示「点击卡片切换方案」，没有锁定横幅',
+    unlockedHtml.includes('点击卡片切换方案') && !unlockedHtml.includes('套餐已锁定'),
+    ''
+  );
+  check(
+    '方案页已支付 → 02 提示「订单已支付 · 套餐已锁定」并给出说明',
+    lockedHtml.includes('订单已支付 · 套餐已锁定') && lockedHtml.includes('已按付款时的选择锁定'),
+    ''
+  );
+  check(
+    '方案页已支付 → 套餐卡片与增值服务都标了 aria-disabled（点击不再切换）',
+    lockedHtml.includes('aria-disabled="true"') && !unlockedHtml.includes('aria-disabled="true"'),
+    ''
+  );
+  check(
+    '方案页已支付 → 卡片用 cursor-not-allowed 置灰',
+    lockedHtml.includes('cursor-not-allowed') && !unlockedHtml.includes('cursor-not-allowed'),
+    ''
   );
 }
 

@@ -8,6 +8,8 @@ import { AuthorizationData, FileAttachment } from './types';
 import { Printer, Download, Upload, Eye, Trash2, Check, FileText } from 'lucide-react';
 import { formatSize } from './defaultData';
 import { useAttachmentUpload } from './useAttachmentUpload';
+import { authorizationLetterFileName, buildAuthorizationLetterHtml } from './authorizationDoc';
+import { printHtmlDocument } from '../../utils/printDocument';
 
 interface AuthorizationSectionProps {
   data: AuthorizationData;
@@ -65,43 +67,26 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    // 只打这份委托书：隐藏 iframe 里放同一份 A4 文档（直接 window.print() 会把整页导航、
+    // 章节时间线与上传框一起印出来）
+    printHtmlDocument(
+      buildAuthorizationLetterHtml({ trusteeName, trusteeIdNumber, date: dateVal }),
+      () => onToast('已唤起打印程序，请在打印预览中确认委托书内容'),
+    );
   };
 
   const handleDownload = () => {
-    const htmlContent = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>法定代表人委托书</title>
-<style>
-  @page { size: A4; margin: 0; }
-  body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:0;background:#fff}
-  .page{
-    width:210mm;min-height:297mm;box-sizing:border-box;
-    padding:25mm 22mm;color:#0F172A;line-height:2.2;
-    display:flex;flex-direction:column;
-  }
-  h1{text-align:center;font-size:22pt;letter-spacing:.06em;margin:0 0 30mm;font-weight:800}
-  .body{font-size:12pt;line-height:2.4;text-align:justify}
-  .underline{display:inline-block;min-width:100px;border-bottom:1px solid #0F172A;text-align:center;padding:0 8px;font-weight:600}
-  .sign{margin-top:auto;padding-top:20mm;font-size:12pt}
-  .line{display:inline-block;min-width:220px;border-bottom:1px solid #0F172A}
-  .date{margin-top:8mm;font-size:12pt}
-</style></head>
-<body>
-  <div class="page">
-    <h1>法定代表人委托书</h1>
-    <div class="body">
-      兹委托 <span class="underline">${trusteeName}</span> （身份证号码： <span class="underline">${trusteeIdNumber}</span> ，注：受托人需与"一窗通"公章经办人一致）代表我公司办理公章刻制业务，受托人在上述事项内所签署的有关文件及提供的手续材料，本委托人均予以承认并承担相应的法律责任。
-    </div>
-    <div class="sign">委托人（法定代表人亲笔签名）：<span class="line"></span></div>
-    <div class="date">委托日期：<span class="underline">${y}</span> 年 <span class="underline">${m}</span> 月 <span class="underline">${d}</span> 日</div>
-  </div>
-</body></html>`;
+    const htmlContent = buildAuthorizationLetterHtml({
+      trusteeName,
+      trusteeIdNumber,
+      date: dateVal,
+    });
 
     const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `法定代表人委托书_${trusteeName}.html`;
+    a.download = authorizationLetterFileName(trusteeName);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

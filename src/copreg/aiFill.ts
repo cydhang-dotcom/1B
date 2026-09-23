@@ -23,7 +23,11 @@ import {
 import { joinUrl, postJson, stringListOf } from './apiClient';
 import { showTencentCaptcha } from '../utils/tencentCaptcha';
 
-/** 服务端建议，三个列表都按重要性排序，没有建议时是空数组（不是 null） */
+/**
+ * 服务端建议，三个列表都按重要性排序，没有建议时是空数组（不是 null）。
+ * **空数组 = 明确「没有」**：调用方（SurveyStep）会把它写回表单（清空该项），
+ * 而不是「保留用户填的旧内容」—— 与诊断接口的覆盖口径一致。
+ */
 export interface AiFillResult {
   scope: string[];
   license: string[];

@@ -1,20 +1,22 @@
 /**
- * 步骤 hash 路由的纯函数自检：不联网、不碰 DOM、不开浏览器。
+ * 步骤落点与地址栏的纯函数自检：不联网、不碰 DOM、不开浏览器。
  *   npx tsx scripts/check-step-route.ts
  *
- * 覆盖两件事：步骤 ↔ slug 的往返（含容错写法与已废弃的 agreement），
- * 以及「hash 只是请求」这条收口规则 —— 没解锁的步骤必须被挡回实际所在的那一步。
+ * 覆盖三件事：
+ *   1. **写地址栏**用的步骤 → hash 映射（含已废弃的 agreement 归到 #payment）；
+ *   2. **刷新落点** `progressRouteOf`：只按本地进度证据算，从后往前；
+ *   3. **第 3 步显示哪个界面** `showsPaidView`，以及异步查回「已支付」后要不要往前推。
+ *
+ * 解析 hash（`stepOfHash`）与「按 hash 收口」（`resolveStep`）**已经删掉**：
+ * 地址栏是只读的 —— 手敲 / 前进后退都不再能决定去哪一步（详见 stepRoute.ts 的头部约定）。
  */
 import {
   PAID_HASH,
   STEP_ORDER,
   advanceOnPaid,
-  hashClaimsPaid,
   progressRouteOf,
   showsPaidView,
-  resolveStep,
   stepHash,
-  stepOfHash,
 } from '../src/copreg/stepRoute';
 import type { ProcessStep } from '../src/copreg/types';
 
@@ -40,42 +42,6 @@ function ok(label: string, condition: boolean) {
   ok('第 5 步是 #fill-details（下划线换成连字符）', stepHash('fill_details') === '#fill-details');
   ok('第 6 步是 #progress', stepHash('progress') === '#progress');
   ok('已废弃的 agreement 归到 #payment', stepHash('agreement') === '#payment');
-}
-
-/* ------------------------------------------------------------ hash → 步骤 */
-
-{
-  ok('认 #survey', stepOfHash('#survey') === 'survey');
-  ok('认 #fill-details', stepOfHash('#fill-details') === 'fill_details');
-  ok('不带 # 也认', stepOfHash('progress') === 'progress');
-  ok('#/payment 这种带斜杠的写法也认', stepOfHash('#/payment') === 'payment');
-  ok('#payMent 大小写不敏感', stepOfHash('#payMent') === 'payment');
-  ok('#fill_details 下划线写法也认（内部名直接粘过来也能用）', stepOfHash('#fill_details') === 'fill_details');
-  ok('前后空白无所谓', stepOfHash('  #group  ') === 'group');
-  ok('空 hash 返回 null', stepOfHash('') === null && stepOfHash('#') === null && stepOfHash('#/') === null);
-  ok('认不出的 hash 返回 null', stepOfHash('#foo') === null && stepOfHash('#agreement') === null);
-  ok('数字片段不认（不玩隐式编号）', stepOfHash('#3') === null);
-  ok('null / undefined 不炸', stepOfHash(null as unknown as string) === null && stepOfHash(undefined as unknown as string) === null);
-}
-
-/* --------------------------------------------------- 已支付（#paid） */
-
-{
-  ok('#paid 解析成第 3 步（它只是那一页的另一个状态）', stepOfHash('#paid') === 'payment');
-  ok('#paid 也认带斜杠/大小写写法', stepOfHash('#/paid') === 'payment' && stepOfHash('#PAID') === 'payment');
-  ok('hashClaimsPaid 认 #paid', hashClaimsPaid('#paid') && hashClaimsPaid('#/PAID'));
-  ok('#payment 不是「声称已支付」', !hashClaimsPaid('#payment'));
-  ok('别的 hash 也不是', !hashClaimsPaid('#group') && !hashClaimsPaid('') && !hashClaimsPaid('#nonsense'));
-  ok('PAID_HASH 就是 #paid', PAID_HASH === '#paid');
-  ok('stepHash 永远不会吐出 #paid（它属于状态，不属于步骤）', stepHash('payment') === '#payment');
-}
-
-/* ------------------------------------------------------------------ 往返 */
-
-{
-  const steps: ProcessStep[] = ['survey', 'proposal', 'agreement', 'payment', 'group', 'fill_details', 'progress'];
-  const roundTrip = steps.every((step) => stepOfHash(stepHash(step)) === (step === 'agreement' ? 'payment' : step));
-  ok('每个步骤 hash 出去再解回来都是同一步（agreement 归 payment）', roundTrip);
 }
 
 /* ------------------------------------------- 刷新落点：从后往前看进度证据 */
@@ -124,18 +90,9 @@ function ok(label: string, condition: boolean) {
     progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: true }).landing === 'payment'
   );
 
-  // 与 hash 收口配合：已解锁的 hash 直接生效，没解锁的才回退
-  ok('#progress + 已提交 → 第 6 步（进度页仍解锁、手敲可达）', resolveStep('progress', submitted.unlocked, submitted.landing) === 'progress');
-  ok('#fill-details + 已提交 → 第 5 步（可回去改）', resolveStep('fill_details', submitted.unlocked, submitted.landing) === 'fill_details');
-  ok('#group + 已支付 → 第 4 步', resolveStep('group', paid.unlocked, paid.landing) === 'group');
-  ok(
-    '#proposal 但没有诊断结果 → 收口回第 1 步（方案页不是随便看看的页面）',
-    resolveStep('proposal', nothing.unlocked, nothing.landing) === 'survey'
-  );
-  ok(
-    '#progress 但只是拿到过单号（没支付）→ 仍收口回第 3 步',
-    resolveStep('progress', recorded.unlocked, recorded.landing) === 'payment'
-  );
+  // 解锁范围只决定「页面里能不能走到那一步」（比如进度页要能点进去，只是不再由 hash 决定）
+  ok('已提交 → 六步全解锁（进度页仍然可用）', submitted.unlocked.length === 6);
+  ok('已支付 → 服务群也在解锁范围内', paid.unlocked.includes('group'));
 }
 
 /* ------------------------------------------- 第 3 步显示哪个界面（#paid / #payment） */
@@ -160,23 +117,6 @@ function ok(label: string, condition: boolean) {
   ok('已经走到服务群或更后 → 不把人拽回来', advanceOnPaid('group', 'proposal', noNav) === null && advanceOnPaid('progress', 'proposal', noNav) === null);
   ok('用户自己走动过（当前步 ≠ 首帧落点）→ 不动', advanceOnPaid('proposal', 'payment', noNav) === null);
   ok('明确标记为「用户操作过」→ 不动', advanceOnPaid('proposal', 'proposal', navigated) === null);
-}
-
-/* -------------------------------------------------- 收口：hash 只是请求 */
-
-{
-  const fresh: ProcessStep[] = ['survey', 'proposal'];
-  const withConfirm: ProcessStep[] = ['survey', 'proposal', 'payment'];
-
-  ok('请求的步骤已解锁 → 用它', resolveStep('proposal', fresh, 'survey') === 'proposal');
-  ok('请求 #payment 但没有确认凭据 → 退回本该在的那一步', resolveStep('payment', fresh, 'proposal') === 'proposal');
-  ok('请求 #group（没支付）→ 退回本该在的那一步', resolveStep('group', fresh, 'survey') === 'survey');
-  ok('请求 #progress（没支付）→ 退回本该在的那一步', resolveStep('progress', withConfirm, 'payment') === 'payment');
-  ok('有凭据时请求 #payment 就进支付页', resolveStep('payment', withConfirm, 'payment') === 'payment');
-  ok('有凭据时手敲 #survey 也能回第 1 步', resolveStep('survey', withConfirm, 'payment') === 'survey');
-  ok('没给 hash（认不出）→ 用 fallback', resolveStep(null, withConfirm, 'payment') === 'payment');
-  ok('fallback 自己没解锁 → 退到第一个解锁的步骤', resolveStep(null, ['survey'], 'proposal') === 'survey');
-  ok('解锁列表为空也不返回 undefined', resolveStep('payment', [], 'payment') === 'survey');
 }
 
 console.log(`\n${passed} 项通过，${failed} 项失败`);

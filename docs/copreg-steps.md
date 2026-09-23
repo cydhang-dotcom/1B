@@ -1,12 +1,13 @@
 # copreg 流程与 URL 路由
 
-copreg.html 是一个六步向导，每一步有独立的 URL hash：刷新、收藏、转发都能回到同一步，
-浏览器前进/后退也能按步走。步骤映射写在 `src/copreg/stepRoute.ts`。
+copreg.html 是一个六步向导，每一步在地址栏里有一个 hash，但**地址栏是只读的**：
+刷新时忽略它（落点只按本地进度证据算），页面开着时手敲 / 前进后退也改不动页面 ——
+它只反映「当前在第几步」。步骤映射写在 `src/copreg/stepRoute.ts`。
 
 | # | 内部步骤名 | URL | 渲染组件 | 什么时候解锁 |
 |---|---|---|---|---|
 | 1 | `survey` | `#survey` | `components/SurveyStep.tsx` | 始终 |
-| 2 | `proposal` | `#proposal` | `components/ProposalStep.tsx` | 始终（有问题案可回看） |
+| 2 | `proposal` | `#proposal` | `components/ProposalStep.tsx` | 始终（有方案可回看）；**订单已支付后 02 服务套餐与 03 自选增值服务转为不可选**（付款后改档会让页面价格与那笔订单对不上） |
 | 3 | `payment` | `#payment` | `components/AgreementAndPaymentStep.tsx` | 第 1 步接口返回委托单号后（第 2 步只是展示，点「前往支付」即到） |
 | 4 | `group` | `#group` | `components/ServiceGroupStep.tsx` | 支付成功后 |
 | 5 | `fill_details` | `#fill-details` | `components/RegistrationDetailsStep.tsx` | 支付成功后（`#paid` 的「申报资料填报」，或服务群页里的入口） |
@@ -59,26 +60,30 @@ copreg.html 是一个六步向导，每一步有独立的 URL hash：刷新、�
 查单回来说已支付时，如果用户**还停在首帧那一步**（没自己走动过），就把落点补到支付成功界面
 （`advanceOnPaid`）；他自己走开过就不动他 —— 他可能是特意回来看方案的。
 
-> 首帧落点决策在 DEV 下会打一条 `[copreg] 首屏落点` 日志（hash / 有无问卷存档 / 有无诊断结果 /
+> 首帧落点决策在 DEV 下会打一条 `[copreg] 首屏落点（忽略地址栏 hash）` 日志（地址栏 hash / 有无问卷存档 / 有无诊断结果 /
 > 有无委托单号 / 申报是否已提交 / 解锁范围 / 落点）。本地凭据缺失导致落点偏早时，看这一行就知道卡在哪条证据上。
 > 生产构建里这条日志会被折叠掉。
 
-## hash 只是请求，不是命令
+## 地址栏只读：它只反映当前步骤
 
-地址栏里写 `#payment` 不等于能进支付页。`resolveStep`（纯函数，有自检）按这个顺序收口：
+**没有任何地方会解析 hash 来决定去哪一步**（`stepOfHash` / `resolveStep` 已删除）。规则只有两条：
 
-1. 请求的步骤**已解锁** → 用它；
-2. 没解锁 / hash 认不出 / 压根没写 → 用上表算出来的**最远步骤**；
-3. 并把地址栏**改写成真实步骤**（首帧用 `history.replaceState`，不新增历史条目）——
-   地址栏与页面必须说的是同一件事，否则复制出去的链接会把别人带到一份空壳页面。
+1. **刷新 / 打开链接时忽略地址栏的 hash**：落点由 `progressRouteOf` 按本地证据算，
+   随后 App 把地址栏**改写成真实步骤**。为什么：收藏 / 转发出去的链接会过期、也会在别人手里 ——
+   带 `#progress` 的链接到了别人机器上没有那份申报表，带 `#paid` 的链接既不是本人付的款、
+   也可能早就不成立；照 hash 进只会把人带进一份空壳页面。**谁该看到哪一步，只有本地证据说了算。**
+2. **页面开着时改地址栏也没用**：手敲 hash、浏览器前进 / 后退都会被 `hashchange` 监听
+   **立刻改回当前步骤**，页面原地不动。跳步只能点页面上的按钮（「上一项 / 下一步 / 返回…」）。
 
-于是：没有委托单号时 `#payment` 会停在第 2 步并把地址栏改成 `#proposal`；
-`#group` / `#progress` 在没支付时同理回退。
+写地址栏一律走 `history.replaceState`，**不压历史条目** —— 用户按浏览器后退是离开这个页面，
+而不是回到上一个步骤（步骤历史对这个向导没有意义）。地址栏里那条链接依然可以复制，
+但它只是「当时在第几步」的记录：换个人、过一天打开，仍按**他自己的**本地证据落点。
 
-## 解析容错
+## 写进地址栏的 hash 是什么样
 
-`#/payment`、`#Payment`、`#fill_details`（内部名下划线写法）都认；认不出的值（`#nonsense`、`#3`）
-按「没给 hash」处理，不报错也不停空白页。步骤切换时每步压一条历史，后退即回上一步。
+`#survey` / `#proposal` / `#payment` / `#paid` / `#group` / `#fill-details` / `#progress`
+（`fill_details` 内部名带下划线，URL 里换成连字符）。已废弃的 `agreement` 归到 `#payment`。
+**外面怎么写都不影响落点**，所以不需要解析容错。
 
 ## 「微信扫码咨询」弹窗（三处共用）
 
@@ -101,7 +106,8 @@ copreg.html 是一个六步向导，每一步有独立的 URL hash：刷新、�
 别的 hash 只表达「想去哪一步」，`#paid` 表达的是**事实**（已经付过款）。支付状态是服务端
 说了算的，前端没有凭据，所以：
 
-1. 地址栏是 `#paid` 时，首帧拿 `1b_copreg_plan_confirm` 的 `recordId` 调**查单接口**
+1. 首帧拿 `1b_copreg_plan_record` 的 `recordId` 调**查单接口**（与地址栏无关：
+   只要有委托单号且还不知道已支付就问一次）
    （`GET {DOC_HOST}/xcx/yqt-co/wx-pay/open-acc/query/pay?busUnionId=…`，
    即 `src/payment/client.ts` 的 `queryOrder` + `src/copreg/paymentStatus.ts`），
    状态判定复用 `mapOpenAccState`；

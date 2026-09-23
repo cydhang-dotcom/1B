@@ -135,21 +135,25 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
       // 敏感要素只认表单里那几项：多出来的标签表单渲染不出，用户也就删不掉
       const sensitive = suggestion.sensitive.filter((item) => SENSITIVE_OPTIONS.includes(item));
 
-      if (suggestion.scope.length === 0 && suggestion.license.length === 0 && sensitive.length === 0) {
-        showToast('AI 没有给出可用建议，请把企业描述与业务描述写得更具体后重试');
-        return;
-      }
-
-      // 某一项返回空数组表示「这项没有建议」，不是「清空」—— 此时保留用户已经填好的内容
+      // **空数组 = 明确「没有」，照样写回去（把这一项清空）**，与诊断接口的覆盖口径一致：
+      // 换了描述再点一次「重新生成」，页面上就该是这一版的答案 —— 留着一版 AI 填的旧内容，
+      // 用户会以为那就是新结果。想保留自己加的内容就别点重新生成（或点完再补）。
       const current = surveyRef.current;
       onChange({
         ...current,
-        scope: suggestion.scope.length > 0 ? suggestion.scope : current.scope,
-        license: suggestion.license.length > 0 ? suggestion.license : current.license,
-        sensitive: sensitive.length > 0 ? sensitive : current.sensitive
+        scope: suggestion.scope,
+        license: suggestion.license,
+        sensitive
       });
 
       setAiGenerated(true);
+
+      if (suggestion.scope.length === 0 && suggestion.license.length === 0 && sensitive.length === 0) {
+        // 三项都空：已经按上面的口径清空了，把原因说清楚（不然用户会觉得「点了没反应」）
+        showToast('AI 未给出经营范围 / 许可资质 / 敏感要素建议，已清空这三项；可把描述写具体些再试，或手动补充');
+        return;
+      }
+
       showToast(
         `已生成 ${suggestion.scope.length} 条经营范围、${suggestion.license.length} 项许可资质建议` +
           (sensitive.length > 0 ? `，并标记 ${sensitive.length} 项敏感要素` : '') +

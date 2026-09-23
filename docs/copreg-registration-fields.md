@@ -226,6 +226,9 @@ host），请求体恰好三个字段（后端 DTO 原文，`savaType` 就是这
    3. 接口失败（未接通 / 没委托单号 / 超时 / 服务端报错）一律**拦在填报页**：toast 出原因、
       状态仍是草稿、可原地重试 —— 反过来的话服务端没有这份资料、页面却显示「已提交」，
       进度页会一直等一个不存在的初审；
+      **已经提交过的申报表再点一次也会照样调接口**（同样是 `savaType: 1`，提示改成
+      「已更新并重新提交」）：从「查看/修改申报资料」回来改完就该存回服务端，
+      早先那种「已提交就直接跳走、一个请求都不发」的短路会让用户以为改动提交上去了；
    4. `onUpdateDetails(...)` 把申报结果回写成 `App.tsx` 的 `details: RegistrationDetails`
       （企业名称、备选名称、注册资本、法定代表人 / 财务负责人 / 监事、股东结构、收件地址）；
       申报表里没有的字段（身份证号）保留原值，不用示例常量兜底；
@@ -253,7 +256,8 @@ host），请求体恰好三个字段（后端 DTO 原文，`savaType` 就是这
 | 股东 / 人员记录弹窗（字段、附件位、角色互斥） | `src/copreg/registration/RecordModal.tsx` |
 | 附件的上传（hook）与收口（纯函数） | `src/copreg/registration/useAttachmentUpload.ts`、`attachments.ts` |
 | 上传请求与错误文案 / 附件地址拼法 | `src/utils/fileUpload.ts`、`src/utils/fileUrl.ts`、`src/utils/docUuidUrl.ts` |
-| 委托书模板、打印与下载 | `src/copreg/registration/AuthorizationSection.tsx` |
+| 委托书文档本体（HTML）/ 页面与按钮 | `src/copreg/registration/authorizationDoc.ts`、`AuthorizationSection.tsx` |
+| 只打印一段文档（隐藏 iframe） | `src/utils/printDocument.ts` |
 | 确认页展示与真实性确认 | `src/copreg/registration/ReviewSection.tsx` |
 | 空白表单与 `STORAGE_KEY` | `src/copreg/registration/defaultData.ts` |
 | 填报状态在支付页 / 进度页的呈现 | `src/copreg/components/AgreementAndPaymentStep.tsx`、`ProgressAndReviewStep.tsx`、`App.tsx` |
