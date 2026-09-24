@@ -156,3 +156,27 @@ copreg.html 是一个六步向导，每一步在地址栏里有一个 hash，但
 自检：`npx tsx scripts/check-step-route.ts`（映射与收口规则，35 项）、
 `npx tsx scripts/check-payment-status.ts`（哪些 tradeState 算已支付、哪些一律查不动，24 项）、
 `npm run check:entry`（真实组件树渲染首屏，24 项）。
+
+---
+
+## 第 2 步 · 方案评估报告的版式与「存为 PDF」/ 打印
+
+- **页面版式（2026-09 改版）** 迁移自参考实现 `ProposalStep` 的「01 · 设立规划建议报告」：
+  序号徽标 + 「存为 PDF」顶栏、标题与摘要、**意向诊断核对条**四格（拟营业务方向 / 股东构成特征 /
+  经营场所安排 / 财税身份定位）、**四大核心维度上下竖排**（图标 + 序号·标题 + 右侧标签 + 加粗结论 +
+  「【小标题】正文」逐条要点）、营业执照拟定经营范围卡、初创期合规避坑竖排卡片、底部免责小字。
+  组件是 `components/PlanReportView.tsx`（`report !== null` 时渲染；老响应仍走平铺字段的回落布局）。
+- **报告正文（纯函数）** 在 `src/copreg/proposalReportDoc.ts`：优先用服务端新报告结构
+  （`report.reportTitle / summary / diagnosticBar / 四个 coreDecisions（含 points）/
+  pitfallGuides / industryComplianceTips`），老响应（`plan.report` 为 null）回落到平铺字段与
+  参考实现那套写死的建议文案。「存为 PDF」与「打印报告」共用这一份，页面与导出件内容一致。
+- **存为 PDF**（01 区块表头与「查看正式方案报告」弹框里各一个入口）：`exportProposalPdf.ts`
+  **动态 import** `html2canvas` + `jspdf`（不进首包），把正文离屏渲染成 794px 宽再光栅化后下载。
+  分页与页边距见 `proposalPdfPages.ts`（纯函数）：**四边留 12mm 页边距**，且不再把一张长图按页高
+  硬切 —— 理想切点落在正文中间时往上找最近的**空白行**切在那里，宁可这页短一点也不把一行字切成
+  两半（最多回退 40% 页高，退回不去才按理想切点切）。编码用 JPEG 0.92，同一份长报告 PNG 有
+  十几 MB、JPEG 只有几百 KB。生成失败回落到「打印 → 在打印预览里另存为 PDF」。
+- **打印报告**：同一份正文拼成独立文档，交给 `utils/printDocument.ts` 的隐藏 iframe 打印 ——
+  只印这份报告，不再 `window.print()` 把导航、套餐卡、加购项一起印出来。
+- 因此**不引参考实现的全局 `@media print`**：那会连带改掉页面上别的打印入口（如委托书）。
+- 自检：`npx tsx scripts/check-proposal-report-doc.ts`（正文取值、回落、转义、编号与文件名，24 项）。

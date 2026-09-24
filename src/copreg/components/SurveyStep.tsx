@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { SENSITIVE_OPTIONS } from '../plan';
 import { aiFillSurvey } from '../aiFill';
-import { surveyRequiredFields } from '../surveyCheck';
+import { surveyCompletion, surveyRequiredFields } from '../surveyCheck';
 import { CaptchaCancelledError } from '../../utils/tencentCaptcha';
 import { PhoneVerifyModal } from './PhoneVerifyModal';
 import { PlanGeneratingModal } from './PlanGeneratingModal';
@@ -37,6 +37,49 @@ interface SurveyStepProps {
   /** 预填的手机号：App 里还留着上一次验证过的号码就直接带出来 */
   contactPhone?: string;
 }
+
+/**
+ * 问卷区块右上角的「已完善」装饰（迁移自参考实现）：左侧一条品牌色亮条 + 右上角一团柔光。
+ * 只在区块已完善时渲染，`pointer-events-none` 保证不挡点击。
+ */
+const SectionDecor: React.FC = () => (
+  <>
+    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-[#4ED1BC] to-[#2AA894] opacity-90 z-10" />
+    <div className="absolute -top-12 -right-12 w-28 h-28 bg-[#E6F7F2]/35 rounded-full blur-2xl pointer-events-none" />
+  </>
+);
+
+/**
+ * 问卷区块表头：左侧序号标签（已完善时是绿底对勾、否则灰点）+ 右侧「已完善 / 必选」徽标。
+ * `done` 由 `surveyCompletion` 派生，与提交校验同源。
+ */
+const SurveyCardHeader: React.FC<{ label: string; done: boolean }> = ({ label, done }) => (
+  <div className="flex items-center justify-between mb-3.5 relative z-10">
+    <div
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold select-none transition-colors ${
+        done ? 'bg-[#E6F7F2] text-[#1D6C5E] border border-[#2AA894]/30 shadow-xs' : 'bg-slate-100 text-slate-600'
+      }`}
+    >
+      {done ? (
+        <Check className="w-3.5 h-3.5 text-[#2AA894] stroke-[3]" />
+      ) : (
+        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+      )}
+      <span>{label}</span>
+    </div>
+
+    {done ? (
+      <div className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#E6F7F2] text-[#1D6C5E] border border-[#36B39E]/30 shadow-xs select-none">
+        <Check className="w-3 h-3 text-[#2AA894] stroke-[3]" />
+        <span>已完善</span>
+      </div>
+    ) : (
+      <span className="text-xs select-none text-slate-400 px-2 py-0.5 rounded-full bg-slate-100 font-medium">
+        必选
+      </span>
+    )}
+  </div>
+);
 
 export const SurveyStep: React.FC<SurveyStepProps> = ({
   survey,
@@ -57,6 +100,10 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
   const [aiTagInputScope, setAiTagInputScope] = useState('');
   const [aiTagInputLicense, setAiTagInputLicense] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // 五个区块的「已完善」态：由必填清单（surveyCheck）派生，卡片徽标与底部 N/5 进度共用
+  // —— 与点「生成需求方案」时真正拦人的判据同源，不会出现「都打勾了还被拦」
+  const { done: cardDone, completedCount, totalCount } = surveyCompletion(survey);
 
   /**
    * 提示。上一条的定时器要清掉：连着两条提示时，前一条的定时器会提前把后一条清掉，
@@ -291,15 +338,15 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 01 核心需求 ==================== */}
           <div
             id="sec-core"
-            className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white transition-all"
+            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${
+              cardDone['sec-core']
+                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
+                : 'border-slate-200/80 bg-white hover:border-slate-300'
+            }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#2AA894] select-none">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
-                <span>01 · 核心诉求</span>
-              </div>
-              <span className="text-xs text-slate-400">据此配置银行开户与财税方案</span>
-            </div>
+            {cardDone['sec-core'] && <SectionDecor />}
+
+            <SurveyCardHeader label="01 · 核心诉求" done={cardDone['sec-core']} />
 
             <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-4">
               您开设企业最核心的诉求是什么？
@@ -375,15 +422,15 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 02 企业与业务 ==================== */}
           <div
             id="sec-biz"
-            className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white transition-all"
+            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${
+              cardDone['sec-biz']
+                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
+                : 'border-slate-200/80 bg-white hover:border-slate-300'
+            }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#2AA894] select-none">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
-                <span>02 · 企业与业务</span>
-              </div>
-              <span className="text-xs text-slate-400">用于生成经营范围与合规建议</span>
-            </div>
+            {cardDone['sec-biz'] && <SectionDecor />}
+
+            <SurveyCardHeader label="02 · 企业与业务" done={cardDone['sec-biz']} />
 
             <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-4">
               请描述拟设立企业的情况
@@ -573,12 +620,15 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 03 开票与收入 ==================== */}
           <div
             id="sec-invoice"
-            className="rounded-3xl p-6 sm:p-8 mb-6 border border-slate-200 bg-white shadow-xs transition-all"
+            className={`rounded-3xl p-6 sm:p-8 mb-6 border transition-all duration-300 relative overflow-hidden ${
+              cardDone['sec-invoice']
+                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
+                : 'border-slate-200 bg-white shadow-xs hover:border-slate-300'
+            }`}
           >
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#E6F7F2] text-[#2AA894] mb-3 select-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
-              <span>03 · 开票与收入</span>
-            </div>
+            {cardDone['sec-invoice'] && <SectionDecor />}
+
+            <SurveyCardHeader label="03 · 开票与收入" done={cardDone['sec-invoice']} />
 
             <h2 className="text-xl sm:text-2xl font-bold text-[#0F172A] tracking-tight mb-2">
               开票需求与收入结构
@@ -669,15 +719,15 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 04 股权与资本 ==================== */}
           <div
             id="sec-equity"
-            className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white transition-all"
+            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${
+              cardDone['sec-equity']
+                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
+                : 'border-slate-200/80 bg-white hover:border-slate-300'
+            }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#2AA894] select-none">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
-                <span>04 · 股权与资本</span>
-              </div>
-              <span className="text-xs text-slate-400">影响公司类型与认缴期限</span>
-            </div>
+            {cardDone['sec-equity'] && <SectionDecor />}
+
+            <SurveyCardHeader label="04 · 股权与资本" done={cardDone['sec-equity']} />
 
             <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-4">
               股东结构与资本规模
@@ -792,15 +842,15 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 05 地址与场地 ==================== */}
           <div
             id="sec-address"
-            className="rounded-2xl p-5 sm:p-6 mb-6 border border-slate-200/80 bg-white transition-all"
+            className={`rounded-2xl p-5 sm:p-6 mb-6 border transition-all duration-300 relative overflow-hidden ${
+              cardDone['sec-address']
+                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
+                : 'border-slate-200/80 bg-white hover:border-slate-300'
+            }`}
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#2AA894] select-none">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
-                <span>05 · 地址与场地</span>
-              </div>
-              <span className="text-xs text-slate-400">用于配置合规挂靠或场地租赁</span>
-            </div>
+            {cardDone['sec-address'] && <SectionDecor />}
+
+            <SurveyCardHeader label="05 · 地址与场地" done={cardDone['sec-address']} />
 
             <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-4">
               注册地址与办公场地需求
@@ -866,8 +916,18 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
       <div className="fixed left-0 right-0 bottom-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/70 py-3 px-6">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-4">
 
-          <div className="text-xs text-slate-400 select-none">
-            填写完成后将自动生成服务方案与透明报价
+          <div className="flex items-center gap-2 select-none text-xs text-slate-500">
+            <span
+              className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                completedCount === totalCount ? 'bg-[#2AA894]' : 'bg-slate-400'
+              }`}
+            />
+            <span>
+              已完成 <span className="font-semibold text-slate-700">{completedCount}</span> / {totalCount} 项
+            </span>
+            {completedCount === totalCount && (
+              <span className="text-[#2AA894] font-medium hidden sm:inline">· 已就绪</span>
+            )}
           </div>
 
           <div className="flex items-center gap-2.5">

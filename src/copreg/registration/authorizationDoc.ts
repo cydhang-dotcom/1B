@@ -14,14 +14,10 @@
  * （隐藏 iframe）在 `src/utils/printDocument.ts`。
  */
 
-/** 用户输入会直接进 HTML：先转义再拼，名字里带 `<`、`&` 之类不能把文档结构撕开 */
-export const escapeHtml = (text: string): string =>
-  text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+import { escapeHtml } from '../../utils/htmlEscape';
+
+// 转义实现搬到 utils 里供委托书与方案报告共用；这里原样转出，老引用路径不变
+export { escapeHtml };
 
 export const AUTHORIZATION_LETTER_TITLE = '法定代表人委托书';
 

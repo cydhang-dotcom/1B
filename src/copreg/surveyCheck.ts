@@ -81,3 +81,38 @@ export function surveyRequiredFields(survey: SurveyData): SurveyRequiredField[] 
     }
   ];
 }
+
+/** 问卷页五个区块的 DOM id，顺序即页面顺序 */
+export const SURVEY_SECTIONS = ['sec-core', 'sec-biz', 'sec-invoice', 'sec-equity', 'sec-address'] as const;
+export type SurveySectionId = (typeof SURVEY_SECTIONS)[number];
+
+/**
+ * 五个区块各自的「已完善」态 + 已完成数量（底部进度条用）。
+ *
+ * **由 `surveyRequiredFields` 派生**，不另写一套判断：卡片上打「已完善」的判据
+ * 必须与点「生成需求方案」时真正拦人的判据完全一致 —— 否则会出现「五张卡都打勾了、
+ * 一点按钮还是被拦」的情况。一个区块里的必填项全部填好，这个区块才算已完善。
+ */
+export interface SurveyCompletion {
+  /** 每个区块是否已完善 */
+  done: Record<SurveySectionId, boolean>;
+  /** 已完善的区块数（0..5） */
+  completedCount: number;
+  totalCount: number;
+}
+
+export function surveyCompletion(survey: SurveyData): SurveyCompletion {
+  const fields = surveyRequiredFields(survey);
+  const done = {} as Record<SurveySectionId, boolean>;
+
+  for (const section of SURVEY_SECTIONS) {
+    const inSection = fields.filter((field) => field.section === section);
+    done[section] = inSection.length > 0 && inSection.every((field) => field.done);
+  }
+
+  return {
+    done,
+    completedCount: SURVEY_SECTIONS.filter((section) => done[section]).length,
+    totalCount: SURVEY_SECTIONS.length
+  };
+}

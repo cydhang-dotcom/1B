@@ -339,7 +339,9 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   );
   check(
     '方案页已支付 → 卡片用 cursor-not-allowed 置灰',
-    lockedHtml.includes('cursor-not-allowed') && !unlockedHtml.includes('cursor-not-allowed'),
+    // 只看可锁定元素那一档 class（cursor-not-allowed + opacity-60）：页面上其它按钮的
+    // disabled:cursor-not-allowed 是禁用态样式，不代表卡片被锁
+    lockedHtml.includes('cursor-not-allowed opacity-60') && !unlockedHtml.includes('cursor-not-allowed opacity-60'),
     ''
   );
 }

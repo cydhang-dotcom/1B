@@ -17,6 +17,8 @@
  * 只留下这里仍然成立的部分。
  */
 import {
+  ALL_ADDON_IDS,
+  OPTIONAL_ADDON_SERVICES,
   addonsOf,
   normalizeAddons,
   quoteFor,
@@ -91,7 +93,7 @@ const planOf = (tier: Parameters<typeof quoteFor>[0], addons: string[] = []) =>
   ok('每一项只有 id / name / price 三个字段', addons.every((a) => Object.keys(a).sort().join(',') === 'id,name,price'));
   ok('是对象数组（不再是字符串数组）', typeof addons[0] === 'object' && typeof addons[0] !== 'string');
   ok('第一项是银行开户，带名称与实收价', addons[0].id === 'addon-bank' && addons[0].name === '银行对公账户开通' && addons[0].price === 200);
-  ok('第二项是税局开户，带名称与实收价', addons[1].id === 'addon-tax' && addons[1].name === '电子税务局开户' && addons[1].price === 300);
+  ok('第二项是税局开户，带名称与实收价', addons[1].id === 'addon-tax' && addons[1].name === '电子税务局开户' && addons[1].price === 100);
   ok('顺序与页面报价明细一致（银行 → 税局 → 社保）', addons.map((a) => a.id).join(',') === 'addon-bank,addon-tax');
   ok('不带 desc / originalPrice / tag（只带出单要用的三样）', !('desc' in addons[0]) && !('originalPrice' in addons[0]) && !('tag' in addons[0]));
   ok(
@@ -107,14 +109,14 @@ const planOf = (tier: Parameters<typeof quoteFor>[0], addons: string[] = []) =>
 
   ok('从报价明细派生出勾中的那两项', JSON.stringify(derived) === JSON.stringify([
     { id: 'addon-bank', name: '银行对公账户开通', price: 200 },
-    { id: 'addon-tax', name: '电子税务局开户', price: 300 },
+    { id: 'addon-tax', name: '电子税务局开户', price: 100 },
   ]));
   ok('派生结果就是 { id, name, price } 三样', derived.every((a) => Object.keys(a).sort().join(',') === 'id,name,price'));
   ok('bundle 档没有自选项可派生', addonsOf(quoteFor('bundle_small').items).length === 0);
   ok('单项加购也只派生一项', addonsOf(quoteFor('standard', ['addon-social']).items).map((a) => a.id).join(',') === 'addon-social');
   ok('只勾一项时名称与价格正确', (() => {
     const only = addonsOf(quoteFor('standard', ['addon-social']).items);
-    return only.length === 1 && only[0].name === '办理社保公积金开户' && only[0].price === 200;
+    return only.length === 1 && only[0].name === '办理社保公积金开户' && only[0].price === 100;
   })());
   ok(
     '套餐内含项没有混进 addons（服务端按 tier 自己映射）',
@@ -122,6 +124,42 @@ const planOf = (tier: Parameters<typeof quoteFor>[0], addons: string[] = []) =>
   );
   ok('bundle 档的 addons 是空数组而不是缺字段', JSON.stringify(addonsOf(planOf('bundle_small').items)) === '[]');
   ok('bundle 两档的 selectedTier 仍然如实带着', planOf('bundle_small').selectedTier === 'bundle_small' && planOf('bundle_general').selectedTier === 'bundle_general');
+}
+
+/* ------------------------------------------------- 目录定价与企业零申报加购 */
+
+{
+  const catalog = OPTIONAL_ADDON_SERVICES;
+  ok(
+    '自选目录四项（含企业零申报）',
+    catalog.map((s) => s.id).join(',') === 'addon-bank,addon-tax,addon-social,addon-zero-tax'
+  );
+  ok('每一项都有大于实收价的划线原价', catalog.every((s) => typeof s.originalPrice === 'number' && s.originalPrice > s.price));
+  ok('ALL_ADDON_IDS 与目录完全一致', ALL_ADDON_IDS.join(',') === catalog.map((s) => s.id).join(','));
+
+  const zero = catalog.find((s) => s.id === 'addon-zero-tax');
+  ok(
+    '零申报：名称 / 实收 600 / 原价 1200 / 按年',
+    Boolean(zero) &&
+      zero?.name === '企业零申报服务（全年12个月）' &&
+      zero?.price === 600 &&
+      zero?.originalPrice === 1200 &&
+      zero?.unit === '年'
+  );
+
+  const zeroItem = quoteFor('standard', ['addon-zero-tax']).items.find((item) => item.id === 'addon-zero-tax');
+  ok('零申报进了报价明细', Boolean(zeroItem) && zeroItem?.price === 600 && zeroItem?.originalPrice === 1200);
+  ok('零申报明细的 tag 带价与单位', zeroItem?.tag === '自选增值 ¥600/年');
+  ok(
+    '零申报派生成 { id, name, price }',
+    JSON.stringify(addonsOf(quoteFor('standard', ['addon-zero-tax']).items)) ===
+      JSON.stringify([{ id: 'addon-zero-tax', name: '企业零申报服务（全年12个月）', price: 600 }])
+  );
+  ok('旧存档里的 addon-zero-tax 也能读回', normalizeAddons(['addon-zero-tax'])[0]?.price === 600);
+
+  const four = quoteFor('standard', ['addon-bank', 'addon-tax', 'addon-social', 'addon-zero-tax']);
+  ok('四项加购计费 = 基准 600 + 四项实收价之和', four.finalPrice === 600 + 200 + 100 + 100 + 600);
+  ok('四项加购的原价合计含零申报的 1200', four.totalOriginal === 800 + 600 + 300 + 400 + 300 + 300 + 1200);
 }
 
 /* ------------------------------------- 存档读回（含旧版 id 字符串数组的迁移） */
@@ -137,7 +175,7 @@ const planOf = (tier: Parameters<typeof quoteFor>[0], addons: string[] = []) =>
   ok(
     '对象缺名称/价格时回落到目录值',
     JSON.stringify(normalizeAddons([{ id: 'addon-tax' }])) ===
-      JSON.stringify([{ id: 'addon-tax', name: '电子税务局开户', price: 300 }])
+      JSON.stringify([{ id: 'addon-tax', name: '电子税务局开户', price: 100 }])
   );
   ok('存档里自带的名称与价格优先', normalizeAddons([{ id: 'addon-tax', name: '自定义名', price: 1 }])[0].name === '自定义名');
   ok('认不出的 id 丢掉', normalizeAddons(['addon-unknown', { id: 'item-bnd-gov' }]).length === 0);

@@ -3,11 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { RegistrationPlan, SurveyData, ServiceTierType, OptionalAddonService } from '../types';
 import { buildPlan } from '../plan';
 import { ALL_ADDON_IDS, OPTIONAL_ADDON_SERVICES, quoteFor } from './proposalQuote';
 import { PlanReportView } from './PlanReportView';
+import { exportProposalToPdf, printProposalReport } from '../exportProposalPdf';
 import {
   Building,
   Receipt,
@@ -26,7 +27,9 @@ import {
   Landmark,
   FileSpreadsheet,
   Users,
-  Sparkles
+  Sparkles,
+  FileDown,
+  Loader2
 } from 'lucide-react';
 
 interface ProposalStepProps {
@@ -78,6 +81,22 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
     return [];
   });
   const [showReportModal, setShowReportModal] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  /** 提示：上一条的定时器先清掉，免得前一条把后一条提前清没了 */
+  const toastTimerRef = useRef<number | null>(null);
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToastMessage(null), 2800);
+  };
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    },
+    []
+  );
 
   const formatMoney = (val?: number | null) => {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -93,6 +112,28 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
       onUpdatePlan(activePlan);
     }
     onProceed();
+  };
+
+  /**
+   * 存为 PDF：《企业商事设立规划与财税合规评估报告》走 html2canvas + jsPDF 直接下载
+   * （迁移自参考实现）。生成失败就回落到「打印 → 在打印预览里另存为 PDF」，
+   * 别让用户点了没反应。
+   */
+  const handleExportPdf = async () => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    showToast('正在生成《企业商事设立规划与财税合规评估报告》PDF，请稍候…');
+    const input = { report: activePlan.report, plan: activePlan, survey };
+    try {
+      await exportProposalToPdf(input);
+      showToast('评估报告已存为 PDF 并开始下载');
+    } catch (error) {
+      console.error('Export PDF failed:', error);
+      showToast('PDF 生成失败，已改为唤起打印，可在打印预览里另存为 PDF');
+      printProposalReport(input);
+    } finally {
+      setIsExportingPdf(false);
+    }
   };
 
   // Handler to switch tier
@@ -161,24 +202,42 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
             id="sec-proposal-arch"
             className="rounded-2xl p-5 sm:p-6 mb-5 border border-slate-200/80 bg-white transition-all"
           >
-            <div className="flex items-center justify-between mb-3">
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#2AA894] select-none">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#1D6C5E] select-none">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#36B39E]"></span>
-                <span>01 · 架构诊断</span>
+                <span>01 · 设立规划建议报告</span>
               </div>
-              <span className="inline-flex items-center gap-1 text-xs text-[#2AA894]">
-                <Check className="w-3 h-3 stroke-[2.5]" /> 诊断通过
-              </span>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={isExportingPdf}
+                title="将本企业商事设立规划评估报告保存为正式公文 PDF 文件"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#1D6C5E] bg-[#E6F7F2]/90 hover:bg-[#E6F7F2] border border-[#2AA894]/30 rounded-lg transition-all cursor-pointer active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="w-3.5 h-3.5" />
+                )}
+                <span>{isExportingPdf ? '正在生成 PDF...' : '存为 PDF'}</span>
+              </button>
             </div>
 
-            <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-3.5">
-              {activePlan.report?.reportTitle || '企业架构与组织形式建议'}
-            </h2>
+            {/* 标题与说明 */}
+            <div className="mb-4">
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+                {activePlan.report?.reportTitle || '企业组织架构与财税规划评估报告'}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
+                {activePlan.report?.summary ||
+                  '依据新《公司法》合规要求，结合您填报的实际设立特征（含股东构成与场地安排），为您智能推演的四大核心架构维度：'}
+              </p>
+            </div>
 
             {/* 服务端返回了新结构报告就按报告渲染（四个维度含 points）；老响应没有报告，
                 回落到原来那排平铺字段的卡片 —— 两套并存，接口改版不会让页面空掉 */}
             {activePlan.report ? (
-              <PlanReportView report={activePlan.report} />
+              <PlanReportView report={activePlan.report} plan={activePlan} survey={survey} />
             ) : (
               <>
                 {/* 企业名称方案：服务端给的是含备选名的一整段，占满一行比塞进卡片里好读 */}
@@ -229,35 +288,35 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
               </>
             )}
 
-            {/* Scope and Qualifications */}
-            <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-3">
-              <div>
-                <span className="text-xs font-bold text-slate-700 block mb-1.5">拟申报经营范围：</span>
-                <div className="flex flex-wrap gap-1.5">
-                  {survey.scope.map((s) => (
-                    <span key={s} className="px-2.5 py-0.5 rounded-md text-xs bg-[#E6F7F2] text-[#2AA894]">
-                      {s}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {activePlan.postQualifications.length > 0 && (
+            {/* 经营范围 / 资质 / 合规提醒的回落布局：有服务端报告时，这些内容已经由
+                PlanReportView 按参考实现的版式渲染（经营范围卡 + 避坑卡），这里只在
+                老响应（没有 report）时显示，免得两处重复 */}
+            {!activePlan.report && (
+              <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-3">
                 <div>
-                  <span className="text-xs font-bold text-slate-700 block mb-1.5">后续需协同办理的行业资质：</span>
+                  <span className="text-xs font-bold text-slate-700 block mb-1.5">拟申报经营范围：</span>
                   <div className="flex flex-wrap gap-1.5">
-                    {activePlan.postQualifications.map((l) => (
-                      <span key={l} className="px-2.5 py-0.5 rounded-md text-xs bg-purple-50 text-purple-700 border border-purple-200/70">
-                        {l}
+                    {survey.scope.map((s) => (
+                      <span key={s} className="px-2.5 py-0.5 rounded-md text-xs bg-[#E6F7F2] text-[#2AA894]">
+                        {s}
                       </span>
                     ))}
                   </div>
                 </div>
-              )}
 
-              {/* 本地模板的合规提醒：有服务端报告时报告里已经有「避坑指南 / 行业合规提示」，
-                  再挂一份本地猜的会重复，所以只在回落布局里显示 */}
-              {!activePlan.report && (
+                {activePlan.postQualifications.length > 0 && (
+                  <div>
+                    <span className="text-xs font-bold text-slate-700 block mb-1.5">后续需协同办理的行业资质：</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {activePlan.postQualifications.map((l) => (
+                        <span key={l} className="px-2.5 py-0.5 rounded-md text-xs bg-purple-50 text-purple-700 border border-purple-200/70">
+                          {l}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70">
                   <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900 mb-1">
                     <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
@@ -269,8 +328,8 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
                     ))}
                   </ul>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
 
           {/* ==================== 02 套餐方案选择 ==================== */}
@@ -685,11 +744,21 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
 
                     <div className="text-right shrink-0">
                       <div className="flex items-baseline gap-1.5 justify-end">
-                        <span className={`font-bold ${isSelected ? 'text-slate-800' : 'text-slate-400'}`}>
+                        <span className={`font-bold ${isSelected ? 'text-slate-800' : 'text-slate-500'}`}>
                           ¥{addon.price}
                         </span>
                         <span className="text-[11px] text-slate-400">/{addon.unit}</span>
+                        {addon.originalPrice !== undefined && addon.originalPrice > addon.price && (
+                          <span className="text-[11px] text-slate-400 line-through">
+                            ¥{formatMoney(addon.originalPrice)}
+                          </span>
+                        )}
                       </div>
+                      {addon.originalPrice !== undefined && addon.originalPrice > addon.price && (
+                        <span className="text-[10px] text-[#2AA894] font-medium block mt-0.5 text-right">
+                          已免 ¥{formatMoney(addon.originalPrice - addon.price)}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -837,12 +906,30 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  window.print();
+                  // 只印这份评估报告：走隐藏 iframe，不再 window.print() 把整页（含套餐卡、
+                  // 加购项、导航）都印出来
+                  printProposalReport(
+                    { report: activePlan.report, plan: activePlan, survey },
+                    () => showToast('已唤起打印程序，可在打印预览里另存为 PDF')
+                  );
                 }}
                 className="px-5 py-2 rounded-full border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>打印报告</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={isExportingPdf}
+                className="px-5 py-2 rounded-full border border-[#2AA894]/30 bg-[#E6F7F2]/90 text-[#1D6C5E] text-xs font-semibold hover:bg-[#E6F7F2] transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {isExportingPdf ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <FileDown className="w-3.5 h-3.5" />
+                )}
+                <span>{isExportingPdf ? '正在生成 PDF...' : '存为 PDF'}</span>
               </button>
               <button
                 type="button"
@@ -856,6 +943,13 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 提示（存为 PDF / 打印） */}
+      {toastMessage && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-slate-900 text-white text-xs font-semibold shadow-xl flex items-center gap-2 animate-in fade-in duration-150">
+          <span>{toastMessage}</span>
         </div>
       )}
 

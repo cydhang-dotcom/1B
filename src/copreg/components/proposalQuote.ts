@@ -12,7 +12,7 @@
 
 import { OptionalAddonService, PlanAddon, QuotationItem, ServiceTierType, TierQuote } from '../types';
 
-export const ALL_ADDON_IDS = ['addon-bank', 'addon-tax', 'addon-social'];
+export const ALL_ADDON_IDS = ['addon-bank', 'addon-tax', 'addon-social', 'addon-zero-tax'];
 
 /**
  * 套餐档位白名单。报价（`quoteFor`）与存档解析（`planDraft` 的 `tierOf`）共用这一份：
@@ -31,6 +31,7 @@ export const OPTIONAL_ADDON_SERVICES: OptionalAddonService[] = [
     name: '银行对公账户开通',
     desc: '合作商业银行免排队专属绿色通道，专人对接协助开立企业基本户、办理企业网银U盾及结算权限',
     price: 200,
+    originalPrice: 400,
     unit: '次',
     defaultSelected: false
   },
@@ -38,7 +39,8 @@ export const OPTIONAL_ADDON_SERVICES: OptionalAddonService[] = [
     id: 'addon-tax',
     name: '电子税务局开户',
     desc: '国家税务总局新电局税种核定、财务负责人实名绑定、数电发票开票额度核定及首月开业建账辅导',
-    price: 300,
+    price: 100,
+    originalPrice: 300,
     unit: '次',
     defaultSelected: false
   },
@@ -46,8 +48,18 @@ export const OPTIONAL_ADDON_SERVICES: OptionalAddonService[] = [
     id: 'addon-social',
     name: '办理社保公积金开户',
     desc: '办理企业社保局独立单位专户开户、住房公积金管理中心单位缴存登记开户设立，开具官方设立凭据',
-    price: 200,
+    price: 100,
+    originalPrice: 300,
     unit: '次',
+    defaultSelected: false
+  },
+  {
+    id: 'addon-zero-tax',
+    name: '企业零申报服务（全年12个月）',
+    desc: '专人按期代办月度/季度增值税及附加税、企业所得税零申报，出具官方申报凭据，含年度所得税汇算清缴与年报指导',
+    price: 600,
+    originalPrice: 1200,
+    unit: '年',
     defaultSelected: false
   }
 ];
@@ -57,7 +69,7 @@ export const OPTIONAL_ADDON_SERVICES: OptionalAddonService[] = [
  *
  * 这是「自选项」唯一的派生入口：本地存档（App 存 `1b_copreg_plan_form`）与确认接口的
  * `formData.addons` 都调它，所以存下去的和发出去的永远是同一批对象、同一个价格。
- * 顺序固定为报价明细的顺序（银行开户 → 税局开户 → 社保公积金开户），与勾选先后无关。
+ * 顺序固定为报价明细的顺序（银行开户 → 税局开户 → 社保公积金开户 → 企业零申报），与勾选先后无关。
  */
 export const addonsOf = (items: QuotationItem[]): PlanAddon[] =>
   items
@@ -313,38 +325,19 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
     ];
   }
 
-  // 自选增值服务：仅在企业注册服务中提供可选加购（银行开户、税局开户、社保公积金开户）
+  // 自选增值服务：仅在企业注册服务中提供可选加购。
+  // 明细直接由目录（OPTIONAL_ADDON_SERVICES）生成，不再逐项手写一份 —— 改价时两处会漂移。
   if (normalizedTier === 'standard') {
-    if (activeAddons.includes('addon-bank')) {
+    for (const service of OPTIONAL_ADDON_SERVICES) {
+      if (!activeAddons.includes(service.id)) continue;
       items.push({
-        id: 'addon-bank',
-        name: '银行对公账户开通',
-        desc: '合作商业银行免排队专属绿色通道，专人对接协助开立企业基本户、办理企业网银U盾及结算权限',
-        price: 200,
-        originalPrice: 400,
-        tag: '自选增值 ¥200/次'
-      });
-    }
-
-    if (activeAddons.includes('addon-tax')) {
-      items.push({
-        id: 'addon-tax',
-        name: '电子税务局开户',
-        desc: '国家税务总局新电局税种核定、财务负责人实名绑定、数电发票开票额度核定及首月开业建账辅导',
-        price: 300,
-        originalPrice: 500,
-        tag: '自选增值 ¥300/次'
-      });
-    }
-
-    if (activeAddons.includes('addon-social')) {
-      items.push({
-        id: 'addon-social',
-        name: '办理社保公积金开户',
-        desc: '办理企业社保局独立单位专户开户、住房公积金管理中心单位缴存登记开户设立，开具官方设立凭据',
-        price: 200,
-        originalPrice: 500,
-        tag: '自选增值 ¥200/次'
+        id: service.id,
+        name: service.name,
+        desc: service.desc,
+        price: service.price,
+        // 没有划线原价就拿实收价顶上，折扣算 0
+        originalPrice: service.originalPrice ?? service.price,
+        tag: `自选增值 ¥${service.price}/${service.unit}`
       });
     }
   }

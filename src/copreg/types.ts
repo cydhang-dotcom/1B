@@ -113,7 +113,13 @@ export interface OptionalAddonService {
   id: string;
   name: string;
   desc: string;
+  /** 实收金额（元） */
   price: number;
+  /**
+   * 划线原价（元）。参考实现用它在加购卡片上标出「已免 ¥差价」；
+   * 缺省（或等于 price）表示这一项没有优惠可标。
+   */
+  originalPrice?: number;
   unit: string;
   defaultSelected?: boolean;
 }
@@ -127,7 +133,7 @@ export interface OptionalAddonService {
  * 同一份报价明细派生，所以也不会出现价格不一致。
  */
 export interface PlanAddon {
-  /** 自选增值服务 id：`addon-bank` / `addon-tax` / `addon-social` */
+  /** 自选增值服务 id：`addon-bank` / `addon-tax` / `addon-social` / `addon-zero-tax` */
   id: string;
   /** 服务名称，如「银行对公账户开通」 */
   name: string;
