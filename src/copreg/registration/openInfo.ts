@@ -13,13 +13,15 @@
  *   ）
  *
  * **响应体前端不解析：2xx 即成功**。用户给的接口说明里没有响应字段，与其猜一个 `code`/`status`
- * 去误判，不如只看 HTTP 结果；非 2xx 一律抛带中文提示的 Error（优先用响应体里的文字，
- * 网关 HTML 用兜底文案），调用方据此把人拦在填报页。接口方若用「200 + code」表达业务失败，
- * 把字段名告诉我，这里加一条判断即可。
+ * 去误判，不如只看 HTTP 结果；非 2xx 一律抛带中文提示的 Error（纯文本直接用，JSON 信封只取
+ * `message` 那句人话，网关 HTML 用兜底文案），调用方据此把人拦在填报页。接口方若用「200 + code」
+ * 表达业务失败，把字段名告诉我，这里加一条判断即可。
  *
  * 端点由调用方注入（React 层从 config/api.ts 取好），本文件不 import config/api.ts：
  * 那个文件读 import.meta.env，只有 Vite 提供，一旦被 scripts/ 下的 tsx 自检间接引到就会崩。
  */
+
+import { serverErrorTextOf } from '../../utils/serverError';
 
 /** 保存类型：0 临时保存（保存草稿）、1 保存（确认提交并申请） */
 export type OpenInfoSaveType = '0' | '1';
@@ -71,11 +73,8 @@ export class OpenInfoMissingRecordError extends Error {
 const joinUrl = (host: string, path: string): string =>
   `${host.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 
-/** 非 2xx 的响应体：后端写好的错误文案就用它，网关返回的整页 HTML 就别往提示里塞了 */
-const messageOf = (text: string, status: number): string => {
-  const trimmed = text.trim();
-  return trimmed && !trimmed.startsWith('<') ? trimmed : `${LABEL}失败（${status}）`;
-};
+/** 非 2xx 的响应体 → 用户可读文案（JSON 信封只取 message 那句人话，见 utils/serverError.ts） */
+const messageOf = (text: string, status: number): string => serverErrorTextOf(text, status, LABEL);
 
 /**
  * 组请求体：`var2` 就是「本地存档那份 JSON」的字符串。

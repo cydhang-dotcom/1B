@@ -16,11 +16,13 @@
  *
  * 失败一律抛带中文提示的 Error，调用方直接把它显示在页面上：
  *   路径没配        「附件上传接口尚未接入，请稍后重试」（一个请求都不发）
- *   非 2xx         优先用响应体里的文字（是网关 HTML 就用兜底文案）
+ *   非 2xx         优先用响应体里的文字（JSON 信封只取 message 那句人话；网关 HTML 用兜底文案）
  *   超时            「附件上传超时，请稍后重试」
  *   网络不通        「网络异常，请检查网络后重试」
  *   不是 JSON / 没给 fileUuid  「附件上传返回格式异常，请稍后重试」/「附件上传未返回文件编号，请稍后重试」
  */
+
+import { serverErrorTextOf } from './serverError';
 
 /** 上传端点：host 与 path 分开注入（host 可能自带 /v1，拼法见 joinUrl） */
 export interface FileUploadEndpoint {
@@ -54,11 +56,8 @@ const LABEL = '附件上传';
 const joinUrl = (host: string, path: string): string =>
   `${host.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`;
 
-/** 非 2xx 的响应体：后端写好的错误文案就用它，网关返回的整页 HTML 就别往提示里塞了 */
-const messageOf = (text: string, status: number): string => {
-  const trimmed = text.trim();
-  return trimmed && !trimmed.startsWith('<') ? trimmed : `${LABEL}失败（${status}）`;
-};
+/** 非 2xx 的响应体 → 用户可读文案（收口规则与自检见 `serverError.ts`） */
+const messageOf = (text: string, status: number): string => serverErrorTextOf(text, status, LABEL);
 
 /**
  * 上传一个文件。**不要手动设 Content-Type** —— multipart 的 boundary 由浏览器生成，

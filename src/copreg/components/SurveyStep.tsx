@@ -21,6 +21,7 @@ import { aiFillSurvey } from '../aiFill';
 import { surveyRequiredFields } from '../surveyCheck';
 import { CaptchaCancelledError } from '../../utils/tencentCaptcha';
 import { PhoneVerifyModal } from './PhoneVerifyModal';
+import { PlanGeneratingModal } from './PlanGeneratingModal';
 import type { PhoneVerification } from '../verification';
 
 interface SurveyStepProps {
@@ -50,6 +51,8 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   // 诊断接口的失败原因，显示在弹框里（不关弹框、原地改验证码重试）
   const [submitError, setSubmitError] = useState('');
+  // 短信凭据交上去之后、诊断接口回来之前：盖一层「AI 推演」生成方案弹框
+  const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [aiGenerated, setAiGenerated] = useState(false);
   const [aiTagInputScope, setAiTagInputScope] = useState('');
   const [aiTagInputLicense, setAiTagInputLicense] = useState('');
@@ -215,17 +218,20 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
   /**
    * 手机验证通过 → 带着手机号与短信凭据生成方案（服务端据此比对验证码）。
    *
-   * 失败**不关弹框**：请求没成功就可能一个字段都没落库（手机号也未必算验证过），
-   * 失败原因写在弹框里，用户改验证码原地重试；成功才关框（随后 App 会跳去方案页）。
-   * 手机号必须验证过才出方案，所以这里没有「先用本地规则生成一份」的兜底。
+   * 短信凭据一交上去就盖一层「AI 推演」生成方案弹框（迁移自参考实现），诊断请求在它后面跑：
+   * 成功由 App 切到方案页；失败把生成弹框收掉、**手机弹框原地还在**（校验与短信凭据都保留），
+   * 原因写在里面，改验证码即可重试 —— 所以手机弹框在生成期间只是被盖住，不能卸载。
    */
   const handlePhoneVerified = async (verification: PhoneVerification) => {
     setIsSubmitting(true);
     setSubmitError('');
+    setIsGeneratingPlan(true);
     try {
       await onSubmit(verification);
+      setIsGeneratingPlan(false);
       setShowPhoneModal(false);
     } catch (error) {
+      setIsGeneratingPlan(false);
       setSubmitError(error instanceof Error ? error.message : '生成需求方案失败，请稍后重试');
     } finally {
       setIsSubmitting(false);
@@ -902,6 +908,9 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           }}
         />
       )}
+
+      {/* 生成方案弹框：短信凭据一交上去就盖在手机弹框上，诊断请求在它后面跑 */}
+      {isGeneratingPlan && <PlanGeneratingModal />}
 
       {/* Toast Notification */}
       {toastMessage && (

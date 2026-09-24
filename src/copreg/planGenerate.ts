@@ -28,9 +28,16 @@
  */
 
 import { COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH } from '../config/api';
-import { joinUrl, optionalListOf, optionalStringOf, postJson } from './apiClient';
-import { RegistrationPlan, SurveyData } from './types';
+import { joinUrl, optionalStringOf, postJson } from './apiClient';
+import { hasPlanContent, parsePlanSuggestion } from './planReport';
+import type { PlanSuggestion } from './planReport';
+import type { SurveyData } from './types';
 import type { PhoneVerification } from './verification';
+
+// 解析 / 收口 / 覆盖是纯逻辑，放在 planReport.ts（不 import config/api.ts，好让 tsx 自检直接引）；
+// 这里原样转出，调用方（planDraft / App）继续从本模块拿，无需改 import 路径
+export { applyPlanSuggestion, hasPlanContent, parsePlanReport, parsePlanSuggestion } from './planReport';
+export type { PlanSuggestion } from './planReport';
 
 /** 失败提示的主语，拼进 apiClient 的几种失败文案里 */
 const LABEL = '生成需求方案';
@@ -87,37 +94,6 @@ export interface PlanGenerateRequest {
   phoneNumber: PhoneVerification;
 }
 
-/**
- * 服务端给的架构诊断结果，只收前端真正读到的那几项
- * （`model` 是服务端自报的模型名，前端没有展示位，所以不取）。
- *
- * null = 服务端没给这一项，覆盖时保留本地方案的值；
- * 字符串数组给空数组 = 明确「没有」，就用空数组（服务端说不需要前置许可，
- * 就不该继续显示本地模板猜的那条）。
- */
-export interface PlanSuggestion {
-  /** 企业名称方案（一整段，通常含备选名） */
-  companyNameProposal: string | null;
-  /** 组织形式（含股东结构建议，服务端给的是一整段） */
-  companyType: string | null;
-  /** 纳税人身份规划 */
-  taxpayerIdentity: string | null;
-  /** 这么定的理由 */
-  taxReason: string | null;
-  /** 注册资本建议（一整句话，含金额） */
-  capitalAmount: string | null;
-  /** 出资节奏与实缴安排建议 */
-  capitalAdvice: string | null;
-  /** 注册地址合规策略 */
-  registeredAddressAdvice: string | null;
-  /** 前置许可 / 备案清单 */
-  preQualifications: string[] | null;
-  /** 后置许可 / 资质清单 */
-  postQualifications: string[] | null;
-  /** 合规风险提示 */
-  riskTips: string[] | null;
-}
-
 /** 问卷 → 请求体里的 formData（数组都复制一份，避免把 state 里的数组交出去） */
 export const planFormFromSurvey = (survey: SurveyData): PlanFormData => ({
   coreNeeds: [...survey.coreNeeds],
@@ -139,42 +115,6 @@ export const planFormFromSurvey = (survey: SurveyData): PlanFormData => ({
   regAddress: survey.regAddress,
   officeSpace: survey.officeSpace,
 });
-
-/**
- * 把一份「形状未知的」诊断结果收成 PlanSuggestion：接口响应与本地快照（planDraft.ts）
- * 共用这一份字段校验 —— localStorage 里的东西也可能被改过、或是别的版本写的，
- * 不能因为它在本地就直接当可信数据用。
- */
-export const parsePlanSuggestion = (payload: unknown): PlanSuggestion => {
-  const source = (payload ?? {}) as Record<string, unknown>;
-  return {
-    companyNameProposal: optionalStringOf(source.companyNameProposal),
-    companyType: optionalStringOf(source.companyType),
-    taxpayerIdentity: optionalStringOf(source.taxpayerIdentity),
-    taxReason: optionalStringOf(source.taxReason),
-    capitalAmount: optionalStringOf(source.capitalAmount),
-    capitalAdvice: optionalStringOf(source.capitalAdvice),
-    registeredAddressAdvice: optionalStringOf(source.registeredAddressAdvice),
-    preQualifications: optionalListOf(source.preQualifications),
-    postQualifications: optionalListOf(source.postQualifications),
-    riskTips: optionalListOf(source.riskTips),
-  };
-};
-
-/** 一项可用内容都没有 = 后端没给这个接口该给的东西（字段名对不上，或真的什么都没算出来） */
-export const hasPlanContent = (suggestion: PlanSuggestion): boolean =>
-  [
-    suggestion.companyNameProposal,
-    suggestion.companyType,
-    suggestion.taxpayerIdentity,
-    suggestion.taxReason,
-    suggestion.capitalAmount,
-    suggestion.capitalAdvice,
-    suggestion.registeredAddressAdvice,
-    suggestion.preQualifications,
-    suggestion.postQualifications,
-    suggestion.riskTips,
-  ].some((field) => field !== null);
 
 /**
  * 「生成需求方案」的返回：诊断结果 + 服务端当场建好的委托单号。
@@ -218,29 +158,3 @@ export const generatePlanReport = async (
 
   return { recordId, suggestion };
 };
-
-/**
- * 把诊断结果覆盖到方案上：服务端给了这一项才用，没给的项保持传入方案的原样
- * （字符串字段给空串、数组字段不是数组都算「没给」；给空数组算「明确没有」）。
- * 价格与套餐字段一律不动（见文件头），所以对已经切过套餐的方案再叠一次也是安全的。
- * suggestion 为 null（接口失败）时原样返回。
- */
-export const applyPlanSuggestion = (
-  plan: RegistrationPlan,
-  suggestion: PlanSuggestion | null
-): RegistrationPlan =>
-  suggestion === null
-    ? plan
-    : {
-        ...plan,
-        companyNameProposal: suggestion.companyNameProposal ?? plan.companyNameProposal,
-        companyType: suggestion.companyType ?? plan.companyType,
-        taxpayerIdentity: suggestion.taxpayerIdentity ?? plan.taxpayerIdentity,
-        taxReason: suggestion.taxReason ?? plan.taxReason,
-        capitalAmount: suggestion.capitalAmount ?? plan.capitalAmount,
-        capitalAdvice: suggestion.capitalAdvice ?? plan.capitalAdvice,
-        registeredAddressAdvice: suggestion.registeredAddressAdvice ?? plan.registeredAddressAdvice,
-        preQualifications: suggestion.preQualifications ?? plan.preQualifications,
-        postQualifications: suggestion.postQualifications ?? plan.postQualifications,
-        riskTips: suggestion.riskTips ?? plan.riskTips,
-      };

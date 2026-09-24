@@ -258,6 +258,8 @@ export function buildPlan(survey: SurveyData, quote: TierQuote): RegistrationPla
       ? matched.license
       : [],
     riskTips: industryMatched ? matched.riskTips : [],
+    // 完整报告只有服务端架构诊断给得出来；本地模板方案没有，方案页据此回落到上面的平铺字段
+    report: null,
     items,
     selectedAddons: activeAddons,
     totalOriginal,

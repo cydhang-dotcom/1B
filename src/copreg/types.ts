@@ -36,6 +36,64 @@ export interface QuotationItem {
 export type ServiceTierType = 'standard' | 'bundle_small' | 'bundle_general';
 
 /**
+ * 架构诊断接口返回的**报告结构**（2026-09 后端改版后的真实形状）。
+ *
+ * 老版本是平铺的 `companyType` / `taxpayerIdentity` / … 十个字段；现在是一份「报告」：
+ * 顶部标题与摘要、四条诊断条、四个核心决策维度（每个维度带若干条 points 论证）、
+ * 行业合规提示与避坑指南。前端两套都认：平铺字段仍按老口径取，报告另存一份给方案页渲染
+ * （见 planGenerate.ts 的 parsePlanReport 与 applyPlanSuggestion）。
+ */
+export interface PlanDecisionPoint {
+  /** 小标题，服务端形如「【股东与股比】」 */
+  title: string;
+  /** 这一条的正文 */
+  content: string;
+}
+
+/** 报告顶部的四条诊断结论（业务方向 / 股东画像 / 场地安排 / 纳税人身份倾向） */
+export interface PlanDiagnosticBar {
+  businessDirection: string;
+  shareholderProfile: string;
+  premiseArrangement: string;
+  taxIdentityProfile: string;
+}
+
+/** 一个核心决策维度：序号 + 标题 + 标签 + 一句结论 + 若干条 points */
+export interface PlanCoreDecision {
+  dimensionIndex: string;
+  dimensionTitle: string;
+  tag: string;
+  /** 该维度的结论句：组织形式的 recommendedType、注册资本的 recommendedCapital（含单位）等 */
+  recommended: string;
+  points: PlanDecisionPoint[];
+}
+
+/** 避坑指南的一条：第几步 + 标题 + 说明 */
+export interface PlanPitfallGuide {
+  step: string;
+  title: string;
+  desc: string;
+}
+
+/** 完整报告。任一项缺失都由解析层收成空串 / 空数组，渲染层据此不显示 */
+export interface PlanDiagnosticReport {
+  reportTitle: string;
+  summary: string;
+  diagnosticBar: PlanDiagnosticBar;
+  /** 组织形式与股权架构 */
+  orgStructure: PlanCoreDecision;
+  /** 注册资本与出资规划 */
+  capitalPlanning: PlanCoreDecision;
+  /** 财税身份与发票统筹 */
+  taxAndInvoice: PlanCoreDecision;
+  /** 经营场所与住所合规 */
+  businessPremise: PlanCoreDecision;
+  industryComplianceTips: string[];
+  pitfallGuides: PlanPitfallGuide[];
+}
+
+
+/**
  * 一份套餐报价：套餐明细 + 费用合计。
  * 报价由 components/proposalQuote.ts 算出，plan.ts 再把它跟问卷答案拼成 RegistrationPlan。
  */
@@ -91,6 +149,11 @@ export interface RegistrationPlan {
   preQualifications: string[];
   postQualifications: string[];
   riskTips: string[];
+  /**
+   * 服务端架构诊断返回的完整报告（新结构）。本地模板方案没有它，为 `null`；
+   * 方案页 01 区块有报告时按报告渲染，没有才回落到上面那排平铺字段。
+   */
+  report: PlanDiagnosticReport | null;
   items: QuotationItem[];
   selectedAddons?: string[];
   totalOriginal: number;

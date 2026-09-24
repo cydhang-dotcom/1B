@@ -7,6 +7,7 @@ import React, { useState } from 'react';
 import { RegistrationPlan, SurveyData, ServiceTierType, OptionalAddonService } from '../types';
 import { buildPlan } from '../plan';
 import { ALL_ADDON_IDS, OPTIONAL_ADDON_SERVICES, quoteFor } from './proposalQuote';
+import { PlanReportView } from './PlanReportView';
 import {
   Building,
   Receipt,
@@ -171,54 +172,62 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
             </div>
 
             <h2 className="text-base sm:text-lg font-bold text-slate-800 tracking-tight mb-3.5">
-              企业架构与组织形式建议
+              {activePlan.report?.reportTitle || '企业架构与组织形式建议'}
             </h2>
 
-            {/* 企业名称方案：服务端给的是含备选名的一整段，占满一行比塞进卡片里好读 */}
-            {activePlan.companyNameProposal && (
-              <div className="mb-3 p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
-                <span className="text-[11px] text-slate-400 block mb-0.5">企业名称方案</span>
-                <p className="text-xs text-slate-700 leading-relaxed">
-                  {activePlan.companyNameProposal}
-                </p>
-              </div>
+            {/* 服务端返回了新结构报告就按报告渲染（四个维度含 points）；老响应没有报告，
+                回落到原来那排平铺字段的卡片 —— 两套并存，接口改版不会让页面空掉 */}
+            {activePlan.report ? (
+              <PlanReportView report={activePlan.report} />
+            ) : (
+              <>
+                {/* 企业名称方案：服务端给的是含备选名的一整段，占满一行比塞进卡片里好读 */}
+                {activePlan.companyNameProposal && (
+                  <div className="mb-3 p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
+                    <span className="text-[11px] text-slate-400 block mb-0.5">企业名称方案</span>
+                    <p className="text-xs text-slate-700 leading-relaxed">
+                      {activePlan.companyNameProposal}
+                    </p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
+                    <span className="text-[11px] text-slate-400 block mb-0.5">企业组织类型</span>
+                    <span className="font-bold text-[#2AA894] text-sm block mb-1">{activePlan.companyType}</span>
+                    <p className="text-slate-500 leading-relaxed">
+                      股东以认缴出资额承担有限责任，适合商业结算、招投标与线上经营。
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
+                    <span className="text-[11px] text-slate-400 block mb-0.5">纳税人身份规划</span>
+                    <span className="font-bold text-slate-800 text-sm block mb-1">{activePlan.taxpayerIdentity}</span>
+                    <p className="text-slate-500 leading-relaxed">
+                      {activePlan.taxReason}
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
+                    <span className="text-[11px] text-slate-400 block mb-0.5">注册资本规划</span>
+                    <span className="font-bold text-slate-800 text-sm block mb-1">{activePlan.capitalAmount}</span>
+                    <p className="text-slate-500 leading-relaxed">
+                      {activePlan.capitalAdvice}
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
+                    <span className="text-[11px] text-slate-400 block mb-0.5">注册地址合规策略</span>
+                    <span className="font-bold text-slate-800 text-sm block mb-1">
+                      {survey.regAddress.includes('是') ? '自贸园区标准合规商务秘书集群注册地址' : '自有商业办公场所合规备案登记'}
+                    </span>
+                    <p className="text-slate-500 leading-relaxed">
+                      {activePlan.registeredAddressAdvice}
+                    </p>
+                  </div>
+                </div>
+              </>
             )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
-                <span className="text-[11px] text-slate-400 block mb-0.5">企业组织类型</span>
-                <span className="font-bold text-[#2AA894] text-sm block mb-1">{activePlan.companyType}</span>
-                <p className="text-slate-500 leading-relaxed">
-                  股东以认缴出资额承担有限责任，适合商业结算、招投标与线上经营。
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
-                <span className="text-[11px] text-slate-400 block mb-0.5">纳税人身份规划</span>
-                <span className="font-bold text-slate-800 text-sm block mb-1">{activePlan.taxpayerIdentity}</span>
-                <p className="text-slate-500 leading-relaxed">
-                  {activePlan.taxReason}
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
-                <span className="text-[11px] text-slate-400 block mb-0.5">注册资本规划</span>
-                <span className="font-bold text-slate-800 text-sm block mb-1">{activePlan.capitalAmount}</span>
-                <p className="text-slate-500 leading-relaxed">
-                  {activePlan.capitalAdvice}
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/70">
-                <span className="text-[11px] text-slate-400 block mb-0.5">注册地址合规策略</span>
-                <span className="font-bold text-slate-800 text-sm block mb-1">
-                  {survey.regAddress.includes('是') ? '自贸园区标准合规商务秘书集群注册地址' : '自有商业办公场所合规备案登记'}
-                </span>
-                <p className="text-slate-500 leading-relaxed">
-                  {activePlan.registeredAddressAdvice}
-                </p>
-              </div>
-            </div>
 
             {/* Scope and Qualifications */}
             <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-3">
@@ -246,18 +255,21 @@ export const ProposalStep: React.FC<ProposalStepProps> = ({
                 </div>
               )}
 
-              {/* Concise Risk Tips */}
-              <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70">
-                <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900 mb-1">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
-                  <span>合规专家提醒</span>
+              {/* 本地模板的合规提醒：有服务端报告时报告里已经有「避坑指南 / 行业合规提示」，
+                  再挂一份本地猜的会重复，所以只在回落布局里显示 */}
+              {!activePlan.report && (
+                <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70">
+                  <div className="flex items-center gap-1.5 font-bold text-xs text-amber-900 mb-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    <span>合规专家提醒</span>
+                  </div>
+                  <ul className="space-y-0.5 text-xs text-amber-800 list-disc list-inside">
+                    {activePlan.riskTips.map((tip, idx) => (
+                      <li key={idx} className="leading-relaxed">{tip}</li>
+                    ))}
+                  </ul>
                 </div>
-                <ul className="space-y-0.5 text-xs text-amber-800 list-disc list-inside">
-                  {activePlan.riskTips.map((tip, idx) => (
-                    <li key={idx} className="leading-relaxed">{tip}</li>
-                  ))}
-                </ul>
-              </div>
+              )}
             </div>
           </div>
 

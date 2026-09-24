@@ -102,23 +102,65 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 | 15 | `regAddress` | `string` | 05 注册地址 · 单选 | `是（需推荐）` / `否（自有地址）`；⚠️ 存的是「要不要推荐」，不是地址本身 |
 | 16 | `officeSpace` | `string` | 05 办公场地 · 单选 | `是` / `否`；问的是要不要推荐实体办公场地 |
 
-### 2.3 响应
+### 2.3 响应（**两套结构都认**）
 
-真实返回是**长文本 + 清单**（不是 caa 的 `{ content, model }` 整段文本）。服务端返回下面任意
-若干项即可；前端只取 `planGenerate.ts` 的 `PlanSuggestion` 里列出的那几项，其余字段照实收下但不接。
+前端解析在 `src/copreg/planReport.ts`（纯逻辑，`scripts/check-plan-report.ts` 有 31 项离线自检）。
+服务端可能给**新报告结构**（2026-09 起线上真实返回）或**老平铺结构**，两种都收成同一份
+`PlanSuggestion`：新结构整份收进 `plan.report` 供方案页渲染，并从报告**派生**平铺字段；
+老结构仍按老口径取。`recordId` 与 `status` / `model` 两套都一样。
+
+#### 2.3.1 新报告结构（线上真实返回；方案页 01 区块按它渲染）
+
+```json
+{ "reportTitle": "企业组织架构与财税规划评估报告",
+  "summary": "…",
+  "diagnosticBar": { "businessDirection": "…", "shareholderProfile": "…",
+                     "premiseArrangement": "…", "taxIdentityProfile": "…" },
+  "coreDecisions": {
+    "orgStructure":    { "dimensionIndex": "01", "dimensionTitle": "组织形式与股权架构", "tag": "…",
+                         "recommendedType": "…", "points": [{ "title": "【股东与股比】", "content": "…" }] },
+    "capitalPlanning": { "…": "…", "recommendedCapital": "…", "capitalUnit": "（认缴出资额）", "points": [] },
+    "taxAndInvoice":   { "…": "…", "recommendedTaxIdentity": "…", "points": [] },
+    "businessPremise": { "…": "…", "recommendedPremise": "…", "points": [] }
+  },
+  "industryComplianceTips": ["…"],
+  "pitfallGuides": [{ "step": 1, "title": "许可先核", "desc": "…" }],
+  "model": "deepseek-flash", "recordId": "…", "status": "SUCCESS" }
+```
+
+前端把整份报告收进 `plan.report`，方案页 01 区块按它渲染：`reportTitle` 作标题、`summary` 作摘要、
+`diagnosticBar` 四格、四个维度卡（序号 · 标题 / `tag` / 结论 / `points`）、行业合规提示、避坑指南。
+同时从报告**派生**一份平铺字段，让进度页 / 本地存档 / 覆盖规则这些按平铺字段工作的地方不用改：
+
+| 平铺字段 | 取自报告 |
+|---|---|
+| `companyType` | `coreDecisions.orgStructure.recommendedType` |
+| `taxpayerIdentity` | `coreDecisions.taxAndInvoice.recommendedTaxIdentity` |
+| `taxReason` | `taxAndInvoice.points` 拼成一段（没有 points 时回落 `diagnosticBar.taxIdentityProfile`） |
+| `capitalAmount` | `capitalPlanning.recommendedCapital`（拼上 `capitalUnit`） |
+| `capitalAdvice` | `capitalPlanning.points` 拼成一段 |
+| `registeredAddressAdvice` | `coreDecisions.businessPremise.recommendedPremise` |
+
+`companyNameProposal` / `preQualifications` / `postQualifications` / `riskTips` 报告里没有 →
+保持 `null`，沿用本地方案（资质继续按问卷的许可资质推）；老响应若同时给了平铺字段，**平铺字段优先**。
+
+#### 2.3.2 老平铺结构（仍兼容）
+
+真实返回原本是**长文本 + 清单**（不是 caa 的 `{ content, model }` 整段文本）。服务端返回下面任意
+若干项即可；前端只取 `PlanSuggestion` 里列出的那几项，其余字段照实收下但不接。
 
 | 响应字段 | 类型 | 前端是否取 | 覆盖到方案里的 | 方案页 / 进度页位置 |
 |---|---|---|---|---|
-| `companyNameProposal` | `string` | ✅ | `plan.companyNameProposal` 企业名称方案（含备选名） | 方案页 01「企业名称方案」整行块（`:229`，取不到就整块不渲染） |
-| `companyType` | `string` | ✅ | `plan.companyType` 组织形式（含股东结构建议） | 方案页 01 架构与组织形式（`:241`、`:823`） |
-| `taxpayerIdentity` | `string` | ✅ | `plan.taxpayerIdentity` 纳税人身份规划 | 方案页 01（`:249`） |
-| `taxReason` | `string` | ✅ | `plan.taxReason` 这么定的理由 | 方案页 01（`:251`） |
-| `capitalAmount` | `string` | ✅ | `plan.capitalAmount` 注册资本建议（一整句话，首个数即金额） | 方案页 01（`:257`、`:824`） |
-| `capitalAdvice` | `string` | ✅ | `plan.capitalAdvice` 出资节奏与实缴安排 | 方案页 01「注册资本规划」卡片正文（`:259`） |
-| `registeredAddressAdvice` | `string` | ✅ | `plan.registeredAddressAdvice` 注册地址合规策略 | 方案页 01（`:269`） |
-| `preQualifications` | `string[]` | ✅ | `plan.preQualifications` 前置许可 / 备案 | 进度页「需办理资质」（`ProgressAndReviewStep.tsx:719`） |
-| `postQualifications` | `string[]` | ✅ | `plan.postQualifications` 后置许可 / 资质 | 方案页 01「后续需协同办理的行业资质」（`:287`） |
-| `riskTips` | `string[]` | ✅ | `plan.riskTips` 合规风险提示 | 方案页 01「合规专家提醒」（`:307`） |
+| `companyNameProposal` | `string` | ✅ | `plan.companyNameProposal` 企业名称方案（含备选名） | 方案页 01（回落布局才显示，取不到就整块不渲染） |
+| `companyType` | `string` | ✅ | `plan.companyType` 组织形式（含股东结构建议） | 方案页 01 回落布局 / 进度页 |
+| `taxpayerIdentity` | `string` | ✅ | `plan.taxpayerIdentity` 纳税人身份规划 | 方案页 01 回落布局 |
+| `taxReason` | `string` | ✅ | `plan.taxReason` 这么定的理由 | 方案页 01 回落布局 |
+| `capitalAmount` | `string` | ✅ | `plan.capitalAmount` 注册资本建议（一整句话，首个数即金额） | 方案页 01 回落布局 / 进度页 |
+| `capitalAdvice` | `string` | ✅ | `plan.capitalAdvice` 出资节奏与实缴安排 | 方案页 01 回落布局 |
+| `registeredAddressAdvice` | `string` | ✅ | `plan.registeredAddressAdvice` 注册地址合规策略 | 方案页 01 回落布局 |
+| `preQualifications` | `string[]` | ✅ | `plan.preQualifications` 前置许可 / 备案 | 进度页「需办理资质」 |
+| `postQualifications` | `string[]` | ✅ | `plan.postQualifications` 后置许可 / 资质 | 方案页 01「后续需协同办理的行业资质」 |
+| `riskTips` | `string[]` | ✅ | `plan.riskTips` 合规风险提示 | 方案页 01 回落布局的「合规专家提醒」（有报告时由避坑指南替代） |
 | `recordId` | `string` | ✅ | 本地存档 `1b_copreg_plan_record` | **委托单号**：服务端在生成方案时就建好了单，第 3 步下单（支付接口的 `busUnionId`）与查单都用它。**必给** —— 缺失时这次请求按失败处理（提示「生成需求方案未返回委托单号」），因为没它下不了单 |
 | `status` | `string` | ❌ 不取 | —— | 服务端自报的状态（线上形如 `SUCCESS`）。前端不读：内容与单号都在，就是一份可用方案；真失败时 `hasPlanContent` 与 `recordId` 两条已经拦住了 |
 | `model` | `string` | ❌ 不取 | —— | 服务端自报的模型名，前端没有展示位；要排查时看这里或服务端日志 |
@@ -132,6 +174,9 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 - **不参与覆盖**的字段：`selectedTier` / `taxpayerTier` / `tierName` / `items` / `selectedAddons` /
   `totalOriginal` / `totalDiscount` / `finalPrice` —— 价格与套餐是产品定价，只由前端报价
   （`components/proposalQuote.ts` 的 `quoteFor`）决定，服务端给什么都不改。
+- **`report` 整份跟着走**：新结构响应收进 `plan.report` 后，方案页 01 区块按它渲染；
+  切套餐 / 勾加购重建方案时也由这一行带回来（`suggestion.report ?? plan.report`），不会被冲掉。
+  老响应没有报告（`null`），方案页就回落到平铺字段那排卡片。
 - 服务端建议会被记住（`App.tsx` 的 `planSuggestion`）：方案页切套餐 / 勾加购会用本地方案重建一份，
   重建后自动重新叠上建议，所以那些操作不会把诊断结果冲掉。
 - 每次提交都是**重算 + 重叠**，而不是把响应叠到上一份方案上：本地方案由
@@ -175,7 +220,7 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 | 请求头 | `Content-Type: application/json` |
 | 响应体 | 必须是 JSON 对象；不是 JSON / 是数组 / 是 `null` 一律按「返回格式异常」处理 |
 | 「有响应但没内容」 | 架构诊断额外判一条：200 且 JSON 合法、但 2.3 里要取的那些字段一个都没给，按失败处理，走同一条提示通道 —— 否则用户会看到一份本地模板方案却以为它是服务端给的 |
-| 错误文案 | 非 2xx 时优先用响应体里的文字（以 `<` 开头认为是网关 HTML，改用兜底文案）；超时「{接口名}超时，请稍后重试」；网络不通「网络异常，请检查网络后重试」；解析失败「{接口名}返回格式异常，请稍后重试」 |
+| 错误文案 | 非 2xx 时按 `src/utils/serverError.ts` 收口：**纯文本**直接用；**JSON 信封**只取 `message` / `msg` / `errorMsg` / `error`（或 `reasons[]` 的 `message` / `msg_id`）那句人话，`timestamp` / `path` / `code` / `recordId` / `requestId` 这些机器字段一律不透出；**信封里再套一层 JSON**（网关把上游 504 原样塞进 `message`）会递归拆到最里层，若里层带超时迹象（`status` 408/504 或 `code` / 文案含 timeout）且没有中文文案，翻成「{接口名}超时，请稍后重试」（如 `AI 智能填充超时，请稍后重试`）；取不到人话（只有 `"Bad Request"` 这类 HTTP 短语）或网关整页 HTML 时用「{接口名}失败（状态码）」。网络不通「网络异常，请检查网络后重试」；解析失败「{接口名}返回格式异常，请稍后重试」 |
 | 类型收口 | `tsconfig` 没开 `strict`，所有响应字段在 `apiClient.ts` 里显式校验：字符串数组过滤掉非字符串与空串并去重，单字符串字段非字符串或空串即视为「没给」（`recordId` 例外：它是必给项，给不出就算这次失败） |
 
 失败时的界面行为：
@@ -184,10 +229,12 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
   不做本地兜底 —— 没拿到建议就不改问卷。
 - **生成需求方案**：必填项过关后弹手机验证弹框（`PhoneVerifyModal`，「获取验证码」自己过腾讯行为验证码）。
   用户直接关掉弹框（或取消）＝**整件事没发生过**：一个请求都不发、问卷与方案存档不动、
-  页面原地留在第 1 步，静默不报错。验证通过后带着手机号调诊断接口，
-  **接口失败一样拦人**：弹框不关、原因写在弹框里、按钮恢复可点，改验证码原地重试
-  —— 手机号没验过就不该出方案（这里没有「用本地规则生成一份」的兜底，见 2.1）。
-  请求期间弹框整体置灰、「生成需求方案」按钮也置灰显示「生成方案中…」，避免连点发两次请求；
+  页面原地留在第 1 步，静默不报错。验证通过（点了「验证并生成方案」）后带着手机号调诊断接口，
+  请求在途期间盖一层**「生成方案弹框」**（`PlanGeneratingModal`，迁移自参考实现：四段推演步骤 +
+  进度条，**每 10 秒推进一段**（10s / 20s / 30s），进度条停在 95% 不谎报 100%），手机弹框**只被盖住、不卸载**；
+  **接口失败一样拦人**：生成弹框收掉、手机弹框原样露出（校验与短信凭据都还在）、原因写在里面、
+  按钮恢复可点，改验证码原地重试 —— 手机号没验过就不该出方案（这里没有「用本地规则生成一份」的兜底，见 2.1）。
+  「生成需求方案」按钮在途置灰显示「生成方案中…」，避免连点发两次请求；
   「AI 智能填充」与「生成需求方案」互斥（在途时都置灰），免得 AI 结果落进一个已经离开的问卷页。
 - **第 2 步（方案页）**：**不调任何接口**。切套餐 / 勾加购只是前端重算报价
   （`quoteFor`）并把结果刷进本地存档；点「前往支付」就是往后走一步，用的是第 1 步给的委托单号。
@@ -255,12 +302,11 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 
 ## 六、还没对齐的几处
 
-1. **长文本与页面版式的落差**：真实响应里 `companyType` 是一两百字的一段、`postQualifications`
-   每条都是一整句（如「食品经营许可证或食品销售备案：经营范围含⋯⋯」），而方案页把
-   `postQualifications` 渲染成一排小标签（`:287` 的 `flex flex-wrap`），长句会撑成很大的胶囊块；
-   `capitalAmount` 也是整句（「建议100万元人民币（认缴），不建议低于50万元⋯⋯」），
-   现在显示在「注册资本规划」的加粗一行里（下面那行正文已经是服务端的 `capitalAdvice`）。
-   要不要把资质改成列表、把 `capitalAmount` 只取金额？属于版式决策，没动。
+1. **长文本与页面版式的落差**：老平铺响应里 `companyType` 是一两百字的一段、`postQualifications`
+   每条都是一整句（如「食品经营许可证或食品销售备案：经营范围含⋯⋯」），而回落布局把
+   `postQualifications` 渲染成一排小标签（`flex flex-wrap`），长句会撑成很大的胶囊块。
+   新报告结构已经按语义分区渲染（`points` 逐条列在所属维度卡里），这块落差只影响老响应；
+   要不要把回落布局的资质也改成列表、把 `capitalAmount` 只取金额？属于版式决策，没动。
 2. **`capitalAmount` 的取数**：`registrationBridge.ts` 已随 registration.html 一并移除，原来靠它把
    整句 `capitalAmount` 用 `digitsOf` 取第一个数字串写进 `basic.capital`；现在的申报表在
    `BasicInfoSection` 里直接收纯数字，服务端那句建议仍只用于方案页展示。

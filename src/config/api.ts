@@ -85,17 +85,31 @@ export const SMS_SCENE_TYPE = import.meta.env.VITE_SMS_SCENE_TYPE || '20260311';
  *            比对不过这次请求就不算成功 —— **验证手机号是出方案的前置条件**，
  *            不再有「接口失败就用本地规则生成一份」的兜底。
  *            这里没有腾讯行为验证码：那一道在手机验证弹框的「获取验证码」上（发短信时用）
- * 响应  架构诊断结果（都是长文本 / 清单）：
- *      companyNameProposal    企业名称方案建议
- *      companyType            组织形式（含股东结构建议）
- *      taxpayerIdentity       纳税人身份规划
- *      taxReason              这么定的理由
- *      capitalAmount          注册资本建议（一句话，含金额）
- *      capitalAdvice          出资节奏与实缴安排建议
- *      registeredAddressAdvice 注册地址合规策略
- *      preQualifications      前置许可 / 备案清单（空数组 = 明确没有）
- *      postQualifications     后置许可 / 资质清单
- *      riskTips               合规风险提示
+ * 响应  架构诊断结果，**两套结构都认**（收口见 src/copreg/planReport.ts）：
+ *      ① 新报告结构（2026-09 起线上真实返回，嵌套）：
+ *         reportTitle / summary
+ *         diagnosticBar { businessDirection, shareholderProfile, premiseArrangement, taxIdentityProfile }
+ *         coreDecisions {
+ *           orgStructure     { dimensionIndex, dimensionTitle, tag, recommendedType,  points:[{title,content}] },
+ *           capitalPlanning  { …, recommendedCapital, capitalUnit,                       points },
+ *           taxAndInvoice    { …, recommendedTaxIdentity,                                points },
+ *           businessPremise  { …, recommendedPremise,                                    points }
+ *         }
+ *         industryComplianceTips: string[]
+ *         pitfallGuides: [{ step, title, desc }]
+ *         前端把整份报告收进 plan.report（方案页 01 区块按报告渲染：标题 / 摘要 / 诊断条 /
+ *         四个维度含 points / 行业合规提示 / 避坑指南），并从报告**派生**下面的平铺字段
+ *      ② 老平铺结构（仍兼容）：
+ *         companyNameProposal    企业名称方案建议
+ *         companyType            组织形式（含股东结构建议）
+ *         taxpayerIdentity       纳税人身份规划
+ *         taxReason              这么定的理由
+ *         capitalAmount          注册资本建议（一句话，含金额）
+ *         capitalAdvice          出资节奏与实缴安排建议
+ *         registeredAddressAdvice 注册地址合规策略
+ *         preQualifications      前置许可 / 备案清单（空数组 = 明确没有）
+ *         postQualifications     后置许可 / 资质清单
+ *         riskTips               合规风险提示
  *      model                  服务端自报的模型名（前端不展示，未取）
  *      recordId               委托单号（**必给**）：服务端在生成方案时就建好了单，
  *                             第 3 步下单（busUnionId）与查单都用它；缺了这次请求算失败，
@@ -103,7 +117,8 @@ export const SMS_SCENE_TYPE = import.meta.env.VITE_SMS_SCENE_TYPE || '20260311';
  *      status                 服务端自报的状态（形如 SUCCESS）。前端不读：内容与单号都在，
  *                             就是一份可用方案；真失败时上面两条已经拦住了
  *      缺字段 / 传 null / 传空串 = 这一项没给，沿用本地方案（plan.ts 的 buildPlan）；
- *      传空数组 = 明确「没有」，就用空数组。前端取哪几项见 planGenerate.ts 的 PlanSuggestion。
+ *      传空数组 = 明确「没有」，就用空数组。前端取哪几项见 planReport.ts 的 PlanSuggestion
+ *      与 docs/copreg-plan-api.md 2.3。
  *
  * ── 确认并前往支付（confirm-proposal）—— **已不再调用**（2026-09）────────
  * 委托单号改成诊断接口同一次响应里返回（上面的 recordId），第 2 步因此变成纯展示页：

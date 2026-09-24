@@ -11,6 +11,8 @@
  * 调用方拿到就能直接进 toast —— 不存在「拿到半个结果」的中间态。
  */
 
+import { serverErrorTextOf } from '../utils/serverError';
+
 /** 默认超时。大模型生成长文本比普通接口慢得多，caa 同款接口也按 60s 给 */
 export const REQUEST_TIMEOUT_MS = 60_000;
 
@@ -54,16 +56,11 @@ export const optionalStringOf = (value: unknown): string | null => {
   return trimmed === '' ? null : trimmed;
 };
 
-/** 非 2xx 的响应体：后端写好的错误文案就用它，网关返回的整页 HTML 就别往提示里塞了 */
-const messageOf = (text: string, status: number, label: string): string => {
-  const trimmed = text.trim();
-  return trimmed && !trimmed.startsWith('<') ? trimmed : `${label}失败（${status}）`;
-};
-
 /**
  * POST 一段 JSON，返回解析好的响应对象。label 是失败提示的主语（如「AI 智能填充」），
  * 拼出来的句子都能直接给用户看：
- *   非 2xx      后端文案，取不到就用「{label}失败（状态码）」
+ *   非 2xx      后端文案（纯文本直接取；JSON 信封只取 message / reasons 那句人话，
+ *               取不到就用「{label}失败（状态码）」，绝不把整包 JSON 透给用户）
  *   超时        「{label}超时，请稍后重试」
  *   网络不通    「网络异常，请检查网络后重试」
  *   不是 JSON   「{label}返回格式异常，请稍后重试」
@@ -114,7 +111,7 @@ const requestJson = async (
     const response = await fetch(url, { ...init, signal: controller.signal });
 
     if (!response.ok) {
-      throw new Error(messageOf(await response.text(), response.status, label));
+      throw new Error(serverErrorTextOf(await response.text(), response.status, label));
     }
 
     let payload: unknown;
