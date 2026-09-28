@@ -31,12 +31,14 @@ import {
   FileEdit
 } from 'lucide-react';
 
-import { STORAGE_KEY as REGISTRATION_STORAGE_KEY } from '../registration/defaultData';
+import { registrationStorageKey } from '../registration/defaultData';
 import { PayQrCode } from '../../payment/PayQrCode';
 import { useWechatNativePay } from '../../payment/useWechatNativePay';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
 
 interface AgreementAndPaymentStepProps {
+  /** 当前主体 id：申报表存档按主体各一份，读「是否已提交」要用它 */
+  appId: string;
   plan: RegistrationPlan;
   order: PaymentOrder;
   onUpdateOrder?: (order: PaymentOrder | ((prev: PaymentOrder) => PaymentOrder)) => void;
@@ -62,6 +64,7 @@ interface AgreementAndPaymentStepProps {
 }
 
 export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = ({
+  appId,
   plan,
   order,
   onUpdateOrder,
@@ -76,10 +79,11 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   const isPaid = paidView ?? order?.status === 'paid';
 
   // 填报状态以持久化的那份申报存档为准：App 的 state 只在本次会话里有效，
-  // 刷新后它从 localStorage 恢复，这里再兜一层，保证清单不会退回「待填报」
+  // 刷新后它从 localStorage 恢复，这里再兜一层，保证清单不会退回「待填报」。
+  // 多主体：读的是**当前主体**那份申报表（键里带 appId）
   const [localSubmitted] = useState<boolean>(() => {
     try {
-      const saved = localStorage.getItem(REGISTRATION_STORAGE_KEY);
+      const saved = localStorage.getItem(registrationStorageKey(appId));
       if (!saved) return false;
       const parsed = JSON.parse(saved) as { status?: string };
       return parsed.status === 'submitted';
@@ -863,9 +867,14 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
             <div className="space-y-3.5 text-xs text-slate-600 leading-relaxed max-h-[55vh] overflow-y-auto pr-2">
               <div className="p-3 rounded-xl bg-slate-50/70 border border-slate-200/70">
                 <p className="font-medium text-slate-800 mb-0.5">
-                  委托方（甲方）：{order.contactName || '＿＿＿＿'}（经办代表）
+                  {/*
+                    甲方 = 第 1 步验证过的经办手机号。原来的 `order.contactName` 从来没有任何地方采集
+                    （填报页那个「经办人姓名」只在前面的清单里显示破折号），协议上就一直是「＿＿＿＿」，
+                    等于没写委托方是谁。
+                  */}
+                  委托方（甲方）：{order.contactPhone || '＿＿＿＿'}
                 </p>
-                <p className="font-medium text-slate-800">受托方（乙方）：企服云帆企业管理咨询（深圳）有限公司</p>
+                <p className="font-medium text-slate-800">受托方（乙方）：上海班步企程科技有限公司</p>
               </div>
 
               <div>

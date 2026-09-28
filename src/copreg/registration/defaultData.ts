@@ -4,8 +4,16 @@
  */
 
 import { RegistrationFullForm } from './types';
+import { registrationKey } from '../applications';
 
+/** 单主体时代的全局申报表键；多主体之后只留给迁移用（见 applications.ts） */
 export const STORAGE_KEY = 'banbu-registration-20260913-v1';
+
+/**
+ * 某个主体的申报表存档键。第 5 步的整份申报表按主体各存一份 ——
+ * 共用一个键的话，切主体会看到上一个主体的申报资料。
+ */
+export const registrationStorageKey = (appId: string): string => registrationKey(appId);
 
 export function uid(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {

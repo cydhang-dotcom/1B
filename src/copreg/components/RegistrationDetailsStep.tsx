@@ -13,7 +13,7 @@ import {
 } from '../registration/types';
 import {
   createBlankForm,
-  STORAGE_KEY,
+  registrationStorageKey,
   uid,
 } from '../registration/defaultData';
 import { BasicInfoSection } from '../registration/BasicInfoSection';
@@ -47,6 +47,8 @@ import {
 } from 'lucide-react';
 
 interface RegistrationDetailsStepProps {
+  /** 当前主体 id：申报表按主体各存一份（键里带 appId），切主体不会串资料 */
+  appId: string;
   details: RegistrationDetails;
   /** 第 1 步问卷：申报表的企业描述 / 业务描述 / 经营范围 / 注册资本等由它转换而来 */
   survey: SurveyData;
@@ -78,6 +80,7 @@ const CHAPTERS = [
 ];
 
 export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = ({
+  appId,
   details,
   survey,
   plan,
@@ -87,10 +90,13 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   onSubmitForReview,
   onBackToPaid,
 }) => {
+  /** 这个主体的申报表存档键（多主体：每个主体一份） */
+  const storageKey = registrationStorageKey(appId);
+
   // Main form state
   const [form, setForm] = useState<RegistrationFullForm>(() => {
     try {
-      const cached = localStorage.getItem(STORAGE_KEY);
+      const cached = localStorage.getItem(storageKey);
       if (cached) {
         const parsed = JSON.parse(cached) as Partial<RegistrationFullForm> | null;
         if (parsed && parsed.basic && parsed.people) {
@@ -383,7 +389,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       savedAt: nowStr,
     };
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+      localStorage.setItem(storageKey, JSON.stringify(snapshot));
       setForm(snapshot);
       setIsDirty(false);
     } catch (e) {
@@ -466,7 +472,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
 
     setForm(updated);
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch (e) {}
 
     /**

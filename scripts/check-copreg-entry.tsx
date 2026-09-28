@@ -21,6 +21,7 @@ import {
 } from '../src/copreg/components/ProgressAndReviewStep';
 import { buildPlan } from '../src/copreg/plan';
 import { quoteFor } from '../src/copreg/components/proposalQuote';
+import { createApplication, type ApplicationRecord } from '../src/copreg/applications';
 
 const store = new Map<string, string>();
 /** 假的地址栏：hash 由每个场景自己给，history.replaceState 只记下最后一次规范化的结果 */
@@ -67,9 +68,9 @@ const form = { survey, tier: 'standard', addons: [{ id: 'addon-bank', name: '银
 /** 委托单凭据：第 1 步诊断接口同一次响应里给的 recordId（服务端生成方案时建的单） */
 const record = { recordId: 'VHpX5NqoXLHwPyMnVeBzCN' };
 
-/** 每个场景开始前清空所有存档，避免上一个场景的状态串味 */
+/** 每个场景开始前清空所有存档，避免上一个场景的状态串味（多主体后键更多，直接全清） */
 const clearStorage = () => {
-  [FORM_KEY, REPORT_KEY, RECORD_KEY, DETAILS_KEY].forEach((key) => store.delete(key));
+  store.clear();
 };
 
 const render = (keys: Record<string, unknown>, hash = '') => {
@@ -354,6 +355,7 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
 
   const step5Html = renderToString(
     <RegistrationDetailsStep
+      appId="app-check-1"
       details={{
         primaryName: '',
         backupName1: '',
@@ -382,6 +384,63 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   const demoLeftovers = ['林楚天', '440301199308123418', '跨境独立站', '海外仓配履约'];
   const found = demoLeftovers.filter((text) => step5Html.includes(text));
   check('第 5 步不再出现旧示例数据（假人名 / 假证件号 / 假企业描述）', found.length === 0, `仍出现：${found.join('、')}`);
+}
+
+/* ------------------------------------------- 多主体：迁移、切换、状态徽标 */
+
+{
+  // 老存档（三份全局键）→ 迁移成主体 #1：顶栏显示主体名（取诊断给的企业名称）
+  const migrated = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record });
+  check(
+    '迁移后顶栏显示主体名（取诊断的企业名称）与主体切换入口',
+    // 下拉默认收起，所以断言按钮 id 而不是下拉里的「我的申请」文案
+    migrated.html.includes('甲乙丙科技有限公司') && migrated.html.includes('btn-applications-switcher'),
+    ''
+  );
+  check(
+    '迁移后主体列表只有 1 个主体',
+    (JSON.parse(store.get('1b_copreg_apps_v1') ?? 'null')?.applications ?? []).length === 1,
+    ''
+  );
+
+  // 两个主体、当前是第二个：顶栏显示第二个的名字，并落在**它自己**的步骤
+  const firstApp = createApplication(Date.now(), 0, '云帆科技');
+  const secondApp: ApplicationRecord = {
+    ...createApplication(Date.now() + 1, 1, '盛景科技'),
+    currentStep: 'payment',
+    unlockedSteps: ['survey', 'proposal', 'payment'],
+  };
+  const switched = render({
+    '1b_copreg_apps_v1': { applications: [firstApp, secondApp], activeAppId: secondApp.id },
+    '1b_copreg_active_app_v1': secondApp.id,
+    [`1b_copreg_app:${secondApp.id}:plan_form`]: { survey, tier: 'standard', addons: [] },
+    [`1b_copreg_app:${secondApp.id}:plan_report`]: report,
+    [`1b_copreg_app:${secondApp.id}:plan_record`]: record,
+  });
+  check(
+    '切到第二个主体：顶栏显示它的名字、落在它自己的步骤（第 3 步）',
+    switched.html.includes('盛景科技') && !switched.html.includes('云帆科技') && switched.step3,
+    JSON.stringify({ step3: switched.step3, 名字: switched.html.includes('盛景科技') })
+  );
+
+  // 已支付主体：状态徽标显示「已支付 · 办理中」，且不给作废入口
+  const paidApp: ApplicationRecord = {
+    ...secondApp,
+    order: { status: 'paid', orderNo: 'ORD-1', paidAt: '2026-09-24 10:00', contactPhone: '', amount: 2500, tierName: '全年无忧服务（小规模）' },
+  };
+  const paidHtml = render({
+    '1b_copreg_apps_v1': { applications: [paidApp], activeAppId: paidApp.id },
+    '1b_copreg_active_app_v1': paidApp.id,
+    [`1b_copreg_app:${paidApp.id}:plan_form`]: { survey, tier: 'standard', addons: [] },
+    [`1b_copreg_app:${paidApp.id}:plan_report`]: report,
+    [`1b_copreg_app:${paidApp.id}:plan_record`]: record,
+  });
+  check(
+    // 顶栏按钮只显示主体名（状态徽标在下拉每一条里，与参考实现一致，SSR 打不开下拉）
+    '已支付主体：顶栏显示主体名、落在支付成功界面',
+    paidHtml.html.includes('盛景科技') && paidHtml.paidView,
+    JSON.stringify({ 名字: paidHtml.html.includes('盛景科技'), paidView: paidHtml.paidView })
+  );
 }
 
 console.log(`\n${pass} 项通过，${fail} 项失败`);

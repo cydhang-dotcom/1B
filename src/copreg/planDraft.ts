@@ -35,6 +35,7 @@
 import { stringListOf } from './apiClient';
 import { ALL_TIER_IDS, normalizeAddons } from './components/proposalQuote';
 import { hasPlanContent, parsePlanSuggestion, PlanSuggestion } from './planGenerate';
+import { planFormKey, planRecordKey, planReportKey } from './applications';
 import { PlanAddon, ServiceTierType, SurveyData } from './types';
 
 export const PLAN_FORM_KEY = '1b_copreg_plan_form';
@@ -167,8 +168,23 @@ const readRecord = (key: string): Record<string, unknown> | null => {
  * 「返回的」那份缺失是正常的（接口还没成功过），此时 report 为 null；
  * 「委托单凭据」同理，没有就是 record 为 null（下次仍停在第 2 步）。
  */
-export const loadPlanDraft = (): PlanDraft | null => {
-  const form = readRecord(PLAN_FORM_KEY);
+
+/** 三份键；多主体之后每个主体一套（`applications.planFormKey(appId)` 等） */
+interface PlanDraftKeys {
+  form: string;
+  report: string;
+  record: string;
+}
+
+/** 迁移前的全局三份键（多主体之前的单主体存档） */
+export const LEGACY_PLAN_DRAFT_KEYS: PlanDraftKeys = {
+  form: PLAN_FORM_KEY,
+  report: PLAN_REPORT_KEY,
+  record: PLAN_RECORD_KEY,
+};
+
+const loadPlanDraftBy = ({ form: formKey, report: reportKey, record: recordKey }: PlanDraftKeys): PlanDraft | null => {
+  const form = readRecord(formKey);
   if (form === null) return null;
 
   const survey = surveyOf(form.survey);
@@ -179,10 +195,17 @@ export const loadPlanDraft = (): PlanDraft | null => {
     tier: tierOf(form.tier),
     // 新旧两种形状都认（旧存档是 id 字符串数组），认不出的 id 丢掉
     addons: normalizeAddons(form.addons),
-    report: suggestionOf(readRecord(PLAN_REPORT_KEY)),
-    record: parsePlanRecord(readRecord(PLAN_RECORD_KEY)),
+    report: suggestionOf(readRecord(reportKey)),
+    record: parsePlanRecord(readRecord(recordKey)),
   };
 };
+
+/** 读单主体时代的全局存档（只给迁移与老调用方用） */
+export const loadPlanDraft = (): PlanDraft | null => loadPlanDraftBy(LEGACY_PLAN_DRAFT_KEYS);
+
+/** 读某个主体的存档（多主体） */
+export const loadPlanDraftFor = (appId: string): PlanDraft | null =>
+  loadPlanDraftBy({ form: planFormKey(appId), report: planReportKey(appId), record: planRecordKey(appId) });
 
 /**
  * 存「填写的」：调接口之前写一次，方案页切套餐 / 勾加购时再刷新一次档位。
@@ -220,4 +243,22 @@ export const clearPlanDraft = (): void => {
   removeItem(PLAN_FORM_KEY);
   removeItem(PLAN_REPORT_KEY);
   removeItem(PLAN_RECORD_KEY);
+};
+
+/* ------------------------------------------------------- 多主体（按 appId） */
+
+export const savePlanFormFor = (appId: string, form: PlanForm): boolean => writeItem(planFormKey(appId), form);
+export const savePlanReportFor = (appId: string, report: PlanSuggestion): boolean =>
+  writeItem(planReportKey(appId), report);
+export const savePlanRecordFor = (appId: string, record: PlanRecord): boolean =>
+  writeItem(planRecordKey(appId), record);
+
+export const clearPlanReportFor = (appId: string): void => removeItem(planReportKey(appId));
+export const clearPlanRecordFor = (appId: string): void => removeItem(planRecordKey(appId));
+
+/** 某个主体的三份一起作废（该主体重置问卷时用） */
+export const clearPlanDraftFor = (appId: string): void => {
+  removeItem(planFormKey(appId));
+  removeItem(planReportKey(appId));
+  removeItem(planRecordKey(appId));
 };
