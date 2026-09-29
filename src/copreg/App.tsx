@@ -44,6 +44,7 @@ import {
   discardApplication,
   ensureApplicationsState,
   findApplication,
+  MULTI_APPLICATION_ENABLED,
   patchOrderSummary,
   renameApplication,
   setActiveApplication,
@@ -458,6 +459,12 @@ export default function App() {
   };
 
   const handleAddApplication = () => {
+    // 多主体暂时屏蔽（开关在 applications.MULTI_APPLICATION_ENABLED）：顶栏已经没有入口，
+    // 这里再兜一层，避免别处调用绕过去
+    if (!MULTI_APPLICATION_ENABLED) {
+      setNotice('多主体申请暂未开放，当前只能办理一个主体');
+      return;
+    }
     const result = addApplication(apps);
     if (!result.ok) {
       setNotice('最多只能同时申请 5 个主体，请先作废一个不用的');
@@ -683,15 +690,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FFFFFF] text-[#0F172A] relative flex flex-col selection:bg-[#E6F7F2] selection:text-[#2AA894]">
 
-      {/* Top Navbar：品牌 + 我的企业注册服务（多主体切换 / 新增 / 改名 / 作废） */}
+      {/* Top Navbar：品牌（纯展示，不可点）+ 我的企业注册服务（多主体切换 / 新增 / 改名 / 作废） */}
       <TopNavbar
-        onSelectStep={(step) => {
-          // 点品牌回第 1 步（与迁移前一致）；步骤导航本身不在这条顶栏上
-          if (unlockedSteps.includes(step)) {
-            setCurrentStep(step);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }
-        }}
         applications={apps.applications}
         currentAppId={activeApp.id}
         onSwitchApplication={handleSwitchApplication}

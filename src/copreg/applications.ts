@@ -41,6 +41,15 @@ export const ACTIVE_APP_KEY = '1b_copreg_active_app_v1';
 /** 一个用户最多能建几个主体（产品确认：5 个） */
 export const MAX_APPLICATIONS = 5;
 
+/**
+ * 多主体申请**是否对外开放**。
+ *
+ * 产品要求**暂时屏蔽**（当前只允许一个主体）：顶栏不渲染主体切换与「新增企业注册」，
+ * App 也拒绝新增。模型层保持完整 —— 上限、切换、改名、作废、老存档迁移、每个主体各自的键
+ * 都还在，恢复时把它改回 `true` 即可；已有的多主体存档不会被清掉，只是暂时用不到。
+ */
+export const MULTI_APPLICATION_ENABLED = false;
+
 /** 迁移前的全局键；迁移完成后清掉 */
 export const LEGACY_PLAN_FORM_KEY = '1b_copreg_plan_form';
 export const LEGACY_PLAN_REPORT_KEY = '1b_copreg_plan_report';

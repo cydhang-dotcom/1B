@@ -28,6 +28,12 @@ import { FilePreviewModal } from '../registration/FilePreviewModal';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
 import { registrationSeedFrom } from '../registrationSeed';
 import { sanitizeFormAttachments } from '../registration/attachments';
+import {
+  DEFAULT_REG_ADDRESS_NATURE,
+  DEFAULT_WORK_ADDRESS_NATURE,
+  regAddressMissingError,
+  workAddressMissingError,
+} from '../registration/addressNatureHints';
 import { conflictErrorsOf } from '../registration/conflicts';
 import { OPEN_INFO_TIMEOUT_MS, saveOpenInfo, type OpenInfoEndpoint } from '../registration/openInfo';
 import { DOC_HOST, OPEN_INFO_PATH } from '../../config/api';
@@ -116,8 +122,8 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
           if (!next.basic.board) next.basic.board = '不设董事会';
           if (!next.basic.singleDirector) next.basic.singleDirector = '由总经理代行职务（不设董事）';
           if (next.basic.unanimous === undefined || next.basic.unanimous === null) next.basic.unanimous = true;
-          if (!next.basic.regAddressNature) next.basic.regAddressNature = '租赁用房';
-          if (!next.basic.workAddressNature) next.basic.workAddressNature = '商业租赁';
+          if (!next.basic.regAddressNature) next.basic.regAddressNature = DEFAULT_REG_ADDRESS_NATURE;
+          if (!next.basic.workAddressNature) next.basic.workAddressNature = DEFAULT_WORK_ADDRESS_NATURE;
           // 附件逐项收口：旧版本存档里存的是 dataURL（本地文件内容），服务端并不知道那些文件，
           // 现在只认上传接口给过 fileUuid 的附件 —— 没有的丢掉，免得渲染出裂图、提交上空附件
           return sanitizeFormAttachments(next);
@@ -205,7 +211,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     // 法定注册地址校验
     if (!b.regRecommend) {
       if (!b.regAddress?.trim()) {
-        add(0, 'regAddress', '请填写法定注册详细地址，或勾选由服务商提供');
+        add(0, 'regAddress', regAddressMissingError(b.regAddressNature));
       }
       if (!b.regAddressNature) {
         add(0, 'regAddressNature', '未勾选由服务商提供时，需选择法定注册地址性质');
@@ -218,7 +224,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     // 实际经营办公地址校验
     if (!b.workRecommend) {
       if (!b.workAddress?.trim()) {
-        add(0, 'workAddress', '请填写实际经营办公地址，或勾选由服务商提供');
+        add(0, 'workAddress', workAddressMissingError(b.workAddressNature));
       }
       if (!b.workAddressNature) {
         add(0, 'workAddressNature', '未勾选由服务商提供时，需选择实际经营办公地址性质');

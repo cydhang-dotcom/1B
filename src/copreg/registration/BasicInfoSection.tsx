@@ -8,6 +8,15 @@ import { BasicInfoData, FileAttachment } from './types';
 import { formatSize } from './defaultData';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import {
+  DEFAULT_REG_ADDRESS_NATURE,
+  DEFAULT_WORK_ADDRESS_NATURE,
+  REG_ADDRESS_NATURES,
+  WORK_ADDRESS_NATURES,
+  regAddressPlaceholder,
+  workAddressPlaceholder,
+  workNatureForCopiedRegNature,
+} from './addressNatureHints';
+import {
   Plus,
   Trash2,
   Building,
@@ -55,8 +64,8 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
     if (!data.board) updates.board = '不设董事会';
     if (!data.singleDirector) updates.singleDirector = '由总经理代行职务（不设董事）';
     if (data.unanimous === undefined || data.unanimous === null) updates.unanimous = true;
-    if (!data.regAddressNature) updates.regAddressNature = '租赁用房';
-    if (!data.workAddressNature) updates.workAddressNature = '商业租赁';
+    if (!data.regAddressNature) updates.regAddressNature = DEFAULT_REG_ADDRESS_NATURE;
+    if (!data.workAddressNature) updates.workAddressNature = DEFAULT_WORK_ADDRESS_NATURE;
     if (Object.keys(updates).length > 0) {
       update(updates);
     }
@@ -448,7 +457,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     type="text"
                     value={data.regAddress}
                     onChange={(e) => update({ regAddress: e.target.value })}
-                    placeholder="请输入详细注册地址（含省/市/区/街道/大厦/楼层及房号，需与产权证明一致）"
+                    placeholder={regAddressPlaceholder(data.regAddressNature)}
                     className={`w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm outline-none transition-colors bg-white ${
                       errors.regAddress
                         ? 'border-rose-300 bg-rose-50/40 text-rose-900 focus:border-rose-500'
@@ -466,14 +475,8 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     地址性质 <span className="text-rose-500">*</span>
                   </label>
                   <div className="flex flex-wrap gap-2">
-                    {[
-                      { val: '租赁用房', desc: '商业写字楼/租赁办公' },
-                      { val: '自有房产', desc: '股东或企业自有产权' },
-                      { val: '集中办公/众创空间', desc: '众创空间/工位协议' },
-                      { val: '园区孵化器', desc: '产业园集中入驻' },
-                      { val: '无偿使用证明', desc: '关联方提供无偿使用' },
-                    ].map((item) => {
-                      const isSelected = (data.regAddressNature || '租赁用房') === item.val;
+                    {REG_ADDRESS_NATURES.map((item) => {
+                      const isSelected = (data.regAddressNature || DEFAULT_REG_ADDRESS_NATURE) === item.val;
                       return (
                         <button
                           key={item.val}
@@ -627,11 +630,16 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                       <button
                         type="button"
                         onClick={() => {
+                          // 一一对应：注册地址性质在实际经营那边有同名口径才跟着切（租赁用房 → 商业租赁
+                          // 等），园区孵化器 / 无偿使用证明那边没有对应选项 → 只搬地址，不动已选性质
+                          const workNature = workNatureForCopiedRegNature(data.regAddressNature);
                           update({
                             workAddress: data.regAddress,
-                            workAddressNature: data.regAddressNature === '租赁用房' ? '商业租赁' : '自有产权',
+                            ...(workNature ? { workAddressNature: workNature } : {}),
                           });
-                          if (onToast) onToast('已复制法定注册地址');
+                          if (onToast) {
+                            onToast(workNature ? '已复制法定注册地址并同步地址性质' : '已复制法定注册地址');
+                          }
                         }}
                         className="text-[11px] text-[#2AA894] hover:underline cursor-pointer flex items-center gap-1 font-medium"
                       >
@@ -644,7 +652,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     type="text"
                     value={data.workAddress}
                     onChange={(e) => update({ workAddress: e.target.value })}
-                    placeholder="请输入企业实际经营或日常办公地址"
+                    placeholder={workAddressPlaceholder(data.workAddressNature)}
                     className={`w-full px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm outline-none transition-colors bg-white ${
                       errors.workAddress
                         ? 'border-rose-300 bg-rose-50/40 text-rose-900 focus:border-rose-500'
@@ -662,13 +670,8 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     实际地址性质 <span className="text-rose-500">*</span>
                   </label>
                   <div className="flex flex-wrap gap-2">
-                    {[
-                      { val: '商业租赁', desc: '写字楼/商业办公租赁' },
-                      { val: '自有产权', desc: '股东或企业商用房产' },
-                      { val: '联合办公/众创工位', desc: '众创空间/共享工位' },
-                      { val: '居家办公申报', desc: '电商/咨询合规居家申报' },
-                    ].map((item) => {
-                      const isSelected = (data.workAddressNature || '商业租赁') === item.val;
+                    {WORK_ADDRESS_NATURES.map((item) => {
+                      const isSelected = (data.workAddressNature || DEFAULT_WORK_ADDRESS_NATURE) === item.val;
                       return (
                         <button
                           key={item.val}

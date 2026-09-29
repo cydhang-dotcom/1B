@@ -19,15 +19,16 @@
  * 作废仍然要点两次确认（参考同款），已支付不给作废入口。
  *
  * 地址栏不参与主体切换（hash 只反映「当前主体在哪一步」），所以这里只回调、不碰 history。
+ *
+ * 品牌块**没有点击事件**：早先点它等于「回第 1 步」，在第 5 步填报时容易误触把用户从填报页拽回问卷，
+ * 已按要求去掉（顶栏只保留主体切换这一处交互）。
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import { Building2, Check, ChevronDown, Clock, FileCheck2, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
-import { MAX_APPLICATIONS, type ApplicationRecord } from '../applications';
-import type { ProcessStep } from '../types';
+import { MAX_APPLICATIONS, MULTI_APPLICATION_ENABLED, type ApplicationRecord } from '../applications';
 
 interface TopNavbarProps {
-  onSelectStep?: (step: ProcessStep) => void;
   /** 全部主体（按创建顺序） */
   applications: ApplicationRecord[];
   currentAppId: string;
@@ -70,7 +71,6 @@ const formatCreatedAt = (iso: string): string => {
 };
 
 export const TopNavbar: React.FC<TopNavbarProps> = ({
-  onSelectStep,
   applications,
   currentAppId,
   onSwitchApplication,
@@ -129,11 +129,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/70 transition-all">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
 
-        {/* Left: Brand */}
-        <div
-          onClick={() => onSelectStep && onSelectStep('survey')}
-          className="flex items-center gap-2 cursor-pointer group shrink-0 select-none"
-        >
+        {/* Left: Brand —— **纯展示，不可点**：原先点它回第 1 步（#survey），
+            容易在填报到一半时误触把用户从第 5 步拽回问卷，已按要求去掉点击事件 */}
+        <div className="flex items-center gap-2 shrink-0 select-none">
           <div className="w-8 h-8 rounded-xl bg-[#E6F7F2] flex items-center justify-center text-[#2AA894]">
             <Sparkles className="w-4 h-4 stroke-[2]" />
           </div>
@@ -149,8 +147,10 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           </div>
         </div>
 
-        {/* Right: 多主体切换 */}
-        <div className="flex items-center gap-2" ref={dropdownRef}>
+        {/* Right: 多主体切换 —— 产品要求**暂时屏蔽**（开关在 applications.MULTI_APPLICATION_ENABLED）：
+            关掉时整块不渲染，顶栏只剩品牌；模型与下面这段代码都保留，恢复时改回 true 即可 */}
+        {MULTI_APPLICATION_ENABLED && (
+          <div className="flex items-center gap-2" ref={dropdownRef}>
           <div className="relative">
             <button
               type="button"
@@ -327,7 +327,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
               </div>
             )}
           </div>
-        </div>
+          </div>
+        )}
 
       </div>
     </header>

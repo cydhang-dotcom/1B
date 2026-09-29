@@ -22,6 +22,11 @@ import {
 import { buildPlan } from '../src/copreg/plan';
 import { quoteFor } from '../src/copreg/components/proposalQuote';
 import { createApplication, type ApplicationRecord } from '../src/copreg/applications';
+import { createBlankForm } from '../src/copreg/registration/defaultData';
+import {
+  regAddressPlaceholder,
+  workAddressPlaceholder,
+} from '../src/copreg/registration/addressNatureHints';
 
 const store = new Map<string, string>();
 /** 假的地址栏：hash 由每个场景自己给，history.replaceState 只记下最后一次规范化的结果 */
@@ -386,24 +391,113 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   check('第 5 步不再出现旧示例数据（假人名 / 假证件号 / 假企业描述）', found.length === 0, `仍出现：${found.join('、')}`);
 }
 
+/* ------------------------ 第 5 步：地址输入框的提示词跟着「地址性质」换 */
+
+{
+  // 两个地址输入框只有「不勾选由服务商提供」时才出现，所以这里直接铺一份**不勾选**的草稿存档，
+  // 再按真实的注册键（banbu-registration-{appId}）喂给组件 —— 断言的是渲染出来的 placeholder，
+  // 而不是「源码里写了这行字」。
+  const NATURE_APP = 'app-check-nature';
+  const NATURE_KEY = `banbu-registration-${NATURE_APP}`;
+
+  const renderWithNatures = (reg: string, work: string) => {
+    clearStorage();
+    const blank = createBlankForm();
+    store.set(
+      NATURE_KEY,
+      JSON.stringify({
+        ...blank,
+        basic: {
+          ...blank.basic,
+          regRecommend: false,
+          regAddress: '',
+          regAddressNature: reg,
+          workRecommend: false,
+          workAddress: '',
+          workAddressNature: work,
+        },
+      })
+    );
+    return renderToString(
+      <RegistrationDetailsStep
+        appId={NATURE_APP}
+        details={{
+          primaryName: '',
+          backupName1: '',
+          backupName2: '',
+          industryCategory: '',
+          registeredCapital: '',
+          legalRepresentative: { name: '', idCard: '', phone: '', email: '' },
+          supervisor: { name: '', idCard: '', phone: '' },
+          financeOfficer: { name: '', idCard: '', phone: '' },
+          shareholders: [],
+          officeAddress: { region: '', detail: '', propertyType: '', area: '' },
+          docs: [],
+        }}
+        survey={survey}
+        plan={buildPlan(survey, quoteFor('standard', ['addon-bank']))}
+        contactPhone="13800000000"
+        busUnionId="TEST-RECORD-1"
+        onUpdateDetails={() => {}}
+        onSubmitForReview={() => {}}
+        onBackToPaid={() => {}}
+      />
+    );
+  };
+
+  const ownReg = renderWithNatures('自有房产', '居家办公申报');
+  check(
+    '第 5 步：注册地址占位提示按性质换成「不动产权证」口径',
+    ownReg.includes(regAddressPlaceholder('自有房产')) &&
+      !ownReg.includes(regAddressPlaceholder(undefined)),
+    ''
+  );
+  check(
+    '第 5 步：实际经营地址占位提示按性质换成「门牌号」口径',
+    ownReg.includes(workAddressPlaceholder('居家办公申报')) &&
+      !ownReg.includes(workAddressPlaceholder(undefined)),
+    ''
+  );
+
+  const parkReg = renderWithNatures('园区孵化器', '联合办公/众创工位');
+  check(
+    '第 5 步：换成园区孵化器 / 联合办公后提示词跟着换（不是写死一句话）',
+    parkReg.includes(regAddressPlaceholder('园区孵化器')) &&
+      !parkReg.includes(regAddressPlaceholder('自有房产')) &&
+      parkReg.includes(workAddressPlaceholder('联合办公/众创工位')) &&
+      !parkReg.includes(workAddressPlaceholder('居家办公申报')),
+    ''
+  );
+  check(
+    '第 5 步：两套性质选项仍完整渲染（选项表搬进 addressNatureHints 后没丢项）',
+    ['租赁用房', '自有房产', '集中办公/众创空间', '园区孵化器', '无偿使用证明', '商业租赁', '自有产权', '联合办公/众创工位', '居家办公申报'].every(
+      (v) => parkReg.includes(v)
+    ),
+    ''
+  );
+}
+
 /* ------------------------------------------- 多主体：迁移、切换、状态徽标 */
 
 {
-  // 老存档（三份全局键）→ 迁移成主体 #1：顶栏显示主体名（取诊断给的企业名称）
+  // 老存档（三份全局键）→ 迁移成主体 #1。
+  // **多主体 UI 暂时屏蔽**（applications.MULTI_APPLICATION_ENABLED = false）：顶栏不再渲染
+  // 切换入口，所以「主体名」只能从存档里断言，页面里不该出现它。
   const migrated = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record });
+  const migratedState = JSON.parse(store.get('1b_copreg_apps_v1') ?? 'null');
+  const migratedApp = migratedState?.applications?.[0];
   check(
-    '迁移后顶栏显示主体名（取诊断的企业名称）与主体切换入口',
-    // 下拉默认收起，所以断言按钮 id 而不是下拉里的「我的申请」文案
-    migrated.html.includes('甲乙丙科技有限公司') && migrated.html.includes('btn-applications-switcher'),
-    ''
+    '迁移成 1 个主体、名字取诊断的企业名称',
+    (migratedState?.applications ?? []).length === 1 && migratedApp?.name === '甲乙丙科技有限公司',
+    JSON.stringify({ 个数: (migratedState?.applications ?? []).length, 名字: migratedApp?.name })
   );
   check(
-    '迁移后主体列表只有 1 个主体',
-    (JSON.parse(store.get('1b_copreg_apps_v1') ?? 'null')?.applications ?? []).length === 1,
+    '多主体切换暂时屏蔽：顶栏不渲染切换入口、也不显示主体名',
+    !migrated.html.includes('btn-applications-switcher') && !migrated.html.includes('甲乙丙科技有限公司'),
     ''
   );
 
-  // 两个主体、当前是第二个：顶栏显示第二个的名字，并落在**它自己**的步骤
+  // 存档里本来就有多个主体时，仍按 activeAppId 落在**那个主体自己的**步骤（模型层不受屏蔽影响）
   const firstApp = createApplication(Date.now(), 0, '云帆科技');
   const secondApp: ApplicationRecord = {
     ...createApplication(Date.now() + 1, 1, '盛景科技'),
@@ -418,12 +512,17 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
     [`1b_copreg_app:${secondApp.id}:plan_record`]: record,
   });
   check(
-    '切到第二个主体：顶栏显示它的名字、落在它自己的步骤（第 3 步）',
-    switched.html.includes('盛景科技') && !switched.html.includes('云帆科技') && switched.step3,
-    JSON.stringify({ step3: switched.step3, 名字: switched.html.includes('盛景科技') })
+    '存档里多个主体时：按 activeAppId 落在它自己的步骤（第 3 步）',
+    switched.step3,
+    JSON.stringify({ step3: switched.step3 })
+  );
+  check(
+    '屏蔽期间页面上不出现任何主体名',
+    !switched.html.includes('云帆科技') && !switched.html.includes('盛景科技'),
+    JSON.stringify({ 云帆: switched.html.includes('云帆科技'), 盛景: switched.html.includes('盛景科技') })
   );
 
-  // 已支付主体：状态徽标显示「已支付 · 办理中」，且不给作废入口
+  // 已支付主体：仍落在支付成功界面
   const paidApp: ApplicationRecord = {
     ...secondApp,
     order: { status: 'paid', orderNo: 'ORD-1', paidAt: '2026-09-24 10:00', contactPhone: '', amount: 2500, tierName: '全年无忧服务（小规模）' },
@@ -435,12 +534,7 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
     [`1b_copreg_app:${paidApp.id}:plan_report`]: report,
     [`1b_copreg_app:${paidApp.id}:plan_record`]: record,
   });
-  check(
-    // 顶栏按钮只显示主体名（状态徽标在下拉每一条里，与参考实现一致，SSR 打不开下拉）
-    '已支付主体：顶栏显示主体名、落在支付成功界面',
-    paidHtml.html.includes('盛景科技') && paidHtml.paidView,
-    JSON.stringify({ 名字: paidHtml.html.includes('盛景科技'), paidView: paidHtml.paidView })
-  );
+  check('已支付主体：落在支付成功界面', paidHtml.paidView, JSON.stringify({ paidView: paidHtml.paidView }));
 }
 
 console.log(`\n${pass} 项通过，${fail} 项失败`);
