@@ -297,7 +297,7 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  // 当前步骤与方案的镜像：方案接口最长要等 60s，回来时得知道人是不是还停在问卷页、
+  // 当前步骤与方案的镜像：方案接口最长要等 5 分钟（apiClient 的超时），回来时得知道人是不是还停在问卷页、
   // 以及这期间他有没有改过套餐（顶栏能直接跳到方案页，那时候不该把人拽回来、
   // 也不该改他已经切好的套餐价）
   const stepRef = useRef(currentStep);

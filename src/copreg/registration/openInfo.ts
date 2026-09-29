@@ -48,7 +48,7 @@ export interface OpenInfoRequest {
   savaType: OpenInfoSaveType;
 }
 
-/** 保存/提交是普通写库接口，不用大模型那 60s；超时了用户重试一次即可 */
+/** 保存/提交是普通写库接口，不用第 1 步大模型那 5 分钟；超时了用户重试一次即可 */
 export const OPEN_INFO_TIMEOUT_MS = 15_000;
 
 const LABEL = '申报资料保存';

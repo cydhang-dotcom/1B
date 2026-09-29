@@ -8,7 +8,7 @@
  * 换一份经营范围、许可资质与敏感要素建议。
  *
  * 顺序不能颠倒 —— 和 caa 的 /api/company-plan/analyze-business 一样，
- * 没有 ticket 的请求会被服务端直接拒绝。其余调用姿势也照搬 caa：60s 超时、
+ * 没有 ticket 的请求会被服务端直接拒绝。其余调用姿势也照搬 caa：与生成方案同款超时（见 apiClient.ts）、
  * 非 2xx 时把响应体当错误文案抛出（都在 apiClient.ts 里）。差别只在数据形状 ——
  * 入参从一条 businessDescription 拆成 companyDesc / bizDesc，出参从「一段文本 + 布尔开关」
  * 改成三个字符串数组。接口定义见 src/config/api.ts。
@@ -62,7 +62,7 @@ const buildUrl = (ticket: string, randstr: string): string => {
  * 其余失败抛带中文提示的 Error，可直接展示给用户。
  */
 export const aiFillSurvey = async (companyDesc: string, bizDesc: string): Promise<AiFillResult> => {
-  // 弹窗在 postJson 之外：用户取消不该被当成网络故障，也不该算进那 60s
+  // 弹窗在 postJson 之外：用户取消不该被当成网络故障，也不该算进请求超时（apiClient 的 5 分钟）
   const { ticket, randstr } = await showTencentCaptcha(TENCENT_CAPTCHA_APP_ID);
 
   const payload = await postJson(

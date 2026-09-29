@@ -135,7 +135,7 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 600,
         isFree: true,
-        tag: '惠企政策全免'
+        tag: '免除'
       },
       {
         id: 'item-std-fee',
@@ -144,7 +144,7 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 300,
         isFree: true,
-        tag: '政务规费全免'
+        tag: '免除'
       }
     ];
 
@@ -163,7 +163,7 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 800,
         isFree: true,
-        tag: '已含企业注册套餐'
+        tag: '免除'
       },
       {
         id: 'item-bnd-seal',
@@ -172,7 +172,7 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 600,
         isFree: true,
-        tag: '已含企业注册套餐'
+        tag: '免除'
       },
       {
         id: 'item-bnd-fee',
@@ -181,24 +181,16 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 300,
         isFree: true,
-        tag: '政务规费全免'
-      },
-      {
-        id: 'item-bnd-account',
-        name: '全年财务代记账服务（小规模纳税人 12个月）',
-        desc: '资深注册会计师1对1负责：每月原始凭证审核、记账凭证装订、编制资产负债表与利润表、按期纳税申报（增值税、附加税、所得税、个税）及年度汇算清缴',
-        price: 2500,
-        originalPrice: 4800,
-        tag: '小规模记账托管 ¥2,500'
+        tag: '免除'
       },
       {
         id: 'item-bnd-bank',
         name: '银行对公账户开通',
         desc: '合作商业银行免排队专属绿色通道，专人对接协助开立企业基本户、办理企业网银U盾及结算权限',
         price: 0,
-        originalPrice: 200,
+        originalPrice: 400,
         isFree: true,
-        tag: '全年无忧必选服务'
+        tag: '免除'
       },
       {
         id: 'item-bnd-tax',
@@ -207,25 +199,33 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 300,
         isFree: true,
-        tag: '全年无忧必选服务'
+        tag: '免除'
       },
       {
         id: 'item-bnd-social-setup',
         name: '办理社保公积金开户',
         desc: '办理企业社保局独立单位专户开户、住房公积金管理中心单位缴存登记开户设立，开具官方设立凭据',
         price: 0,
-        originalPrice: 200,
+        originalPrice: 300,
         isFree: true,
-        tag: '全年无忧必选服务'
+        tag: '免除'
       },
       {
         id: 'item-bnd-social-service',
         name: '社保公积金服务',
         desc: '社保公积金系统企业专属专户全年合规状态维护与基数核定指导（注：本项不含员工增减员及代缴申报）',
         price: 0,
-        originalPrice: 1000,
+        originalPrice: 200,
         isFree: true,
-        tag: '全年无忧默认服务'
+        tag: '免除'
+      },
+      {
+        id: 'item-bnd-account',
+        name: '全年财务代记账服务（小规模纳税人 12个月）',
+        desc: '资深注册会计师1对1负责：每月原始凭证审核、记账凭证装订、编制资产负债表与利润表、按期纳税申报（增值税、附加税、所得税、个税）及年度汇算清缴',
+        price: 2500,
+        originalPrice: 3600,
+        tag: '小规模记账托管 ¥2,500'
       }
     ];
 
@@ -233,10 +233,10 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
       '营业执照正副本（纸质原件 + 电子营业执照）【包含企业注册套餐】',
       '公安备案防伪芯片印章5枚（公章、财务章、发票章、合同章、法人章）【包含企业注册套餐】',
       '公司章程及股东会决议书（工商归档备案全套版）【包含企业注册套餐】',
-      '全年小规模财务代记账服务协议与12期财务凭证账簿及纳税申报表',
       '银行基本户开户信息表与网银U盾',
       '电子税务局企业身份开通与新电局实名绑定凭据',
-      '企业社保与住房公积金独立单位专户设立凭据'
+      '企业社保与住房公积金独立单位专户设立凭据',
+      '全年小规模财务代记账服务协议与12期财务凭证账簿及纳税申报表'
     ];
   } else {
     tierName = '全年无忧服务（一般纳税人）';
@@ -248,7 +248,7 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 800,
         isFree: true,
-        tag: '已含企业注册套餐'
+        tag: '免除'
       },
       {
         id: 'item-bnd-seal',
@@ -257,7 +257,7 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 600,
         isFree: true,
-        tag: '已含企业注册套餐'
+        tag: '免除'
       },
       {
         id: 'item-bnd-fee',
@@ -266,24 +266,16 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 300,
         isFree: true,
-        tag: '政务规费全免'
-      },
-      {
-        id: 'item-bnd-account',
-        name: '全年财务代记账服务（一般纳税人 12个月）',
-        desc: '资深注册会计师1对1负责：每月增值税专用发票进项认证勾选抵扣、原始凭证审核、记账凭证装订、编制财务报表、纳税申报及年度汇算清缴',
-        price: 3000,
-        originalPrice: 5800,
-        tag: '一般人记账托管 ¥3,000'
+        tag: '免除'
       },
       {
         id: 'item-bnd-bank',
         name: '银行对公账户开通',
         desc: '合作商业银行免排队专属绿色通道，专人对接协助开立企业基本户、办理企业网银U盾及结算权限',
         price: 0,
-        originalPrice: 200,
+        originalPrice: 400,
         isFree: true,
-        tag: '全年无忧必选服务'
+        tag: '免除'
       },
       {
         id: 'item-bnd-tax',
@@ -292,25 +284,33 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
         price: 0,
         originalPrice: 300,
         isFree: true,
-        tag: '全年无忧必选服务'
+        tag: '免除'
       },
       {
         id: 'item-bnd-social-setup',
         name: '办理社保公积金开户',
         desc: '办理企业社保局独立单位专户开户、住房公积金管理中心单位缴存登记开户设立，开具官方设立凭据',
         price: 0,
-        originalPrice: 200,
+        originalPrice: 300,
         isFree: true,
-        tag: '全年无忧必选服务'
+        tag: '免除'
       },
       {
         id: 'item-bnd-social-service',
         name: '社保公积金服务',
         desc: '社保公积金系统企业专属专户全年合规状态维护与基数核定指导（注：本项不含员工增减员及代缴申报）',
         price: 0,
-        originalPrice: 1000,
+        originalPrice: 200,
         isFree: true,
-        tag: '全年无忧默认服务'
+        tag: '免除'
+      },
+      {
+        id: 'item-bnd-account',
+        name: '全年财务代记账服务（一般纳税人 12个月）',
+        desc: '资深注册会计师1对1负责：每月增值税专用发票进项认证勾选抵扣、原始凭证审核、记账凭证装订、编制财务报表、纳税申报及年度汇算清缴',
+        price: 3000,
+        originalPrice: 4600,
+        tag: '一般人记账托管 ¥3,000'
       }
     ];
 
@@ -318,10 +318,10 @@ export function quoteFor(tier: ServiceTierType, addons: string[] = []): TierQuot
       '营业执照正副本（纸质原件 + 电子营业执照）【包含企业注册套餐】',
       '公安备案防伪芯片印章5枚（公章、财务章、发票章、合同章、法人章）【包含企业注册套餐】',
       '公司章程及股东会决议书（工商归档备案全套版）【包含企业注册套餐】',
-      '全年一般纳税人财务代记账服务协议与12期财务账簿及专票申报底稿',
       '银行基本户开户信息表与网银U盾',
       '电子税务局企业身份开通与新电局实名绑定凭据',
-      '企业社保与住房公积金独立单位专户设立凭据'
+      '企业社保与住房公积金独立单位专户设立凭据',
+      '全年一般纳税人财务代记账服务协议与12期财务账簿及专票申报底稿'
     ];
   }
 
