@@ -11,11 +11,7 @@ import {
   FileAttachment,
   PersonRecord,
 } from '../registration/types';
-import {
-  createBlankForm,
-  registrationStorageKey,
-  uid,
-} from '../registration/defaultData';
+import { registrationStorageKey, uid } from '../registration/defaultData';
 import { BasicInfoSection } from '../registration/BasicInfoSection';
 import { ShareholderSection } from '../registration/ShareholderSection';
 import { PersonnelSection } from '../registration/PersonnelSection';
@@ -27,10 +23,8 @@ import { HelpModal } from '../registration/HelpModal';
 import { FilePreviewModal } from '../registration/FilePreviewModal';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
 import { registrationSeedFrom } from '../registrationSeed';
-import { sanitizeFormAttachments } from '../registration/attachments';
+import { normalizeRegistrationForm } from '../registration/formSnapshot';
 import {
-  DEFAULT_REG_ADDRESS_NATURE,
-  DEFAULT_WORK_ADDRESS_NATURE,
   regAddressMissingError,
   workAddressMissingError,
 } from '../registration/addressNatureHints';
@@ -104,30 +98,11 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     try {
       const cached = localStorage.getItem(storageKey);
       if (cached) {
-        const parsed = JSON.parse(cached) as Partial<RegistrationFullForm> | null;
-        if (parsed && parsed.basic && parsed.people) {
-          // 存档可能来自旧版本、也可能被手改过：按「空骨架 + 存档覆盖」合并，
-          // 缺的字段回落到默认值而不是 undefined —— 之前只检查 basic/people 存在，
-          // 一份残缺草稿（如 basic.scope 缺失）会在校验里直接 .trim() 崩掉整页。
-          const blank = createBlankForm();
-          const next: RegistrationFullForm = {
-            ...blank,
-            ...parsed,
-            basic: { ...blank.basic, ...parsed.basic },
-            setup: { ...blank.setup, ...(parsed.setup ?? {}) },
-            authorization: { ...blank.authorization, ...(parsed.authorization ?? {}) },
-            confirm: { ...blank.confirm, ...(parsed.confirm ?? {}) },
-          };
-          // 老存档里没有的几项结构默认值（与迁移前的口径一致）
-          if (!next.basic.board) next.basic.board = '不设董事会';
-          if (!next.basic.singleDirector) next.basic.singleDirector = '由总经理代行职务（不设董事）';
-          if (next.basic.unanimous === undefined || next.basic.unanimous === null) next.basic.unanimous = true;
-          if (!next.basic.regAddressNature) next.basic.regAddressNature = DEFAULT_REG_ADDRESS_NATURE;
-          if (!next.basic.workAddressNature) next.basic.workAddressNature = DEFAULT_WORK_ADDRESS_NATURE;
-          // 附件逐项收口：旧版本存档里存的是 dataURL（本地文件内容），服务端并不知道那些文件，
-          // 现在只认上传接口给过 fileUuid 的附件 —— 没有的丢掉，免得渲染出裂图、提交上空附件
-          return sanitizeFormAttachments(next);
-        }
+        // 存档可能来自旧版本、也可能被手改过：合并规则（空骨架打底 + 存档覆盖 + 后加字段补默认值 +
+        // 附件逐项收口）统一写在 formSnapshot.ts —— 服务人员查看页读接口那 `var2` 也走同一份，
+        // 免得两处各写一遍、各自演化。
+        const normalized = normalizeRegistrationForm(JSON.parse(cached));
+        if (normalized !== null) return normalized;
       }
     } catch (e) {
       console.warn('Failed to load cached registration form', e);

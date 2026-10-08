@@ -249,6 +249,12 @@ host），请求体恰好三个字段（后端 DTO 原文，`savaType` 就是这
 非 2xx 用响应体文字当错误文案，超时 15s。请求与错误文案在
 `src/copreg/registration/openInfo.ts`，自检 `scripts/check-open-info.ts`（30 项）。
 
+**读回来**（服务人员查看）：这份 `var2` 落在服务端开户单的 `openAccApply.var2` 上，按开户单编号
+`scbUuid` 读：`GET {DOC_HOST}/xcx/yqt-co/subscribe/{scbUuid}[?code=…]` → 只读页面
+`copreg-view.html`。读回来的快照与本地草稿走**同一份收口**
+（`registration/formSnapshot.ts` 的 `normalizeRegistrationForm`）。见
+[copreg-service-view.md](copreg-service-view.md)。
+
 两条链路：
 
 1. **保存草稿**（`savaType: '0'`）：**先写本地**（服务端不通也不丢用户刚填的东西），再调接口做临时保存；

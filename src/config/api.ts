@@ -164,6 +164,21 @@ export const OPEN_INFO_PATH =
   import.meta.env.VITE_OPEN_INFO_PATH || '/xcx/yqt-co/subscribe/open-info';
 
 /**
+ * 服务人员只读查看：按开户单 uuid（`scbUuid`）读回客户提交的申报资料。
+ *
+ *   GET {DOC_HOST}/xcx/yqt-co/subscribe/{scbUuid}[?code={访问码}]
+ *
+ * **与 www 站 `static/js/page-display.js` 是同一套地址与凭据口径**（那批「code 版」静态页
+ * 共用它：`API_HOST` 就是这里的 DOC_HOST，basePath 就是下面这个 path）—— 带 `code` 时服务端
+ * 校验查询码，不通过是 400 + `{"reasons":[{"message":"查询码无效或已过期"}]}`；
+ * 不带 code 也可能放行（测试环境实测 200）。申报表本体在响应的 `openAccApply.var2` 里。
+ *
+ * 见 `src/copreg/registration/subscribeQuery.ts`（请求）与 `src/copreg/serviceView.ts`（取值）。
+ */
+export const SUBSCRIBE_QUERY_PATH =
+  import.meta.env.VITE_SUBSCRIBE_QUERY_PATH || '/xcx/yqt-co/subscribe/';
+
+/**
  * 申报资料附件上传（第 5 步 #fill-details：选完文件直接上传）。
  *
  * POST {站点根}/zuul/v1/xcx/yqt-co/subscribe/upload/file，multipart/form-data，字段名 file；

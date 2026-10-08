@@ -15,6 +15,13 @@ interface ReviewSectionProps {
   onPreviewFile: (file: FileAttachment) => void;
   onProceedToDelivery: () => void;
   errors: Record<string, string>;
+  /**
+   * **只读模式**（服务人员查看客户提交的资料，见 `components/ServiceRecordView.tsx`）：
+   * 隐掉每块的「修改」按钮、整条客户报喜横幅（「初审通过 · 资料已移交政务交付团队」这句
+   * 进展话术没有数据支撑，服务人员不该把它当状态读），两个勾选也置灰不可改 ——
+   * 客户填的内容与版式一字不动，客户怎么看，服务人员就怎么看。
+   */
+  readOnly?: boolean;
 }
 
 export const ReviewSection: React.FC<ReviewSectionProps> = ({
@@ -24,6 +31,7 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
   onPreviewFile,
   onProceedToDelivery,
   errors,
+  readOnly = false,
 }) => {
   const { basic, shareholders, people, roles, authorization, confirm, status, submittedAt, submissionPhone } = form;
 
@@ -57,8 +65,9 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
 
   return (
     <div className="space-y-5">
-      {/* Submission Success Banner */}
-      {status === 'submitted' && (
+      {/* Submission Success Banner —— 这是给客户看的报喜条（「初审通过 · 资料已移交政务交付团队」），
+          只读查看时整条不渲染：服务人员要的是客户提交了什么，不是这句没有数据支撑的进展话术 */}
+      {status === 'submitted' && !readOnly && (
         <div className="rounded-2xl p-6 border border-emerald-200/90 bg-gradient-to-br from-[#F0FDF4]/90 via-white to-[#F0FDF9] shadow-sm">
           <div className="flex items-start gap-4">
             <div className="w-11 h-11 rounded-xl bg-gradient-to-tr from-[#2AA894] to-[#36B39E] text-white flex items-center justify-center shadow-md shadow-emerald-600/20 ring-4 ring-emerald-100/90 shrink-0">
@@ -98,14 +107,16 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
       <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
         <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100">
           <h2 className="text-sm sm:text-base font-bold text-slate-800">1. 企业基本信息</h2>
-          <button
-            type="button"
-            onClick={() => onGoChapter(0)}
-            className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
-          >
-            <span>修改</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onGoChapter(0)}
+              className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
+            >
+              <span>修改</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-xs sm:text-sm">
@@ -175,14 +186,16 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
             <h2 className="text-sm sm:text-base font-bold text-slate-800">2. 股东及出资结构</h2>
             <span className="text-xs text-slate-400">（共 {shareholders.length} 位股东）</span>
           </div>
-          <button
-            type="button"
-            onClick={() => onGoChapter(1)}
-            className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
-          >
-            <span>修改</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onGoChapter(1)}
+              className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
+            >
+              <span>修改</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {shareholders.length > 0 ? (
@@ -234,14 +247,16 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
       <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
         <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100">
           <h2 className="text-sm sm:text-base font-bold text-slate-800">3. 企业主要管理人员</h2>
-          <button
-            type="button"
-            onClick={() => onGoChapter(2)}
-            className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
-          >
-            <span>修改</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onGoChapter(2)}
+              className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
+            >
+              <span>修改</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         {roles.length > 0 ? (
@@ -279,14 +294,16 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
       <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
         <div className="flex items-center justify-between pb-3.5 mb-4 border-b border-slate-100">
           <h2 className="text-sm sm:text-base font-bold text-slate-800">4. 法定代表人委托书签署</h2>
-          <button
-            type="button"
-            onClick={() => onGoChapter(3)}
-            className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
-          >
-            <span>修改</span>
-            <ExternalLink className="w-3 h-3" />
-          </button>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={() => onGoChapter(3)}
+              className="text-xs font-semibold text-[#2AA894] hover:text-[#1D6C5E] flex items-center gap-1 cursor-pointer"
+            >
+              <span>修改</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
+          )}
         </div>
 
         <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-xs sm:text-sm mb-3">
@@ -317,12 +334,17 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
         </div>
 
         {isPureNatural ? (
-          <label className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80 cursor-pointer select-none">
+          <label
+            className={`flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80 select-none ${
+              readOnly ? '' : 'cursor-pointer'
+            }`}
+          >
             <input
               type="checkbox"
               checked={confirm.exemption}
+              disabled={readOnly}
               onChange={(e) => onUpdateConfirm({ exemption: e.target.checked })}
-              className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5"
+              className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5 disabled:cursor-not-allowed"
             />
             <div className="text-xs text-slate-700 leading-relaxed">
               <span className="font-semibold text-slate-800">
@@ -358,12 +380,15 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
 
       {/* Review Section 7: 信息真实性确认 */}
       <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
-        <label className="flex items-start gap-3 cursor-pointer select-none">
+        <label
+          className={`flex items-start gap-3 select-none ${readOnly ? '' : 'cursor-pointer'}`}
+        >
           <input
             type="checkbox"
             checked={confirm.accurate}
+            disabled={readOnly}
             onChange={(e) => onUpdateConfirm({ accurate: e.target.checked })}
-            className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5"
+            className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5 disabled:cursor-not-allowed"
           />
           <div className="text-xs sm:text-sm text-slate-800 leading-relaxed font-semibold">
             我已核对本次拟申报的全部企业信息与证件资料，确认所填内容真实、完整、有效，并同意专员依此提交政务初审。

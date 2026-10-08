@@ -15,6 +15,8 @@ import { renderToString } from 'react-dom/server';
 import App from '../src/copreg/App';
 import { ProposalStep } from '../src/copreg/components/ProposalStep';
 import { RegistrationDetailsStep } from '../src/copreg/components/RegistrationDetailsStep';
+import { ServiceRecordView, ServiceRecordContent } from '../src/copreg/components/ServiceRecordView';
+import { ReviewSection } from '../src/copreg/registration/ReviewSection';
 import {
   ProgressAndReviewStep,
   INITIAL_TIMELINE_NODES,
@@ -91,6 +93,64 @@ const report = {
 const form = { survey, tier: 'standard', addons: [{ id: 'addon-bank', name: '银行对公账户开通', price: 200 }] };
 /** 委托单凭据：第 1 步诊断接口同一次响应里给的 recordId（服务端生成方案时建的单） */
 const record = { recordId: 'VHpX5NqoXLHwPyMnVeBzCN' };
+
+/**
+ * 服务人员查看页渲染用的申报表：形状照真机响应 `openAccApply.var2` 里那份（内容换成假的）。
+ * 客户页的 `#fill-details` 确认提交章读的就是这些字段，查看页要一字不差地把它显示出来。
+ */
+const STAFF_FORM = {
+  id: 'form-staff-1',
+  status: 'submitted' as const,
+  savedAt: '2026/10/8 13:20:00',
+  submittedAt: '2026/10/8 13:33:12',
+  submissionPhone: '15900804441',
+  basic: {
+    org: '有限责任公司',
+    orgOther: '',
+    intro: '设立有限责任公司，经营玩具销售',
+    service: '在平台采购商品实施分销操作',
+    scope: '互联网销售；玩具销售',
+    capital: '10',
+    expert: true,
+    names: ['聚义', '风控控股', ''],
+    regAddress: '',
+    regRecommend: true,
+    regAddressNature: '租赁用房',
+    regFiles: [{ id: 'r1', fileUuid: 'RG1', fileName: '房产证.png', size: 2048, type: 'image/png' }],
+    workAddress: '',
+    workRecommend: true,
+    workAddressNature: '商业租赁',
+    workFiles: [],
+    board: '不设董事会',
+    directors: '',
+    singleDirector: '由总经理代行职务（不设董事）',
+    singleSupervisor: '不设监事',
+    unanimous: true,
+  },
+  people: {
+    p1: {
+      id: 'p1',
+      name: '张三',
+      phone: '13800000000',
+      email: '',
+      education: '大学本科',
+      address: '上海市浦东新区',
+      files: [{ id: 'f1', fileUuid: 'F1', fileName: 'sfz-1.png', size: 318017, type: 'image/png', slot: 'idFront' }],
+    },
+  },
+  shareholders: [
+    { id: 's1', type: '自然人' as const, personId: 'p1', name: '', code: '', ratio: '100', amount: '10', method: ['货币'], files: [] },
+  ],
+  roles: [{ id: 'r1', personId: 'p1', roles: ['法定代表人', '财务负责人', '联系人', '总经理'] }],
+  setup: { term: '长期' },
+  authorization: {
+    trusteeName: '李四',
+    trusteeIdNumber: '31011519880730802X',
+    entrustDate: '2026-10-08',
+    files: [{ id: 'a1', fileUuid: 'A1', fileName: 'sfz-4.png', size: 329905, type: 'image/png' }],
+  },
+  confirm: { exemption: true, beneficiary: '', files: [], accurate: true },
+};
 
 /** 每个场景开始前清空所有存档，避免上一个场景的状态串味（多主体后键更多，直接全清） */
 const clearStorage = () => {
@@ -777,6 +837,165 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
     '不认识的意图值被忽略（白名单）',
     !unknownParam.html.includes('企业开办与政务交付办理进度'),
     JSON.stringify({ 进度页: unknownParam.html.includes('企业开办与政务交付办理进度') })
+  );
+}
+
+/* ============================ 服务人员查看页（copreg-view.html） ============================ */
+
+/**
+ * React 在「静态文本 + 表达式」之间插 `<!-- -->` 注释分隔（`开户单编号：{uuid}` 就是两段），
+ * 断言连起来的那句话之前先把它去掉。
+ */
+const plain = (html: string) => html.replace(/<!-- -->/g, '');
+
+{
+  // 客户页**不认** ?scbUuid=（查看意图只属于 copreg-view.html）：带上它照样落第 1 步问卷
+  const withStaffParam = render({}, '', { search: '?scbUuid=QSVZXH3CdHntAAUpz289ry&code=C1' });
+  check(
+    '客户页 copreg.html 不认 ?scbUuid=（不会误进服务人员视图）',
+    withStaffParam.step1 && !withStaffParam.html.includes('服务人员查看'),
+    JSON.stringify({ step1: withStaffParam.step1, 含服务人员视图: withStaffParam.html.includes('服务人员查看') })
+  );
+
+  // 带参数打开查看页 → 首帧是「正在读取」（真机上再发请求，SSR 跑不到 effect）
+  const loading = renderToString(<ServiceRecordView query={{ uuid: 'QSVZXH3CdHntAAUpz289ry', code: 'C1' }} />);
+  check(
+    '查看页带 scbUuid → 落只读视图并显示「正在读取」',
+    plain(loading).includes('服务人员查看 · 只读') &&
+      plain(loading).includes('开户单编号：QSVZXH3CdHntAAUpz289ry') &&
+      plain(loading).includes('正在读取客户申报资料'),
+    JSON.stringify({ 只读徽标: loading.includes('服务人员查看 · 只读'), 加载中: loading.includes('正在读取客户申报资料') })
+  );
+
+  // 链接被截断（没有 scbUuid）→ 说清缺什么，而不是静默空白
+  const badLink = renderToString(<ServiceRecordView query={null} />);
+  check(
+    '查看页没有 scbUuid → 提示「链接不完整，缺少开户单编号」',
+    badLink.includes('链接不完整') && badLink.includes('scbUuid'),
+    JSON.stringify({ 提示: badLink.includes('链接不完整') })
+  );
+}
+
+{
+  const content = renderToString(
+    <ServiceRecordContent
+      form={STAFF_FORM}
+      busUnionId="AWQYmcaF6V8hUbudFEoQMZ"
+      fetchedAt="2026/10/8 13:40:00"
+      fromSnapshot={false}
+      onPreviewFile={() => {}}
+    />
+  );
+
+  check(
+    '查看页正文照客户「05 确认提交」那一章渲染（基本信息 / 股东 / 主要人员 / 委托书 / 真实性确认）',
+    plain(content).includes('1. 企业基本信息') &&
+      plain(content).includes('2. 股东及出资结构') &&
+      plain(content).includes('3. 企业主要管理人员') &&
+      plain(content).includes('4. 法定代表人委托书签署') &&
+      plain(content).includes('我已核对本次拟申报的全部企业信息与证件资料'),
+    JSON.stringify({ 基本信息: plain(content).includes('1. 企业基本信息') })
+  );
+
+  check(
+    '客户填的值原样显示（名称 / 股东姓名 / 股比 / 受托人）',
+    plain(content).includes('聚义') &&
+      plain(content).includes('张三') &&
+      plain(content).includes('持股 100%') &&
+      plain(content).includes('李四'),
+    JSON.stringify({ 股东: plain(content).includes('张三'), 受托人: plain(content).includes('李四') })
+  );
+
+  check(
+    '概览给提交时间 / 经办手机 / 方案号 / 读取时间，并标「已确认提交」',
+    content.includes('2026/10/8 13:33:12') &&
+      content.includes('15900804441') &&
+      content.includes('AWQYmcaF6V8hUbudFEoQMZ') &&
+      plain(content).includes('本次读取时间') &&
+      content.includes('2026/10/8 13:40:00') &&
+      content.includes('已确认提交'),
+    JSON.stringify({ 已提交: content.includes('已确认提交') })
+  );
+
+  check(
+    '正常读取（不是快照）时不出现「本页是…会话内快照」那条提示',
+    !plain(content).includes('会话内快照'),
+    JSON.stringify({ 含快照提示: plain(content).includes('会话内快照') })
+  );
+
+  check(
+    '只读：没有「修改」按钮，也没有跳去办理清单的按钮',
+    !content.includes('修改') && !content.includes('查看服务进度状态与办理清单'),
+    JSON.stringify({ 含修改: content.includes('修改') })
+  );
+
+  check(
+    '两个勾选（免申报承诺 / 信息真实性）在只读模式下不可改',
+    content.includes('disabled'),
+    JSON.stringify({ 勾选置灰: content.includes('disabled') })
+  );
+
+  check(
+    '补上「确认提交」没有、但 var2 里确实有的地址性质与场地证明附件',
+    content.includes('地址性质与场地证明') &&
+      content.includes('注册地址性质') &&
+      content.includes('租赁用房') &&
+      content.includes('房产证.png'),
+    JSON.stringify({ 地址卡: content.includes('地址性质与场地证明') })
+  );
+
+  const draft = renderToString(
+    <ServiceRecordContent
+      form={{ ...STAFF_FORM, status: 'draft', submittedAt: null }}
+      busUnionId=""
+      fetchedAt="2026/10/8 13:40:00"
+      fromSnapshot={false}
+      onPreviewFile={() => {}}
+    />
+  );
+  check(
+    '客户只存了草稿时如实标「草稿（客户尚未确认提交）」',
+    draft.includes('草稿（客户尚未确认提交）') && !draft.includes('已确认提交'),
+    JSON.stringify({ 草稿: draft.includes('草稿（客户尚未确认提交）') })
+  );
+}
+
+{
+  // 刷新命中会话内快照：必须说清「这一趟没有重新读」（查看码一次有效，不会再打接口）
+  const snap = renderToString(
+    <ServiceRecordContent
+      form={STAFF_FORM}
+      busUnionId="AWQYmcaF6V8hUbudFEoQMZ"
+      fetchedAt="2026/10/8 13:40:00"
+      fromSnapshot
+      onPreviewFile={() => {}}
+    />
+  );
+  check(
+    '刷新命中会话内快照时，概览上说明「刷新不会重新读取」并给出重新获取链接的办法',
+    plain(snap).includes('会话内快照') &&
+      plain(snap).includes('刷新不会重新读取') &&
+      plain(snap).includes('请回开户详情页重新点一次'),
+    JSON.stringify({ 快照提示: plain(snap).includes('会话内快照') })
+  );
+}
+
+{
+  // 对照：同一个组件在客户页（非只读）必须还是原来那套可改的界面
+  const editable = renderToString(
+    <ReviewSection
+      form={STAFF_FORM}
+      onGoChapter={() => {}}
+      onUpdateConfirm={() => {}}
+      onPreviewFile={() => {}}
+      onProceedToDelivery={() => {}}
+      errors={{}}
+    />
+  );
+  check(
+    '非只读的确认提交章仍保留「修改」与跳转按钮（只读是加出来的，没有改掉客户页）',
+    editable.includes('修改') && editable.includes('查看服务进度状态与办理清单'),
+    JSON.stringify({ 修改: editable.includes('修改'), 跳转: editable.includes('查看服务进度状态与办理清单') })
   );
 }
 

@@ -34,6 +34,8 @@ export default defineConfig(({mode}) => {
           main: 'index.html',
           presales: 'presales.html',
           copreg: 'copreg.html',
+          // 服务人员查看客户申报资料（只读），与客户主流程分开的一页
+          copregView: 'copreg-view.html',
         },
       },
     },
