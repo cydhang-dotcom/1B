@@ -1,7 +1,8 @@
 # copreg 方案接口字段说明
 
-**两个接口**同属企业方案服务，都在 `/api/company-plan/*` 下，都在第 1 步（问卷页）调用：
-AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并当场建单**（返回 `recordId`）。
+**三个接口**同属企业方案服务（`modify-proposal` 见第二·补节），都在 `/api/company-plan/*` 下，
+都在第 1 步（问卷页）调用：AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并当场建单**
+（返回 `recordId`），修改需求方案在**已建单**后再改问卷时调用（不建单、不验短信）。
 第 2 步（方案页）**不调任何接口** —— 它只把第 1 步的结果展示出来，点「前往支付」直接拿那个
 单号进支付页。本文整理**接口参数与返回值**，即服务端照这份清单做即可 —— 参数以前端为准，
 第 1 步的字段名与前端问卷（`SurveyData`，`src/copreg/types.ts:6`）逐字一致。
@@ -9,11 +10,12 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 | 用途 | 方法 / 路径 | 触发点 | 调用模块 |
 |---|---|---|---|
 | AI 智能填充：出经营范围、许可资质、敏感要素建议 | `POST {host}/api/company-plan/ai-fill` | 问卷页「AI 智能填充」按钮 | `src/copreg/aiFill.ts` |
-| 生成需求方案（架构诊断 + 建单）：出方案内容，并返回委托单号 `recordId` | `POST {host}/api/company-plan/diagnose-architecture` | 问卷页「生成需求方案」按钮（先过手机验证弹框） | `src/copreg/planGenerate.ts` |
+| 生成需求方案（架构诊断 + 建单）：出方案内容，并返回委托单号 `recordId` | `POST {host}/api/company-plan/diagnose-architecture` | 问卷页「生成需求方案」按钮（**本地没有委托单号时**；先过手机验证弹框） | `src/copreg/planGenerate.ts` |
+| 修改需求方案：改后再出一份方案（**不建单**） | `POST {host}/api/company-plan/modify-proposal` | 问卷页「生成需求方案」按钮（**本地已有委托单号时**；只过腾讯行为验证码，不验短信） | `src/copreg/planGenerate.ts` |
 | ~~确认并前往支付~~ | ~~`POST {host}/api/company-plan/confirm-proposal`~~ | **已不再调用**（2026-09）：单号改由诊断接口返回，第 2 步成了纯展示页 | 见第三节 |
 
-`host` 与两个路径都能用环境变量覆盖（`VITE_COMPANY_PLAN_HOST` / `VITE_AI_FILL_PATH` /
-`VITE_PLAN_DIAGNOSE_PATH`），默认值见 `src/config/api.ts`
+`host` 与三个路径都能用环境变量覆盖（`VITE_COMPANY_PLAN_HOST` / `VITE_AI_FILL_PATH` /
+`VITE_PLAN_DIAGNOSE_PATH` / `VITE_PLAN_MODIFY_PATH`），默认值见 `src/config/api.ts`
 （host 默认 `https://caa001.ibanbu.com`，取自 caa 项目生产配置，1b 侧待确认）。
 
 ---
@@ -190,6 +192,56 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 
 ---
 
+## 二·补、修改需求方案 `POST /api/company-plan/modify-proposal`
+
+**已建单之后再回第 1 步改问卷走这个接口**（而不是再调一次诊断：那会另建一张单，
+把用户已经拿到的委托单号、以及可能已经付过的款对不上）。触发点还是问卷页的
+「生成需求方案」按钮，但此时本地已有 `1b_copreg_plan_record` 的委托单号 →
+`SurveyStep` 认出「这一单建过了」，**不再弹手机验证弹框**，直接调这里。
+
+### 2b.1 请求
+
+```json
+{ "recordId": "QgcjYcfqRh8bSGU4xtMkxs",
+  "formData": { ...与 2.2 完全同形，同一个 PlanFormData... } }
+```
+
+| 位置 | 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|---|
+| query | `captchaAppId` | `string` | 是 | 腾讯云行为验证码 appId（与 `ai-fill` 同款参数名，前端公开值） |
+| query | `userIp` | `string` | 是 | 腾讯侧风控用的出口 IP |
+| query | `jcaptchaCode` | `string` | 是 | 验证码票据 ticket（`src/copreg/planGenerate.ts` 的 `modifyProposal` 里弹窗取得） |
+| query | `jcaptchaId` | `string` | 是 | 验证码 randstr |
+| body | `recordId` | `string` | 是 | **调查问卷记录 ID**＝建单时拿到的委托单号（`1b_copreg_plan_record`）；前端 trim 后必填，为空直接不发请求 |
+| body | `formData` | `object` | 是 | 本次改后的问卷 16 个字段，与 2.2 逐字一致 |
+
+**没有 `phoneNumber`**：手机号在第一次生成方案（建单）时已经验过，同一张单沿用，
+所以这一步不可能是「另一个人拿别人的单号来改」—— 改的是同一张单上的问卷内容。
+行为验证码那一道保留（防脚本批量改），只是不弹短信。
+
+用户取消腾讯验证码时**静默留在问卷页**（`CaptchaCancelledError`，与「AI 智能填充」同一处理）。
+
+**弹框顺序：先行为验证码、后「AI 推演中」生成弹框。**`modifyProposal(survey, recordId, onCaptchaPassed)`
+在票据拿到、请求发出之前触发 `onCaptchaPassed` 一次，问卷页用它才打开生成弹框 ——
+反过来的话生成弹框（`z-[60]`）先盖上去，腾讯验证码（iframe）弹在它后面，用户会以为点不动了。
+手机验证那条路本来就是这个顺序（验证码在「获取验证码」那一步，生成弹框在提交验证码之后）。
+
+### 2b.2 响应
+
+与诊断接口**同一套字段**（2.3 的两套结构都认，解析复用 `parsePlanSuggestion`），
+所以方案页拿到的是改后重新推演的报告。
+
+- 响应里回了 `recordId` → **以响应的为准**（万一服务端换单）；
+- 没回或认不出 → **沿用请求里带上去的那个**（改方案不是建单，本地凭据本来就还有效）。
+
+前端拿到结果后与第一次生成方案走同一段收尾（`App.tsx` 的 `runPlanSubmit`）：作废旧诊断存档、
+写新报告与单号、清掉上一笔的付款痕迹（`isDetailsSubmitted` / 订单 `paid`，见
+`docs/copreg-steps.md`）、落到方案页；**但单单号那一份存档不清** —— 这次改动就是挂在它上面的。
+
+失败文案与超时口径与诊断接口共用 `apiClient.ts`（5 分钟，见第四节）。
+
+---
+
 ## 三、确认并前往支付 `POST /api/company-plan/confirm-proposal`（已废弃）
 
 **2026-09 起前端不再调用这个接口**，服务端可以下线它。
@@ -302,8 +354,8 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
 - 交付清单（`quoteFor().deliverables`，在支付页渲染）与明细数组都把「代记账」放在**最后一条**，
   与设计稿同序。
 
-第 1 步两个大模型接口的超时见上表（5 分钟），由 `scripts/check-plan-timeout.ts`（10 项）把关：
-常量、两个调用点吃的默认值，以及「别的接口没被顺手放宽」。
+第 1 步这几个大模型接口的超时见上表（5 分钟），由 `scripts/check-plan-timeout.ts`（10 项）把关：
+常量、各调用点吃的默认值，以及「别的接口没被顺手放宽」。
 
 下次打开：**有「返回的」才落到第 2 步**（问卷答案、选过的套餐、服务端诊断都在），
 有「委托单凭据」再往前一步落到第 3 步。
@@ -315,6 +367,10 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
   它必须和「填写的」配套：没有 form 就没有方案，光有单号不会把人送进支付页。
 - **单号不作废于改套餐**：单号是第 1 步生成方案时服务端建的，改档位 / 自选项只改前端报价，
   服务端按单号自己复核价格；`parsePlanRecord` 只认 `{ recordId: 非空字符串 }`，其余当没有。
+- **改需求方案（`modify-proposal`）时单单号那一份存档不作废**：作废的是上一份「返回的」
+  （问卷改了，旧结论不再对应当前问卷），但单号正是这次改动要带上去的 `recordId` —— 清掉它就
+  等于把「下单 → 查单」那条链剪断，而且下次进来会被当成还没建单。只有**重置问卷**与
+  **第一次生成方案**（本地本来就没单号）才作废单号存档。
 - **落点自检**：`npm run check:entry` 用**真实组件树**在 Node 里渲染首屏（走 Vite 的 SSR 构建，
   因为 App 依赖 `import.meta.env` 与 JSX），覆盖有单号 / 只有诊断结果 / 只有问卷 / 什么都没有
   这几种组合分别落在第 3 / 第 2 / 第 1 步。这是唯一覆盖「存档 → 首屏落点」这条链的自检。
@@ -356,7 +412,9 @@ AI 智能填充出经营范围 / 资质建议，架构诊断出方案内容**并
    并在同一次响应里返回委托单号 `recordId` —— 与 caa「诊断前先短信验证」的顺序一致。
    前端这一侧的弹框在 `SurveyStep`（`PhoneVerifyModal`）；确认接口整个不再调用（见第三节），
    所以第 2 步没有任何接口调用、也没有任何验证框。
-4. **host 待接口方确认**：两个接口同属企业方案服务，host 默认值取自 caa 项目生产配置
+   **建单只发生一次**：已经拿到 `recordId` 之后再回第 1 步改问卷走 `modify-proposal`
+   （第二·补节），不再验短信、也不再建单 —— 「本地有没有委托单号」就是这两条路的分岔判据。
+4. **host 待接口方确认**：三个接口同属企业方案服务，host 默认值取自 caa 项目生产配置
    （`https://caa001.ibanbu.com`），1b 侧尚无自己的方案服务配置 —— 按 `ponytail:` 标注在
    `src/config/api.ts`，可用 `VITE_COMPANY_PLAN_HOST` 覆盖。
 5. **套餐内含的服务项前端不上报**：`formData.addons` 只报「自选增值服务」，套餐里含的

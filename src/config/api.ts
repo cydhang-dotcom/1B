@@ -136,6 +136,23 @@ export const AI_FILL_PATH = import.meta.env.VITE_AI_FILL_PATH || '/api/company-p
 export const PLAN_DIAGNOSE_PATH =
   import.meta.env.VITE_PLAN_DIAGNOSE_PATH || '/api/company-plan/diagnose-architecture';
 /**
+ * ── 修改需求方案（已建单之后再改问卷）──────────────────────────────────
+ * 请求  POST {host}/api/company-plan/modify-proposal?captchaAppId=&userIp=&jcaptchaCode=&jcaptchaId=
+ *      query 腾讯行为验证码票据（与 ai-fill 同一套参数名：jcaptchaCode = ticket、jcaptchaId = randstr）
+ *      body  { recordId, formData: <问卷字段，逐项同 PlanFormData> }
+ *            recordId **必填**：就是建单时拿到的委托单号（本地存档 1b_copreg_plan_record）。
+ *            **没有 phoneNumber** —— 手机号在第一次生成方案时已经验过，同一张单沿用，
+ *            不再走短信验证；这一道只留腾讯行为验证码。
+ * 响应  与 diagnose-architecture 同一套报告字段（新旧两种结构都认），前端按同一套解析收口；
+ *      回 new recordId 就换单，没回就沿用传进去的那个。
+ *
+ * 什么时候走它：本地已经有委托单号（`1b_copreg_plan_record`）时点「生成需求方案」＝改需求方案；
+ * 没有单号（第一次，或重置过问卷）才走 diagnose-architecture（要手机验证 + 建单）。
+ * 见 src/copreg/planGenerate.ts 的 modifyProposal。
+ */
+export const PLAN_MODIFY_PATH =
+  import.meta.env.VITE_PLAN_MODIFY_PATH || '/api/company-plan/modify-proposal';
+/**
  * 第 5 步（#fill-details）申报资料的保存 / 提交：
  *   POST {DOC_HOST}/xcx/yqt-co/subscribe/open-info
  *   body { busUnionId, var2, savaType }（var2 是本地存档的 JSON 字符串；

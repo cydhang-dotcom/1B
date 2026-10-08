@@ -1,36 +1,31 @@
 /**
- * 多主体申请的模型、规则与迁移自检：不联网、不碰 React、不开浏览器。
+ * 多主体申请的模型、规则与初始化自检：不联网、不碰 React、不开浏览器。
  *   npx tsx scripts/check-applications.ts
  *
  * 覆盖：
  *   1. **键空间**：每主体一套键（表单/诊断/单号/申报表），与旧的全局键不重名；
  *   2. **列表收口**：坏项丢掉、重复 id 只留第一个、超过 5 个只认前 5、activeAppId 认不出落第一个；
  *   3. **业务规则**：最多 5 个主体、已支付不可作废、作废当前主体后自动切走、最后一个作废后补空白主体、改名；
- *   4. **老存档迁移**：三份全局键 + 全局申报表 → 主体 #1（逐键搬运、落点按旧证据、旧键清掉），
- *      幂等、写失败不删旧键、已有主体列表时不再迁移；
+ *   4. **旧结构不再迁移**（2026-09 去掉）：只剩单主体时代的全局键时照样建全新主体落第 1 步，
+ *      旧键不读、不搬、也不删；已有主体列表时直接复用；
  *   5. **初始化**：什么都没有时建空白主体；activeAppId 以存档里的为准。
  */
 import {
   ACTIVE_APP_KEY,
   APPLICATIONS_KEY,
-  LEGACY_PLAN_FORM_KEY,
-  LEGACY_PLAN_RECORD_KEY,
-  LEGACY_PLAN_REPORT_KEY,
-  LEGACY_REGISTRATION_KEY,
   MAX_APPLICATIONS,
   addApplication,
-  applyLegacyMigration,
   canAddApplication,
   createApplication,
   deriveApplicationName,
   discardApplication,
+  mergeApplicationsWrite,
   ensureApplicationsState,
   parseApplicationsState,
   patchOrderSummary,
   planFormKey,
   planRecordKey,
   planReportKey,
-  planLegacyMigration,
   readApplicationsState,
   registrationKey,
   renameApplication,
@@ -40,6 +35,14 @@ import {
   type ApplicationsState,
   type StorageLike,
 } from '../src/copreg/applications';
+/**
+ * 单主体时代的旧键：**字面量写在这里**（不从 planDraft 引 —— 那个模块会 import config/api.ts，
+ * 里面有 import.meta.env，tsx 下直接崩）。这条自检要断言的就是「这些键现在没人读」。
+ */
+const LEGACY_PLAN_FORM_KEY = '1b_copreg_plan_form';
+const LEGACY_PLAN_REPORT_KEY = '1b_copreg_plan_report';
+const LEGACY_PLAN_RECORD_KEY = '1b_copreg_plan_record';
+const LEGACY_REGISTRATION_KEY = 'banbu-registration-20260913-v1';
 
 let passed = 0;
 let failed = 0;
@@ -201,101 +204,88 @@ function main() {
   ok('再次取截断的企业描述', deriveApplicationName({ companyDesc: '一家主营跨境电商与直播带货的有限责任公司' }, 0) === '一家主营跨境电商与直播带货的有限…');
   ok('都没有则用默认名', deriveApplicationName({}, 2) === '企业设立申请（主体 3）');
 
-  /* ---------------------------------------------------------- 迁移 */
+  /* ------------------------------------------- 跨标签页的「合并写」 */
+
   {
-    const legacyForm = JSON.stringify({ survey: { companyDesc: '旧问卷企业' }, tier: 'standard', addons: [] });
-    const legacyReport = JSON.stringify({ companyNameProposal: '诊断给的名字' });
-    const legacyRecord = JSON.stringify({ recordId: 'REC-1' });
-    const legacyRegistration = JSON.stringify({ status: 'submitted', basic: { names: ['申报表里的名字'] } });
-    const { storage, map } = fakeStorage({
-      [LEGACY_PLAN_FORM_KEY]: legacyForm,
-      [LEGACY_PLAN_REPORT_KEY]: legacyReport,
-      [LEGACY_PLAN_RECORD_KEY]: legacyRecord,
-      [LEGACY_REGISTRATION_KEY]: legacyRegistration,
-    });
+    const NOW2 = NOW + 1000;
+    const a = { ...createApplication(NOW2, 0, '甲'), id: 'app-a' };
+    const b = { ...createApplication(NOW2, 1, '乙'), id: 'app-b' };
+    const mineAB: ApplicationsState = { applications: [a, b], activeAppId: 'app-a' };
+
+    // 场景：本标签页（填报页）启动时的快照是 [a]；另一个标签页新增了 b 并切到了 b
+    const storedWithB: ApplicationsState = { applications: [a, b], activeAppId: 'app-b' };
+    const mineA: ApplicationsState = { applications: [a], activeAppId: 'app-a' };
+
+    const dirtyA = mergeApplicationsWrite(storedWithB, mineA, { dirtyAppIds: ['app-a'], removedAppIds: [], takeActiveAppId: false }, NOW2);
+    ok('合并写：别的标签页新增的主体不会被抹掉', dirtyA.state.applications.map((x) => x.id).join(',') === 'app-a,app-b');
+    ok('★ 合并写：本标签页保存时**不改**存档里的 activeAppId（另一个标签页切的主体保住了）', dirtyA.state.activeAppId === 'app-b');
+    ok('合并写：没改别的标签页那一条（用存档里的版本）', dirtyA.state.applications.find((x) => x.id === 'app-b') === b);
+
+    // 本标签页自己改了 a 的名字：dirty 里的那条以自己的为准
+    const renamedA = { ...a, name: '甲改名' };
+    const dirtyRename = mergeApplicationsWrite(storedWithB, { applications: [renamedA, b], activeAppId: 'app-a' }, { dirtyAppIds: ['app-a'], removedAppIds: [], takeActiveAppId: false }, NOW2);
+    ok('合并写：自己改过的字段以自己的为准', dirtyRename.state.applications.find((x) => x.id === 'app-a')?.name === '甲改名');
+    ok('合并写：自己没改过的主体仍用存档里的', dirtyRename.state.applications.find((x) => x.id === 'app-b') === b);
+
+    // 本标签页自己切了主体：这次才动 activeAppId
+    const tookActive = mergeApplicationsWrite(storedWithB, mineAB, { dirtyAppIds: [], removedAppIds: [], takeActiveAppId: true }, NOW2);
+    ok('合并写：自己切过主体才写 activeAppId', tookActive.state.activeAppId === 'app-a');
+
+    // 本标签页新增（存档里没有）→ 追加
+    const c = { ...createApplication(NOW2, 2, '丙'), id: 'app-c' };
+    const added = mergeApplicationsWrite({ applications: [a], activeAppId: 'app-a' }, { applications: [a, c], activeAppId: 'app-c' }, { dirtyAppIds: [], removedAppIds: [], takeActiveAppId: true }, NOW2);
+    ok('合并写：本标签页新增的主体被追加', added.state.applications.map((x) => x.id).join(',') === 'app-a,app-c');
+    ok('合并写：本标签页新增会写 activeAppId（它同时是切主体）', added.state.activeAppId === 'app-c');
+
+    // 作废：removedAppIds 里的删掉；存档里剩下的仍保留
+    const removed = mergeApplicationsWrite(storedWithB, { applications: [a], activeAppId: 'app-a' }, { dirtyAppIds: [], removedAppIds: ['app-b'], takeActiveAppId: false }, NOW2);
+    ok('合并写：本标签页作废的主体被删掉', removed.state.applications.map((x) => x.id).join(',') === 'app-a');
+    ok('合并写：删掉当前主体后落点切到剩下的第一个', removed.state.activeAppId === 'app-a');
+
+    // 全删光 → 补一个空白主体（与 discardApplication 同口径）
+    const emptied = mergeApplicationsWrite(storedWithB, { applications: [], activeAppId: '' }, { dirtyAppIds: [], removedAppIds: ['app-a', 'app-b'], takeActiveAppId: false }, NOW2);
+    ok('合并写：全删光会补一个空白主体（列表永不为空）', emptied.state.applications.length === 1 && emptied.state.activeAppId === emptied.state.applications[0].id);
+
+    // 没有存档（首次进来）→ 以本标签页那份为准
+    const noStored = mergeApplicationsWrite(null, mineAB, { dirtyAppIds: ['app-a'], removedAppIds: [], takeActiveAppId: false }, NOW2);
+    ok('合并写：没有存档时以本标签页那份为准', noStored.state.applications.length === 2 && noStored.state.activeAppId === 'app-a');
+
+    // 什么都没变 → changed=false（调用方据此跳过写入，避免无谓的跨标签页覆盖）
+    const noop = mergeApplicationsWrite(mineAB, mineAB, { dirtyAppIds: [], removedAppIds: [], takeActiveAppId: false }, NOW2);
+    ok('合并写：没有实际变化时 changed=false', noop.changed === false);
+    // 名单里标了 dirty、但那份内容和存档里一模一样时，同样算「没变化」（别白写一次）
+    ok('合并写：标了 dirty 但内容一样也算没变化', dirtyA.changed === false);
+    ok('合并写：确实有变化时 changed=true', dirtyRename.changed === true);
+  }
+
+  /* ------------------------------------------------- 旧结构（不再迁移） */
+  // 2026-09 去掉「老存档迁移」：单主体时代的全局键不再读、不再搬。有旧键但没有主体列表时，
+  // 就是**全新一份申请**（旧存档不参与落点，也不会被顺手删掉）。
+  {
+    const legacyKeys = {
+      [LEGACY_PLAN_FORM_KEY]: JSON.stringify({ survey: { companyDesc: '旧问卷企业' }, tier: 'standard', addons: [] }),
+      [LEGACY_PLAN_REPORT_KEY]: JSON.stringify({ companyNameProposal: '诊断给的名字' }),
+      [LEGACY_PLAN_RECORD_KEY]: JSON.stringify({ recordId: 'REC-1' }),
+      ['banbu-registration-20260913-v1']: JSON.stringify({ status: 'submitted', basic: { names: ['申报表里的名字'] } }),
+    };
+    const { storage, map } = fakeStorage(legacyKeys);
 
     const result = ensureApplicationsState(storage, NOW);
     const app = result?.state.applications[0];
-    ok('迁移建出主体 #1（标记 migrated）', result?.migrated === true && result.state.applications.length === 1);
-    ok('迁移主体落在第 3 步（有单号 + 已提交）', app?.currentStep === 'payment' && app.isDetailsSubmitted === true && app.unlockedSteps.includes('progress'));
-    ok('迁移主体的名字取申报表名称', app?.name === '申报表里的名字');
-    ok('旧键逐份搬到该主体的键上（内容一字不改）', map.get(planFormKey(app!.id)) === legacyForm && map.get(planReportKey(app!.id)) === legacyReport && map.get(planRecordKey(app!.id)) === legacyRecord && map.get(registrationKey(app!.id)) === legacyRegistration);
-    ok('主体列表与 activeAppId 已写', map.has(APPLICATIONS_KEY) && map.get(ACTIVE_APP_KEY) === app!.id);
-    ok('旧键全部清掉', ![LEGACY_PLAN_FORM_KEY, LEGACY_PLAN_REPORT_KEY, LEGACY_PLAN_RECORD_KEY, LEGACY_REGISTRATION_KEY].some((key) => map.has(key)));
-
-    const again = ensureApplicationsState(storage, NOW + 1000);
-    ok('再跑一次不会重复迁移', again?.migrated === false && again.state.applications.length === 1);
+    ok('只剩旧全局键时 → 建全新主体、落第 1 步（不再迁移）', result?.state.applications.length === 1 && app?.currentStep === 'survey' && app.unlockedSteps.join(',') === 'survey');
+    ok('旧键里的进度证据不再被采用（isDetailsSubmitted 等一律从头来）', app?.isDetailsSubmitted === false && app.order.status === 'pending');
+    ok('旧键不搬（该主体没有 per-app 存档）', !map.has(planFormKey(app!.id)) && !map.has(planRecordKey(app!.id)));
+    ok('旧键也不删（留着无害，硬删可能删掉别人正在用的东西）', Object.keys(legacyKeys).every((key) => map.has(key)));
   }
 
   {
-    const { storage, map } = fakeStorage({ [LEGACY_PLAN_FORM_KEY]: JSON.stringify({ survey: { companyDesc: '只填了问卷' }, tier: 'bundle_small', addons: [] }) });
-    const result = ensureApplicationsState(storage, NOW);
-    const app = result?.state.applications[0];
-    ok('只有问卷存档 → 落第 1 步', result?.migrated === true && app?.currentStep === 'survey' && app.unlockedSteps.join(',') === 'survey');
-    ok('只有问卷时旧键照样清掉', !map.has(LEGACY_PLAN_FORM_KEY));
-  }
-
-  {
-    // 只有诊断结果、没有问卷：与旧 loadPlanDraft 同口径 —— 问卷没填过就没有方案，落第 1 步
-    const { storage, map } = fakeStorage({ [LEGACY_PLAN_REPORT_KEY]: JSON.stringify({ companyNameProposal: '只有诊断' }) });
-    const result = ensureApplicationsState(storage, NOW);
-    const app = result?.state.applications[0];
-    ok('只有诊断结果（没问卷）→ 仍迁移但落第 1 步', result?.migrated === true && app?.currentStep === 'survey' && app.unlockedSteps.join(',') === 'survey');
-    ok('只有诊断结果时原始值照样搬过去（不丢数据）', map.get(planReportKey(app!.id)) === JSON.stringify({ companyNameProposal: '只有诊断' }));
-  }
-
-  {
-    // 问卷 + 诊断、没有单号 → 第 2 步
-    const { storage } = fakeStorage({
-      [LEGACY_PLAN_FORM_KEY]: JSON.stringify({ survey: { companyDesc: '旧问卷' }, tier: 'standard', addons: [] }),
-      [LEGACY_PLAN_REPORT_KEY]: JSON.stringify({ companyType: '有限责任公司' }),
-    });
-    const result = ensureApplicationsState(storage, NOW);
-    ok('问卷 + 诊断（无单号）→ 落第 2 步', result?.state.applications[0].currentStep === 'proposal' && result.state.applications[0].unlockedSteps.join(',') === 'survey,proposal');
-  }
-
-  {
-    // 有问卷与诊断，但单号是空白串 → 单号不算（与 parsePlanRecord 同口径）
-    const { storage } = fakeStorage({
-      [LEGACY_PLAN_FORM_KEY]: JSON.stringify({ survey: { companyDesc: '旧问卷' }, tier: 'standard', addons: [] }),
-      [LEGACY_PLAN_REPORT_KEY]: JSON.stringify({ companyType: '有限责任公司' }),
-      [LEGACY_PLAN_RECORD_KEY]: JSON.stringify({ recordId: '   ' }),
-    });
-    const result = ensureApplicationsState(storage, NOW);
-    ok('坏单号（空白串）不算证据 → 落第 2 步', result?.state.applications[0].currentStep === 'proposal');
-  }
-
-  {
-    const { storage, map } = fakeStorage();
-    const result = ensureApplicationsState(storage, NOW);
-    ok('什么存档都没有 → 建一个空白主体落第 1 步', result?.migrated === false && result.state.applications.length === 1 && result.state.applications[0].currentStep === 'survey');
-    ok('空白主体也写进存档', map.has(APPLICATIONS_KEY));
-  }
-
-  {
-    // 写失败（配额满）：整体放弃，旧键一个都不能删
-    const { storage, map, failOn } = fakeStorage({
-      [LEGACY_PLAN_FORM_KEY]: JSON.stringify({ survey: { companyDesc: '旧问卷' }, tier: 'standard', addons: [] }),
-      [LEGACY_PLAN_REPORT_KEY]: JSON.stringify({ companyNameProposal: '旧诊断' }),
-    });
-    const plan = planLegacyMigration(storage, NOW);
-    // 让「诊断结果」那一条写入失败（其余键都成功），验证不会写一半就把旧键删了
-    failOn(plan.writes.map((write) => write.key).filter((key) => key.includes(':plan_report')));
-    ok('迁移写失败时返回 false', applyLegacyMigration(storage, plan) === false);
-    ok('写失败后旧键原样保留', map.has(LEGACY_PLAN_FORM_KEY) && map.has(LEGACY_PLAN_REPORT_KEY));
-    ok('写失败后不写主体列表', !map.has(APPLICATIONS_KEY));
-  }
-
-  {
-    // 已经有主体列表：不再迁移，旧键不动（万一还有残留）
+    // 已经有主体列表：直接复用，不新增主体、不动旧键
     const existing: ApplicationsState = { applications: [createApplication(NOW, 0)], activeAppId: '' };
     const { storage, map } = fakeStorage({ [LEGACY_PLAN_FORM_KEY]: JSON.stringify({ survey: { companyDesc: '残留旧档' }, tier: 'standard', addons: [] }) });
     writeApplicationsState(storage, existing);
-    const plan = planLegacyMigration(storage, NOW);
-    ok('已有主体列表时迁移计划为空', plan.state === null && plan.writes.length === 0 && plan.removals.length === 0);
-    ok('已有主体列表时旧键不动', map.has(LEGACY_PLAN_FORM_KEY));
     const ensured = ensureApplicationsState(storage, NOW);
-    ok('已有主体列表时直接复用（不新增主体）', ensured?.migrated === false && ensured.state.applications.length === 1);
+    ok('已有主体列表时直接复用（不新增主体）', ensured?.state.applications.length === 1);
+    ok('已有主体列表时旧键不动', map.has(LEGACY_PLAN_FORM_KEY));
   }
 
   /* ------------------------------------------------- 初始化 / activeApp */

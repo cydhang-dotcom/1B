@@ -32,6 +32,21 @@ interface SurveyStepProps {
    * （接口失败由 App 抛出，弹框留在原地显示原因、改验证码重试）
    */
   onSubmit: (verification: PhoneVerification) => Promise<void>;
+  /**
+   * 已建单之后再改问卷（`modifyRecordId` 非空时点「生成需求方案」走这条）：
+   * **不再过手机验证弹框**，App 直接调 `modify-proposal`（只过腾讯行为验证码）。
+   * 失败由 App 抛出，这里用 toast 显示原因（没有弹框可挂）。
+   *
+   * `onCaptchaPassed` 由 App 透给 `modifyProposal`：**行为验证通过之后**才调它，
+   * 这里用它盖「AI 推演中」生成弹框 —— 顺序不能反（反了验证码会被生成弹框盖在下面）。
+   */
+  onModify: (onCaptchaPassed?: () => void) => Promise<void>;
+  /**
+   * 本地已建单的委托单号（`1b_copreg_plan_record`）。非空 = 这一单已经建过，
+   * 再点「生成需求方案」是**改需求方案**（`modify-proposal`），不是重新建单；
+   * 空串 = 第一次生成方案（或重置过问卷），要走手机验证 + 诊断建单。
+   */
+  modifyRecordId: string;
   /** 重置问卷后通知 App 收尾（清掉第 1 步的本地快照），问卷本身由 onChange 清空 */
   onReset: () => void;
   /** 预填的手机号：App 里还留着上一次验证过的号码就直接带出来 */
@@ -85,6 +100,8 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
   survey,
   onChange,
   onSubmit,
+  onModify,
+  modifyRecordId,
   onReset,
   contactPhone
 }) => {
@@ -245,7 +262,7 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
   };
 
   // 提交前逐项拦：必填清单在 surveyCheck.ts，与页面上的必填标记一一对应。
-  // 过了这一关才弹手机验证 —— 缺字段时先补字段，没必要先把验证码验了
+  // 过了这一关才发请求 —— 缺字段时先补字段，没必要先把验证码验了
   const handleValidateAndSubmit = () => {
     const failed = surveyRequiredFields(survey).filter(field => !field.done);
     if (failed.length > 0) {
@@ -255,6 +272,13 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
         failed.length > 1 ? `${first.label}（另有 ${failed.length - 1} 项未完成）` : first.label
       );
       document.getElementById(first.section)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+
+    // 本地已有委托单号 = 这一单建过了，这次是**改需求方案**：不弹手机验证框（同一张单沿用已验过的手机号），
+    // 直接调 modify-proposal（腾讯行为验证码在 App 那一层弹）。
+    if (modifyRecordId !== '') {
+      void handleModify();
       return;
     }
 
@@ -280,6 +304,30 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
     } catch (error) {
       setIsGeneratingPlan(false);
       setSubmitError(error instanceof Error ? error.message : '生成需求方案失败，请稍后重试');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  /**
+   * 已建单后改问卷 → 调 `modify-proposal`（App 负责弹腾讯行为验证码、发请求）。
+   *
+   * 「AI 推演中」弹框**不在这里立刻打开**：交给 `onModify` 的回调，等行为验证通过后再盖
+   * （否则生成弹框先弹出来，腾讯验证码弹在它后面，用户会以为卡住了）。
+   *
+   * 与手机验证那条唯一的另一点区别是**失败显在哪**：这条没有验证码弹框可挂，
+   * 所以收掉生成弹框后走 toast。用户主动关掉腾讯验证码（CaptchaCancelledError）不算失败，
+   * 静默留在问卷页。
+   */
+  const handleModify = async () => {
+    setIsSubmitting(true);
+    try {
+      await onModify(() => setIsGeneratingPlan(true));
+      setIsGeneratingPlan(false);
+    } catch (error) {
+      setIsGeneratingPlan(false);
+      if (error instanceof CaptchaCancelledError) return;
+      showToast(error instanceof Error ? error.message : '生成需求方案失败，请稍后重试');
     } finally {
       setIsSubmitting(false);
     }

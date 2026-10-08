@@ -54,12 +54,13 @@ git -C /Users/yjj/github-repo/copreg pull --ff-only
 
 ### 1.2 本项目**有意**偏离设计稿的地方（别当成 bug「改回去」）
 
-- **多主体申请**：`src/copreg/applications.ts` 的 `MULTI_APPLICATION_ENABLED`（当前 `false`，顶栏切换被屏蔽，模型与代码保留，改回 `true` 即恢复）—— 设计稿没有。
+- **多主体申请**：`src/copreg/applications.ts` 的 `MULTI_APPLICATION_ENABLED`（当前 `true`，顶栏可切换/新增主体，最多 5 个；关成 `false` 就退回单主体、入口整块不渲染）—— 设计稿没有。主体列表落盘走 **`mergeApplicationsWrite` 合并写**（只覆盖本标签页改过的那几条、`activeAppId` 只在自己切过主体时才写）：支付成功页会**新开标签页**去填申报资料，整份列表却只有一个 localStorage 键，整份覆盖会把别的标签页刚切的/刚新增的主体写没（见 `docs/copreg-multi-app.md` §四）。
 - **第 1 步大模型超时 5 分钟**：`src/copreg/apiClient.ts` 的 `REQUEST_TIMEOUT_MS = 5 * 60_000`；设计稿的 fetch 没有超时。
 - **架构诊断报告**：走后端**新版报告结构**（`reportTitle` / `diagnosticBar` / `coreDecisions`…），设计稿只有旧的平铺字段。
 - **短信验证**：真实腾讯行为验证码 + 服务端比对验证码（`verification.ts` + `PhoneVerifyModal.tsx`）；设计稿是 demo 的固定测试码。
 - **申报资料接口**：保存草稿 / 提交走真实接口（`registration/openInfo.ts`）；设计稿只在本地。
 - **打印/导出**：委托书与报告走隐藏 iframe（`src/utils/printDocument.ts`），不是全局 `@media print`。
+- **支付成功页的「申报资料填报」开新标签页 + 步骤登记上限**（`AgreementAndPaymentStep.tsx` / `stepRoute.ts`）：目标地址带 `?open=fill-details` 显式意图（付过款才认、用过就抹），因为新标签页只看本地证据、不认 hash；`fill_details` / `progress` 都是**会话级浏览位置、不落盘**（`MAX_PERSISTED_STEP = 'payment'`），第 5 步只能从支付成功页进、刷新回到支付页 —— 设计稿是同页跳转且可任意停留。
 - **校验脚本**：`scripts/check-*.ts`、`.mcp-work/verify-*.mjs` 全是本项目独有（设计稿没有测试）。
 - 价目表已按设计稿对齐（2026-09-29，见 `git-change.md`）。
 
@@ -70,7 +71,7 @@ npm run dev            # 本机预览：http://127.0.0.1:5173/1B/copreg.html
 npm run lint           # tsc --noEmit（没开 strict，见 §3）
 npm run build          # 构建 dist-www/（base /OneBiz/）
 npm run build:biz      # 构建 dist-biz/（base /）
-npm run check:entry    # 用 vite SSR 把真实 App 树渲染一遍，验证首屏落点 / 渲染结果（当前 48 项）
+npm run check:entry    # 用 vite SSR 把真实 App 树渲染一遍，验证首屏落点 / 渲染结果（当前 62 项）
 npx tsx scripts/check-xxx.ts   # 单个纯逻辑自检（无需构建）
 node .mcp-work/verify-xxx.mjs  # 单个真机验证（无头 Chrome，需要 dev server 在跑）
 npm run deploy         # 构建并上传（生产发布请让用户确认）
@@ -80,9 +81,9 @@ npm run deploy         # 构建并上传（生产发布请让用户确认）
 ## 3. 工程约定
 
 - **每个功能都带自检**，三层：
-  1. 纯逻辑抽到不依赖 DOM / `import.meta.env` 的模块（否则 `npx tsx scripts/…` 会崩），配 `scripts/check-*.ts`（当前 20 个）；
+  1. 纯逻辑抽到不依赖 DOM / `import.meta.env` 的模块（否则 `npx tsx scripts/…` 会崩），配 `scripts/check-*.ts`（当前 22 个）；
   2. 涉及真实组件渲染/落点的，加 `scripts/check-copreg-entry.tsx` 的断言（`npm run check:entry`）；
-  3. 涉及真实浏览器行为（点击、渲染像素、localStorage 串场）的，写 `.mcp-work/verify-*.mjs`（无头 Chrome + 独立 browser context；当前 28 个，**目录被 gitignore**）。
+  3. 涉及真实浏览器行为（点击、渲染像素、localStorage 串场）的，写 `.mcp-work/verify-*.mjs`（无头 Chrome + 独立 browser context；当前 34 个，**目录被 gitignore**）。
 - **改文案/价目/超时这类"口径"必须同步改断言**：如 `check-price-table.ts`、`check-plan-timeout.ts`、`check-address-nature-hints.ts`、`.mcp-work/verify-price-table.mjs`。
 - **提交前跑全套**：`npm run lint` → `npm run build` → `npm run check:entry` → 所有 `npx tsx scripts/check-*.ts` → 受影响的 `.mcp-work/verify-*.mjs`（全跑一遍也就几分钟）。
 - **`git-change.md` 是追加式变更记录**（`## [开发中]` 下最新一条在最上面），每次改动补一条：改了什么、为什么、断言数变化、文档更新。

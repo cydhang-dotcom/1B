@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 
 import { registrationStorageKey } from '../registration/defaultData';
+import { fillDetailsOpenUrl } from '../stepRoute';
 import { PayQrCode } from '../../payment/PayQrCode';
 import { useWechatNativePay } from '../../payment/useWechatNativePay';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
@@ -54,7 +55,9 @@ interface AgreementAndPaymentStepProps {
   paidView?: boolean;
   /**
    * 进入第 5 步「企业注册申报资料填报」：清单里第一项（申报资料填报）的入口，
-   * 提交后回来看/改也是它。
+   * 提交后回来看/改也是它。**现在这两个按钮改在新标签页打开**（见
+   * `openFillDetailsInNewTab`），这个回调只剩「弹窗被拦时退回同页跳转」这一条用途；
+   * 第 4 步服务群那边的入口仍是同页跳转。
    * **支付成功后不再往第 4 步服务群引流** —— 付款后该做的是填申报资料（与 copreg 主线一致），
    * 服务群仍在导航里可直达，只是不再是这一页的主按钮。
    */
@@ -77,6 +80,34 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   busUnionId
 }) => {
   const isPaid = paidView ?? order?.status === 'paid';
+
+  /**
+   * 「申报资料填报」/「查看/修改申报资料」→ **在新标签页打开**填报页。
+   *
+   * 为什么不直接在同页跳：填报要填很久，用户经常要对着方案 / 协议 / 材料来回看，
+   * 开新标签页能把支付成功页留在原地。
+   *
+   * 新标签页只会按本地证据落点（地址栏不指挥页面），所以地址里带一个显式意图
+   * `?open=fill-details`；付过款才会被认（见 stepRoute.ts 的 openIntentOf）。
+   * 万一被浏览器拦了弹窗（返回 null），退回原来的同页跳转，别让按钮变成没反应。
+   */
+  const openFillDetailsInNewTab = () => {
+    const url = fillDetailsOpenUrl(window.location.origin, window.location.pathname);
+    // ⚠️ **不能带 `noopener`**：带它时 `window.open` 一律返回 null，就分不清「开成功」和
+    // 「被弹窗拦截」了 —— 于是每次都走下面的兜底、把原网页也跳走（踩过）。
+    // 新窗口与本站同源，开成功后再手动断开 opener 即可。
+    const opened = window.open(url, '_blank');
+    if (opened) {
+      try {
+        opened.opener = null;
+      } catch {
+        /* 拿不到引用（个别浏览器）就算了，同源页面风险可忽略 */
+      }
+      return;
+    }
+    // 真被拦（返回 null）才退回同页跳转，别让按钮变成没反应
+    if (onProceedToFillDetails) onProceedToFillDetails();
+  };
 
   // 填报状态以持久化的那份申报存档为准：App 的 state 只在本次会话里有效，
   // 刷新后它从 localStorage 恢复，这里再兜一层，保证清单不会退回「待填报」。
@@ -705,9 +736,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                           {isCurrentActive && !effectiveSubmitted && (
                             <button
                               type="button"
-                              onClick={() => {
-                                if (onProceedToFillDetails) onProceedToFillDetails();
-                              }}
+                              id="btn-fill-details-new-tab"
+                              onClick={openFillDetailsInNewTab}
                               className="px-4 py-1.5 rounded-xl bg-[#2AA894] hover:bg-[#1D6C5E] text-white font-bold text-xs shadow-sm hover:shadow transition-all cursor-pointer flex items-center gap-1"
                             >
                               <span>申报资料填报</span>
@@ -717,9 +747,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                           {isDone && index === 0 && (
                             <button
                               type="button"
-                              onClick={() => {
-                                if (onProceedToFillDetails) onProceedToFillDetails();
-                              }}
+                              id="btn-fill-details-new-tab"
+                              onClick={openFillDetailsInNewTab}
                               className="px-3 py-1.5 rounded-xl border border-emerald-300 bg-white hover:bg-emerald-50 text-[#1D6C5E] font-bold text-xs shadow-2xs transition-all cursor-pointer flex items-center gap-1 shrink-0"
                             >
                               <FileEdit className="w-3.5 h-3.5" />

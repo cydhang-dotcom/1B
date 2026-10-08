@@ -83,13 +83,26 @@ const traitsOf = (input: ProposalReportInput): ReportTraits => {
 /* --------------------------------------------------------------- 模板片段 */
 
 const tdLabel = (text: string, width = '15%'): string =>
-  `<td style="width:${width};padding:6px 10px;background-color:#F8FAFC;border:1px solid #CBD5E1;color:#475569;font-weight:600;">${esc(text)}</td>`;
+  `<td style="width:${width};padding:6px 10px;background-color:#F8FAFC;border:1px solid #CBD5E1;color:#475569;font-weight:600;vertical-align:middle;">${esc(text)}</td>`;
 
 const tdValue = (html: string, width = '35%'): string =>
-  `<td style="width:${width};padding:6px 10px;border:1px solid #CBD5E1;color:#0F172A;font-weight:700;">${html}</td>`;
+  `<td style="width:${width};padding:6px 10px;border:1px solid #CBD5E1;color:#0F172A;font-weight:700;vertical-align:middle;">${html}</td>`;
 
 const partTitle = (text: string): string =>
   `<div style="border-left:3.5px solid #0F172A;padding-left:8px;font-size:12.5px;font-weight:800;color:#0F172A;margin-bottom:8px;">${esc(text)}</div>`;
+
+/**
+ * 接口给的 points → 「【标题】正文」若干条（第一部分的「具体建议与意见」列与
+ * 第二部分的维度卡共用同一份数据，渲染也走同一段）。
+ */
+const pointsOf = (decision: PlanCoreDecision | null): string =>
+  decision === null ? '' : pointsHtml(decision);
+
+/** 某一段建议：接口给了 points 就用接口的；没给才用模板里写死的那句（并裹黄底提示它是固定文案） */
+const adviceOf = (decision: PlanCoreDecision | null, fallback: string): string => {
+  const fromReport = pointsOf(decision);
+  return fromReport === '' ? esc(fallback) : fromReport;
+};
 
 /** 维度里的 points → 「【标题】正文」若干条 */
 const pointsHtml = (decision: PlanCoreDecision): string =>
@@ -108,8 +121,13 @@ const dimensionCard = (
   fallbackBadge: string,
   fallbackBody: string
 ): string => {
-  const title = orElse(decision?.dimensionTitle, fallbackTitle);
-  const badge = orElse(decision?.tag, fallbackBadge);
+  // 报告给的标题 / 徽标 / 结论（recommended）都算接口内容，不裹黄底；
+  // 只有**兜底文案**（报告没给这一维度时用的那几句）才是固定文案
+  // 标题与徽标：报告给了就用报告的（已是普通文本，这里再转义一次）；没给就把兜底文案先裹黄底
+  // 报告给了 title/tag 就是接口内容（不裹黄底）；没给才用兜底文案（裹黄底）。
+  // 两条分支都走「先转义、后裹」——裹过的 HTML 绝不能再进 esc()，否则标签会被印成字面量
+  const titleHtml = orElse(decision?.dimensionTitle, '') === '' ? esc(fallbackTitle) : esc(decision!.dimensionTitle);
+  const badgeHtml = orElse(decision?.tag, '') === '' ? esc(fallbackBadge) : esc(decision!.tag);
   const recommended = (decision?.recommended ?? '').trim();
   const body = decision && (recommended !== '' || decision.points.length > 0)
     ? `${recommended ? `<div style="margin-bottom:3px;"><strong>【拟定方案】</strong>${esc(recommended)}</div>` : ''}${pointsHtml(decision)}`
@@ -118,10 +136,10 @@ const dimensionCard = (
   return `
     <div style="border:1px solid #CBD5E1;border-radius:4px;padding:8px 12px;background-color:#FFFFFF;margin-bottom:8px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <span style="font-size:11px;font-weight:700;color:#0F172A;">${esc(`${['一', '二', '三', '四'][index]}、`)}${esc(title)}</span>
-        <span style="font-size:9.5px;color:#475569;background-color:#F1F5F9;padding:1px 6px;border-radius:2px;">${esc(badge)}</span>
+        <span style="font-size:11px;font-weight:700;color:#0F172A;">${esc(`${['一', '二', '三', '四'][index]}、`)}${titleHtml}</span>
+        <span style="font-size:9.5px;color:#475569;background-color:#F1F5F9;padding:1px 6px;border-radius:2px;line-height:1.5;display:inline-block;">${badgeHtml}</span>
       </div>
-      <div style="font-size:10px;color:#475569;line-height:1.55;">${body}</div>
+      <div style="font-size:10px;color:#475569;line-height:1.5;">${body}</div>
     </div>`;
 };
 
@@ -164,7 +182,7 @@ export const buildProposalReportBody = (
   const capitalPlan = orElse(capitalDecision?.recommended, `${plan.capitalAmount}（契合5年期限）`);
 
   return `
-  <div style="padding:${usePagePadding ? '42px 48px' : '0'};box-sizing:border-box;background:#FFFFFF;color:#0F172A;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;">
+  <div style="padding:${usePagePadding ? '42px 48px' : '0'};box-sizing:border-box;background:#FFFFFF;color:#0F172A;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',sans-serif;line-height:1.5;">
 
     <!-- 抬头 -->
     <div style="display:flex;justify-content:space-between;align-items:flex-end;padding-bottom:12px;border-bottom:2px solid #0F172A;margin-bottom:20px;">
@@ -196,7 +214,7 @@ export const buildProposalReportBody = (
           ${tdLabel('拟设主体名称')}${tdValue(esc(t.displayCompanyName))}${tdLabel('所属行业分类')}${tdValue(`<span style="font-weight:600;">${esc(orElse(survey.companyDesc, '现代科技与商贸服务业'))}</span>`)}
         </tr>
         <tr>
-          ${tdLabel('法定组织形式')}${tdValue(`<span style="font-weight:600;">${esc(orElse(plan.companyType, '有限责任公司'))}</span>`)}${tdLabel('规划出资规模')}${tdValue(esc(orElse(plan.capitalAmount, '待定')) + '（5年认缴）')}
+          ${tdLabel('法定组织形式')}${tdValue(`<span style="font-weight:600;">${esc(orElse(plan.companyType, '有限责任公司'))}</span>`)}${tdLabel('规划出资规模')}${tdValue(esc(orElse(plan.capitalAmount, '待定') + '（5年认缴）'))}
         </tr>
       </tbody>
     </table>
@@ -204,40 +222,40 @@ export const buildProposalReportBody = (
     <!-- 第一部分 -->
     <div style="margin-bottom:20px;">
       ${partTitle('第一部分 · 设立核心要素梳理与落地指导意见')}
-      ${report?.summary ? `<div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;font-size:10px;color:#334155;line-height:1.6;margin-bottom:8px;">${esc(report.summary)}</div>` : ''}
+      ${report?.summary ? `<div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;font-size:10px;color:#334155;line-height:1.5;margin-bottom:8px;">${esc(report.summary)}</div>` : ''}
       <table style="width:100%;border-collapse:collapse;margin-bottom:10px;font-size:10px;">
         <thead>
           <tr style="background-color:#F1F5F9;color:#475569;">
-            <th style="width:18%;padding:6px 8px;border:1px solid #CBD5E1;font-weight:700;text-align:left;">设立要素</th>
-            <th style="width:28%;padding:6px 8px;border:1px solid #CBD5E1;font-weight:700;text-align:left;">拟定方案</th>
-            <th style="width:54%;padding:6px 8px;border:1px solid #CBD5E1;font-weight:700;text-align:left;">具体建议与意见</th>
+            <th style="width:18%;padding:6px 8px;border:1px solid #CBD5E1;font-weight:700;text-align:left;vertical-align:middle;">设立要素</th>
+            <th style="width:28%;padding:6px 8px;border:1px solid #CBD5E1;font-weight:700;text-align:left;vertical-align:middle;">拟定方案</th>
+            <th style="width:54%;padding:6px 8px;border:1px solid #CBD5E1;font-weight:700;text-align:left;vertical-align:middle;">具体建议与意见</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;">股权架构设计</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;">${esc(equityPlan)}</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;">${t.hasCorporateShareholder ? '备齐母公司出资决议与营业执照公章要件，章程中明确约定表决权机制，严防50:50等额持股僵局。' : t.isMultiShareholder ? '建议创始团队配置67%绝对控制权或51%相对控制权，章程中提前约定分红节奏、议事规则及股东退出机制。' : '自然人一人独资决策高效，但日常须规范建账，每年度出具审计财报，确保个人财产与公司财产严格独立。'}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;vertical-align:middle;">股权架构设计</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;vertical-align:middle;">${esc(equityPlan)}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;vertical-align:middle;">${adviceOf(orgDecision, t.hasCorporateShareholder ? '备齐母公司出资决议与营业执照公章要件，章程中明确约定表决权机制，严防50:50等额持股僵局。' : t.isMultiShareholder ? '建议创始团队配置67%绝对控制权或51%相对控制权，章程中提前约定分红节奏、议事规则及股东退出机制。' : '自然人一人独资决策高效，但日常须规范建账，每年度出具审计财报，确保个人财产与公司财产严格独立。')}</td>
           </tr>
           <tr>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;">资本认缴规划</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;">${esc(capitalPlan)}</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;">依据新《公司法》第47条，全体股东认缴出资须自公司成立起 5 年内缴足；出资款由股东账户转入公司基本户并备注“投资款”，留存回单。</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;vertical-align:middle;">资本认缴规划</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;vertical-align:middle;">${esc(capitalPlan)}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;vertical-align:middle;">${adviceOf(capitalDecision, '依据新《公司法》第47条，全体股东认缴出资须自公司成立起 5 年内缴足；出资款由股东账户转入公司基本户并备注“投资款”，留存回单。')}</td>
           </tr>
           <tr>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;">财税身份统筹</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;">${esc(taxPlan)}</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;">${orElse(taxDecision ? taxDecision.points.map((p) => `${p.title}${p.content}`).join('') : '', t.isGeneralTaxpayer ? '适用于大额采购或专票结算需求，规范建账并跟进进项专票认证抵扣与月度申报。' : '初创期优先享受月销10万 / 季销30万内免征增值税政策，核算报税成本低，后续可申请转为一般纳税人。')}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;vertical-align:middle;">财税身份统筹</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;vertical-align:middle;">${esc(taxPlan)}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;vertical-align:middle;">${adviceOf(taxDecision, t.isGeneralTaxpayer ? '适用于大额采购或专票结算需求，规范建账并跟进进项专票认证抵扣与月度申报。' : '初创期优先享受月销10万 / 季销30万内免征增值税政策，核算报税成本低，后续可申请转为一般纳税人。')}</td>
           </tr>
           <tr>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;">经营住所规划</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;">${esc(premisePlan)}</td>
-            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;">${t.hasOwnAddress ? '产权性质须为商业、办公或厂房，严禁住宅性质登记；挂牌并配备办公设施，以备银行尽调及市监抽查。' : '节省初创期实体场地租金押金；由托管机构专人代收信函，保证政务信函通达，防范失联被列入异常名录。'}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;font-weight:600;color:#0F172A;vertical-align:middle;">经营住所规划</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#475569;vertical-align:middle;">${esc(premisePlan)}</td>
+            <td style="padding:7px 8px;border:1px solid #E2E8F0;color:#334155;line-height:1.5;vertical-align:middle;">${adviceOf(premiseDecision, t.hasOwnAddress ? '产权性质须为商业、办公或厂房，严禁住宅性质登记；挂牌并配备办公设施，以备银行尽调及市监抽查。' : '节省初创期实体场地租金押金；由托管机构专人代收信函，保证政务信函通达，防范失联被列入异常名录。')}</td>
           </tr>
         </tbody>
       </table>
-      <div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;font-size:10px;color:#334155;line-height:1.6;">
-        <strong>【商事设立指导意见】</strong>经商事设立规则系统审核，拟设主体<strong>《${esc(t.displayCompanyName)}》</strong>设立路径明确，股权结构明晰，出资规划符合新《公司法》第47条法定认缴期限约束，行业资质与经营范围表述规范。建议按上述规划依法依规推进政务设立核准流程。${contactLine}
+      <div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;font-size:10px;color:#334155;line-height:1.5;">
+        <strong>【商事设立指导意见】经商事设立规则系统审核，拟设主体《</strong><strong>${esc(t.displayCompanyName)}</strong><strong>》设立路径明确，股权结构明晰，出资规划符合新《公司法》第47条法定认缴期限约束，行业资质与经营范围表述规范。建议按上述规划依法依规推进政务设立核准流程。</strong>${contactLine}
       </div>
     </div>
 
@@ -250,17 +268,17 @@ export const buildProposalReportBody = (
         orgDecision,
         `法定类型：${orElse(plan.companyType, '有限责任公司')}`,
         t.hasCorporateShareholder
-          ? '<strong>【治理重点】</strong>含法人/机构股东参股，须备齐母公司营业执照副本盖章件、法定代表人证件及同意出资的《股东会决议》；章程中明确表决机制与重大议事规则，严禁 50:50 等额持股导致治理僵局。'
+          ? '【治理重点】含法人/机构股东参股，须备齐母公司营业执照副本盖章件、法定代表人证件及同意出资的《股东会决议》；章程中明确表决机制与重大议事规则，严禁 50:50 等额持股导致治理僵局。'
           : t.isMultiShareholder
-            ? `<strong>【治理重点】</strong>拟设架构为多人合伙（${esc(survey.shareholderCount)}），建议合理划分表决权比例；明确分红节奏与退出机制；规模较小的有限责任公司可不设董事会，设一名董事或经理。`
-            : '<strong>【治理重点】</strong>自然人一人独资设立，决策高效；须特别注意一人有限责任公司财产独立性规定，建立规范会计账簿并逐年编制财务会计报告，防止连带清偿风险。'
+            ? `【治理重点】拟设架构为多人合伙（${esc(survey.shareholderCount)}），建议合理划分表决权比例；明确分红节奏与退出机制；规模较小的有限责任公司可不设董事会，设一名董事或经理。`
+            : '【治理重点】自然人一人独资设立，决策高效；须特别注意一人有限责任公司财产独立性规定，建立规范会计账簿并逐年编制财务会计报告，防止连带清偿风险。'
       )}
       ${dimensionCard(
         1,
         '注册资本与认缴出资规划评估',
         capitalDecision,
         '新《公司法》第47条约束',
-        `<strong>【出资规划】</strong>核定认缴资本额：<strong>${esc(orElse(plan.capitalAmount, '待定'))}</strong>。自 2024 年 7 月 1 日起施行的新《公司法》第47条规定，全体股东认缴的出资额须自公司成立之日起五年内缴足。注册资本不宜盲目虚高，应结合业务规模与现金流规划出资；出资款须由股东账户转入公司基本户并备注“投资款”，归档银行回单。`
+        `【出资规划】核定认缴资本额：<strong>${esc(orElse(plan.capitalAmount, '待定'))}</strong>。自 2024 年 7 月 1 日起施行的新《公司法》第47条规定，全体股东认缴的出资额须自公司成立之日起五年内缴足。注册资本不宜盲目虚高，应结合业务规模与现金流规划出资；出资款须由股东账户转入公司基本户并备注“投资款”，归档银行回单。`
       )}
       ${dimensionCard(
         2,
@@ -268,8 +286,8 @@ export const buildProposalReportBody = (
         taxDecision,
         `纳税人定位：${t.isGeneralTaxpayer ? '一般纳税人' : '小规模纳税人'}`,
         t.isGeneralTaxpayer
-          ? '<strong>【财税统筹】</strong>评定适用【增值税一般纳税人】。适用于面向大中型客户、进出口贸易或下游要求专票的情形；取得的合法进项专票可全额勾选抵扣，须按期完成建账、认证与申报底稿归档。'
-          : '<strong>【财税统筹】</strong>评定首选【增值税小规模纳税人】。享受月销售额10万元以下（或季30万元以下）免征增值税等普惠政策，核算报税简便；后续年应税销售额超过500万元或客户要求专票时，可申请登记为一般纳税人。'
+          ? '【财税统筹】评定适用【增值税一般纳税人】。适用于面向大中型客户、进出口贸易或下游要求专票的情形；取得的合法进项专票可全额勾选抵扣，须按期完成建账、认证与申报底稿归档。'
+          : '【财税统筹】评定首选【增值税小规模纳税人】。享受月销售额10万元以下（或季30万元以下）免征增值税等普惠政策，核算报税简便；后续年应税销售额超过500万元或客户要求专票时，可申请登记为一般纳税人。'
       )}
       ${dimensionCard(
         3,
@@ -277,37 +295,37 @@ export const buildProposalReportBody = (
         premiseDecision,
         t.hasOwnAddress ? '实体场地登记' : '商务秘书集群托管',
         t.hasOwnAddress
-          ? '<strong>【住所要件】</strong>采用自有或租赁实体商用场所登记：不动产权证书用途须为“商业”“办公”或“工业厂房”，严禁住宅性质用房注册；悬挂企业名称水牌并配备办公设施，以备银行尽调与市监实地核查。'
-          : '<strong>【住所要件】</strong>采用产业园区合规“商务秘书集群托管地址”登记：节约实体租金与押金；由托管机构建立信函代收代转机制，确保住所“信函通达、联络有效”，防范被列入经营异常名录。'
+          ? '【住所要件】采用自有或租赁实体商用场所登记：不动产权证书用途须为“商业”“办公”或“工业厂房”，严禁住宅性质用房注册；悬挂企业名称水牌并配备办公设施，以备银行尽调与市监实地核查。'
+          : '【住所要件】采用产业园区合规“商务秘书集群托管地址”登记：节约实体租金与押金；由托管机构建立信函代收代转机制，确保住所“信函通达、联络有效”，防范被列入经营异常名录。'
       )}
     </div>
 
     <!-- 第三部分 -->
     <div style="margin-bottom:20px;">
       ${partTitle('第三部分 · 拟申报经营范围与行业准入资质审查')}
-      <div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;font-size:10px;margin-bottom:8px;line-height:1.6;">
+      <div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;font-size:10px;margin-bottom:8px;line-height:1.5;">
         <div style="font-weight:700;color:#0F172A;margin-bottom:2px;">【营业执照拟申报经营范围（规范表述）】</div>
-        <div style="color:#334155;"><strong>一般项目：</strong>${survey.scope.length > 0 ? esc(survey.scope.join('；')) : '待补充'}。（除依法须经批准的项目外，凭营业执照依法自主开展经营活动）</div>
+        <div style="color:#334155;"><strong>一般项目：</strong>${survey.scope.length > 0 ? esc(survey.scope.join('；')) : esc('待补充')}。（除依法须经批准的项目外，凭营业执照依法自主开展经营活动）</div>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:10px;">
         <tbody>
           <tr>
-            ${tdLabel('建议行业后置资质', '22%')}
-            <td style="padding:6px 10px;border:1px solid #CBD5E1;color:#0F172A;">${plan.postQualifications.length > 0 ? esc(plan.postQualifications.join('、')) : '无特殊前置行政许可，取得营业执照即可自主经营'}</td>
+            ${tdLabel('建议行业后置资质')}
+            <td style="padding:6px 10px;border:1px solid #CBD5E1;color:#0F172A;vertical-align:middle;">${plan.postQualifications.length > 0 ? esc(plan.postQualifications.join('、')) : esc('无特殊前置行政许可，取得营业执照即可自主经营')}</td>
           </tr>
           <tr>
-            ${tdLabel('敏感要素排查', '22%')}
-            <td style="padding:6px 10px;border:1px solid #CBD5E1;color:#15803D;font-weight:600;">${survey.sensitive.length > 0 ? esc(`需重点核实：${survey.sensitive.join('、')}`) : '未勾选敏感要素；金融、证券、期货等严格准入字样仍以主管部门口径为准'}</td>
+            ${tdLabel('敏感要素排查')}
+            <td style="padding:6px 10px;border:1px solid #CBD5E1;color:#15803D;font-weight:600;vertical-align:middle;">${survey.sensitive.length > 0 ? `需重点核实：${esc(survey.sensitive.join('、'))}` : esc('未勾选敏感要素；金融、证券、期货等严格准入字样仍以主管部门口径为准')}</td>
           </tr>
         </tbody>
       </table>
-      ${plan.preQualifications.length > 0 ? `<div style="margin-top:8px;font-size:10px;color:#475569;line-height:1.6;"><strong>【前置许可提示】</strong>${esc(plan.preQualifications.join('、'))}</div>` : ''}
+      ${plan.preQualifications.length > 0 ? `<div style="margin-top:8px;font-size:10px;color:#475569;line-height:1.5;"><strong>【前置许可提示】</strong>${esc(plan.preQualifications.join('、'))}</div>` : ''}
     </div>
 
     <!-- 第四部分 -->
     <div style="margin-bottom:22px;">
       ${partTitle('第四部分 · 初创期合规经营与避坑风险提示')}
-      <div style="border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;background-color:#F8FAFC;font-size:9.5px;color:#475569;line-height:1.6;">
+      <div style="border:1px solid #E2E8F0;border-radius:4px;padding:8px 12px;background-color:#F8FAFC;font-size:9.5px;color:#475569;line-height:1.5;">
         ${report && (report.pitfallGuides.length > 0 || report.industryComplianceTips.length > 0)
           ? `${report.pitfallGuides
               .map(
@@ -328,7 +346,7 @@ export const buildProposalReportBody = (
 
     <!-- 报告说明 -->
     <div style="border-top:1.5px solid #E2E8F0;padding-top:14px;margin-top:20px;">
-      <div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:12px 16px;font-size:9.5px;color:#64748B;line-height:1.65;">
+      <div style="background-color:#F8FAFC;border:1px solid #E2E8F0;border-radius:6px;padding:12px 16px;font-size:9.5px;color:#64748B;line-height:1.5;">
         <div style="font-weight:700;color:#334155;margin-bottom:4px;">【报告说明与合规指引】</div>
         <div>1. 本报告由班步企服系统依据申报人填报的企业设立意向信息，并结合新《中华人民共和国公司法》及属地市场监督管理部门现行商事登记规范测算生成。</div>
         <div>2. 报告所列股权架构建议、认缴出资规划、财税统筹定位及经营风险提示，旨在为企业筹建提供结构性参考与合规前置指引。</div>

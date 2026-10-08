@@ -5,8 +5,8 @@
  * 覆盖三件事：
  *   1. 请求底座的默认超时是 **5 分钟**（300s）—— 线上大模型偶发跑一两分钟，
  *      原先 60s 会把用户等了半天的这次推演白扔；
- *   2. **第 1 步的两个调用点确实吃这个默认值**（`aiFill` 的 AI 智能填充、`planGenerate` 的生成需求方案
- *      都没在调用时传更短的超时）—— 常量改了但调用点自己写死 30s 的话，等于没改；
+ *   2. **第 1 步的调用点确实吃这个默认值**（`aiFill` 的 AI 智能填充、`planGenerate` 的生成需求方案
+ *      与修改需求方案都没在调用时传更短的超时）—— 常量改了但调用点自己写死 30s 的话，等于没改；
  *   3. **别的接口没被顺手一起放宽**：短信验证码 15s、申报资料保存/提交 15s、附件上传 60s、
  *      支付相关请求 15s。放宽超时是「第 1 步大模型」这一件事的例外，不该变成全局行为。
  */
@@ -66,7 +66,7 @@ ok(
   String(REQUEST_TIMEOUT_MS)
 );
 
-/* --------------------------------- 2. 第 1 步两个调用点吃默认值 */
+/* --------------------------------- 2. 第 1 步的调用点吃默认值 */
 
 const aiFillSource = read('src/copreg/aiFill.ts');
 const planGenerateSource = read('src/copreg/planGenerate.ts');
@@ -80,12 +80,12 @@ ok(
   JSON.stringify(aiFillCalls)
 );
 ok(
-  '生成需求方案只有一个 postJson 调用，且没传第 4 个参数（吃 5 分钟默认值）',
-  planCalls.length === 1 && planCalls[0] === 3,
+  '生成需求方案 / 修改需求方案两个调用都没传第 4 个参数（吃 5 分钟默认值）',
+  planCalls.length === 2 && planCalls.every((n) => n === 3),
   JSON.stringify(planCalls)
 );
 ok(
-  '两个调用点都没自己写死超时数字（源码里不出现 timeoutMs）',
+  '这些调用点都没自己写死超时数字（源码里不出现 timeoutMs）',
   !aiFillSource.includes('timeoutMs') && !planGenerateSource.includes('timeoutMs'),
   ''
 );

@@ -38,9 +38,14 @@ import { hasPlanContent, parsePlanSuggestion, PlanSuggestion } from './planGener
 import { planFormKey, planRecordKey, planReportKey } from './applications';
 import { PlanAddon, ServiceTierType, SurveyData } from './types';
 
-export const PLAN_FORM_KEY = '1b_copreg_plan_form';
-export const PLAN_REPORT_KEY = '1b_copreg_plan_report';
-export const PLAN_RECORD_KEY = '1b_copreg_plan_record';
+/**
+ * 单主体时代的全局键名：**历史遗留，只留作说明，代码里不再读写它们**。
+ * 现在每个主体一套键，见 `applications.planFormKey / planReportKey / planRecordKey`；
+ * 也不再有任何迁移逻辑（2026-09 去掉）—— 没有主体列表就是全新一份申请。
+ */
+export const LEGACY_PLAN_FORM_KEY = '1b_copreg_plan_form';
+export const LEGACY_PLAN_REPORT_KEY = '1b_copreg_plan_report';
+export const LEGACY_PLAN_RECORD_KEY = '1b_copreg_plan_record';
 
 /**
  * 「填写的」：问卷 + 第 2 步的选择（方案由这两样现算，不存算出来的结果）。
@@ -176,13 +181,6 @@ interface PlanDraftKeys {
   record: string;
 }
 
-/** 迁移前的全局三份键（多主体之前的单主体存档） */
-export const LEGACY_PLAN_DRAFT_KEYS: PlanDraftKeys = {
-  form: PLAN_FORM_KEY,
-  report: PLAN_REPORT_KEY,
-  record: PLAN_RECORD_KEY,
-};
-
 const loadPlanDraftBy = ({ form: formKey, report: reportKey, record: recordKey }: PlanDraftKeys): PlanDraft | null => {
   const form = readRecord(formKey);
   if (form === null) return null;
@@ -200,50 +198,9 @@ const loadPlanDraftBy = ({ form: formKey, report: reportKey, record: recordKey }
   };
 };
 
-/** 读单主体时代的全局存档（只给迁移与老调用方用） */
-export const loadPlanDraft = (): PlanDraft | null => loadPlanDraftBy(LEGACY_PLAN_DRAFT_KEYS);
-
 /** 读某个主体的存档（多主体） */
 export const loadPlanDraftFor = (appId: string): PlanDraft | null =>
   loadPlanDraftBy({ form: planFormKey(appId), report: planReportKey(appId), record: planRecordKey(appId) });
-
-/**
- * 存「填写的」：调接口之前写一次，方案页切套餐 / 勾加购时再刷新一次档位。
- * `addons` 由 `proposalQuote.addonsOf` 派生，与页面报价明细同源。
- * 写不进去（隐私模式 / 配额满）返回 false，由调用方决定要不要告诉用户 ——
- * 存不下不该拦着人往下走。
- */
-export const savePlanForm = (form: PlanForm): boolean => writeItem(PLAN_FORM_KEY, form);
-
-/**
- * 存「返回的」：只在接口成功后调用。没有诊断结果的方案页是本地规则拼出来的，
- * 存下来下次就会被当成服务端给的结果。
- */
-export const savePlanReport = (report: PlanSuggestion): boolean =>
-  writeItem(PLAN_REPORT_KEY, report);
-
-/**
- * 存「委托单凭据」：只在诊断接口成功、且拿到了 `recordId` 之后调用。
- * 它是下单与查单的唯一凭据，所以存不下必须让用户知道 —— 丢了它下次进来就得重新生成方案。
- */
-export const savePlanRecord = (record: PlanRecord): boolean =>
-  writeItem(PLAN_RECORD_KEY, record);
-
-/** 作废「返回的」：提交新问卷时先清掉，旧的诊断结果对应的是上一份问卷 */
-export const clearPlanReport = (): void => removeItem(PLAN_REPORT_KEY);
-
-/**
- * 作废「委托单凭据」：提交新问卷、重置问卷时调。
- * 旧单号是上一份问卷建的，不能被这份问卷继续拿去下单。
- */
-export const clearPlanRecord = (): void => removeItem(PLAN_RECORD_KEY);
-
-/** 三份一起作废（问卷页重置时用），否则重置完刷新一下又跳回后面的步骤看上一份问卷的方案 */
-export const clearPlanDraft = (): void => {
-  removeItem(PLAN_FORM_KEY);
-  removeItem(PLAN_REPORT_KEY);
-  removeItem(PLAN_RECORD_KEY);
-};
 
 /* ------------------------------------------------------- 多主体（按 appId） */
 

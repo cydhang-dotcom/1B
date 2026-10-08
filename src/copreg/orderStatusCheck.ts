@@ -26,6 +26,8 @@ export interface OrderStatusResult {
   orderNo?: string;
   paidAt?: string;
   mobile?: string;
+  /** 服务端那条开户记录已经没了（`scbUuid` 为空）：调用方要提示「已被后台删除」并重开一份申请 */
+  recordDeleted?: boolean;
 }
 
 export interface OrderStatusChecker {

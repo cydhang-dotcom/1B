@@ -21,7 +21,14 @@ import {
 } from '../src/copreg/components/ProgressAndReviewStep';
 import { buildPlan } from '../src/copreg/plan';
 import { quoteFor } from '../src/copreg/components/proposalQuote';
-import { createApplication, type ApplicationRecord } from '../src/copreg/applications';
+import {
+  ACTIVE_APP_KEY,
+  APPLICATIONS_KEY,
+  createApplication,
+  ensureApplicationsState,
+  type ApplicationRecord,
+} from '../src/copreg/applications';
+import { progressRouteOf } from '../src/copreg/stepRoute';
 import { createBlankForm } from '../src/copreg/registration/defaultData';
 import {
   regAddressPlaceholder,
@@ -36,18 +43,30 @@ const fakeWindow = {
     setItem: (key: string, value: string) => void store.set(key, value),
     removeItem: (key: string) => void store.delete(key),
   },
-  location: { hash: '' },
-  history: { replaceState: (_state: unknown, _title: string, url: string) => void (fakeWindow.location.hash = url) },
+  location: { hash: '', search: '' },
+  history: {
+    replaceState: (_state: unknown, _title: string, url: string) => {
+      // 地址栏被规范化的结果：`{pathname}?query#hash`，这里只关心 query 与 hash
+      const [beforeHash, hash = ''] = url.split('#');
+      const queryAt = beforeHash.indexOf('?');
+      fakeWindow.location.search = queryAt === -1 ? '' : beforeHash.slice(queryAt);
+      fakeWindow.location.hash = hash === '' ? '' : `#${hash}`;
+    },
+  },
   scrollTo: () => {},
   print: () => {},
   addEventListener: () => {},
   removeEventListener: () => {},
 };
 
+/** 固定时钟：主体 id 由它派生，测试里要能自己拼出 per-app 键 */
+const NOW = Date.parse('2026-09-24T02:00:00.000Z');
+
+/** 单主体时代的旧键：这里只用来**证明它们已经没人读**（不再有迁移） */
 const FORM_KEY = '1b_copreg_plan_form';
 const REPORT_KEY = '1b_copreg_plan_report';
 const RECORD_KEY = '1b_copreg_plan_record';
-const DETAILS_KEY = 'banbu-registration-20260913-v1';
+
 
 const survey = {
   coreNeeds: ['需公司主体'], companyDesc: '甲乙丙科技', bizDesc: '软件开发',
@@ -78,10 +97,56 @@ const clearStorage = () => {
   store.clear();
 };
 
-const render = (keys: Record<string, unknown>, hash = '') => {
+/**
+ * 一次首屏渲染。**按多主体的 per-app 存档形状预置**（没有迁移了）：
+ * 先按本次给出的证据（问卷 / 诊断结果 / 单号 / 已提交）用 `progressRouteOf` 算出落点，
+ * 写成一份完整的主体列表 + 该主体的三份存档 —— 这正是浏览器里 App bootstrap 会写的东西，
+ * 所以断言「落在第几步」验证的是**光凭存档能不能渲染出对的那一步**。
+ *
+ * `appsOverride` 用来测「存档里本来就有多个主体」这类场景（直接给整份列表，跳过上面的派生）。
+ */
+const render = (
+  keys: Record<string, unknown>,
+  hash = '',
+  options: { submitted?: boolean; appsOverride?: Record<string, unknown>; search?: string } = {}
+) => {
   clearStorage();
-  Object.entries(keys).forEach(([k, v]) => store.set(k, JSON.stringify(v)));
+  const appId = 'app-entry-check-1';
+  // 传进来的仍是**旧全局键名**（FORM_KEY / REPORT_KEY / RECORD_KEY）：它们在这里只当「这次带哪些
+  // 证据」的记号用，真正落盘的是该主体的 per-app 键。旧键本身已经没人读了（下面有一条专门断言）。
+  const form = keys[FORM_KEY] as { survey?: unknown; tier?: string; addons?: unknown } | undefined;
+  const report = keys[REPORT_KEY];
+  const record = keys[RECORD_KEY];
+  const recordId = (record as { recordId?: string } | undefined)?.recordId?.trim() ?? '';
+
+  const route = progressRouteOf({
+    hasPlanReport: report !== undefined,
+    // 单号是「生成方案」那次请求里服务端给的：没有方案就没有那张单（只有单号存档不算证据）
+    hasRecord: report !== undefined && recordId !== '',
+    // 已支付只有查单才知道，SSR 首屏一定还没有结论（本地那份 order.status 不再作为依据）
+    orderPaid: false,
+    detailsSubmitted: options.submitted === true,
+  });
+
+  const app = {
+    ...createApplication(NOW, 0, '甲乙丙科技有限公司'),
+    id: appId,
+    currentStep: route.landing,
+    unlockedSteps: route.unlocked,
+    isDetailsSubmitted: options.submitted === true,
+  };
+  const appsState = options.appsOverride ?? { applications: [app], activeAppId: appId };
+
+  store.set(APPLICATIONS_KEY, JSON.stringify(appsState));
+  store.set(ACTIVE_APP_KEY, JSON.stringify((appsState as { activeAppId?: string }).activeAppId ?? appId));
+  if (form !== undefined) store.set(`1b_copreg_app:${appId}:plan_form`, JSON.stringify(form));
+  if (report !== undefined) store.set(`1b_copreg_app:${appId}:plan_report`, JSON.stringify(report));
+  if (record !== undefined) store.set(`1b_copreg_app:${appId}:plan_record`, JSON.stringify(record));
+  if (options.submitted === true) {
+    store.set(`banbu-registration-${appId}`, JSON.stringify({ status: 'submitted', submittedAt: '2026-09-22 11:00:00' }));
+  }
   fakeWindow.location.hash = hash;
+  fakeWindow.location.search = options.search ?? '';
   (globalThis as any).window = fakeWindow;
   // 组件里有直接读裸全局 localStorage 的地方（浏览器里恒存在），SSR 里补上同一个桩
   (globalThis as any).localStorage = fakeWindow.localStorage;
@@ -89,6 +154,8 @@ const render = (keys: Record<string, unknown>, hash = '') => {
   return {
     html,
     hash: fakeWindow.location.hash,
+    /** 规范化之后的查询串（深链参数应当被抹掉） */
+    search: fakeWindow.location.search,
     // 用各步骤独有的 DOM id 判定，比文字匹配稳
     step1: html.includes('id="sec-core"'),
     step2: html.includes('id="btn-confirm-proposal-proceed"'),
@@ -240,10 +307,10 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
 
 {
   // 用户报的 bug：申报资料填完、刷新却被送回第 3 步支付页
-  const submittedDraft = { status: 'submitted', basic: {}, people: {}, shareholders: [], roles: [] };
   const afterSubmit = render(
-    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
-    ''
+    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record },
+    '',
+    { submitted: true }
   );
   // 注：SSR 只渲染首帧、不跑 effect，所以地址栏写没写成 #paid 看不了（那一步由真机验证覆盖）
   check(
@@ -300,8 +367,9 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
 
   // 已提交时手敲 #payment 也应该能回去看（六步都解锁了）
   const backToPayment = render(
-    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record, [DETAILS_KEY]: submittedDraft },
-    '#payment'
+    { [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record },
+    '#payment',
+    { submitted: true }
   );
   check(
     '已提交后手敲 #payment 也按支付成功界面渲染（同一页的两个状态，已付过款就不该再显示待支付）',
@@ -477,64 +545,239 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
   );
 }
 
-/* ------------------------------------------- 多主体：迁移、切换、状态徽标 */
+/* ------------------ 第 5 步：企业名称的示例占位跟着「组织形式」换 */
 
 {
-  // 老存档（三份全局键）→ 迁移成主体 #1。
-  // **多主体 UI 暂时屏蔽**（applications.MULTI_APPLICATION_ENABLED = false）：顶栏不再渲染
-  // 切换入口，所以「主体名」只能从存档里断言，页面里不该出现它。
-  const migrated = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record });
-  const migratedState = JSON.parse(store.get('1b_copreg_apps_v1') ?? 'null');
-  const migratedApp = migratedState?.applications?.[0];
+  // 与上面地址那块同一套做法：铺一份草稿存档，断言**渲染出来的 placeholder**
+  const NAME_APP = 'app-check-name';
+  const NAME_KEY = `banbu-registration-${NAME_APP}`;
+  const renderWithOrg = (org: string, orgOther = '') => {
+    clearStorage();
+    const blank = createBlankForm();
+    store.set(NAME_KEY, JSON.stringify({ ...blank, basic: { ...blank.basic, org, orgOther } }));
+    return renderToString(
+      <RegistrationDetailsStep
+        appId={NAME_APP}
+        details={{
+          primaryName: '',
+          backupName1: '',
+          backupName2: '',
+          industryCategory: '',
+          registeredCapital: '',
+          legalRepresentative: { name: '', idCard: '', phone: '', email: '' },
+          supervisor: { name: '', idCard: '', phone: '' },
+          financeOfficer: { name: '', idCard: '', phone: '' },
+          shareholders: [],
+          officeAddress: { region: '', detail: '', propertyType: '', area: '' },
+          docs: [],
+        }}
+        survey={survey}
+        plan={buildPlan(survey, quoteFor('standard', ['addon-buyer']))}
+        contactPhone="13800000000"
+        busUnionId="TEST-RECORD-1"
+        onUpdateDetails={() => {}}
+        onSubmitForReview={() => {}}
+        onBackToPaid={() => {}}
+      />,
+    );
+  };
+
+  const limited = renderWithOrg('有限责任公司');
   check(
-    '迁移成 1 个主体、名字取诊断的企业名称',
-    (migratedState?.applications ?? []).length === 1 && migratedApp?.name === '甲乙丙科技有限公司',
-    JSON.stringify({ 个数: (migratedState?.applications ?? []).length, 名字: migratedApp?.name })
+    '第 5 步：名称面板说清「只填字号（关键词）」并给出反例',
+    limited.includes('只需填写字号（关键词）') && limited.includes('不必填写「上海班步企程服务有限公司」'),
+    ''
   );
   check(
-    '多主体切换暂时屏蔽：顶栏不渲染切换入口、也不显示主体名',
-    !migrated.html.includes('btn-applications-switcher') && !migrated.html.includes('甲乙丙科技有限公司'),
+    '第 5 步：首选占位说清「字号 → 按组织形式补全的完整名称」（有限责任公司）',
+    limited.includes('只需填字号，例如：班步企程 → 上海班步企程服务有限公司'),
+    ''
+  );
+  check('第 5 步：首选占位没有残留的星号', !limited.includes('上海班步企程服务有限公司 *'), '');
+  check(
+    '第 5 步：换成股份有限公司 → 补全示例跟着变',
+    renderWithOrg('股份有限公司').includes('只需填字号，例如：班步企程 → 上海班步企程服务股份有限公司'),
+    ''
+  );
+  check(
+    '第 5 步：换成合伙企业 → 补全示例跟着变',
+    renderWithOrg('合伙企业').includes('只需填字号，例如：班步企程 → 上海班步企程合伙企业（有限合伙）'),
+    ''
+  );
+  check(
+    '第 5 步：选「其他」并用自填组织形式 → 补全示例用它',
+    renderWithOrg('其他', '外商投资性公司').includes('只需填字号，例如：班步企程 → 上海班步企程外商投资性公司'),
+    ''
+  );
+}
+
+/* ------------------------------------------- 多主体：旧结构、切换、状态徽标 */
+
+{
+  // **旧结构不再迁移**（2026-09 去掉）：只剩单主体时代的全局键时，照样是全新一份申请
+  // ——不读旧键、不搬、也不删（硬删可能删掉别人正在用的东西）。
+  clearStorage();
+  const legacyKeys = {
+    [FORM_KEY]: JSON.stringify(form),
+    [REPORT_KEY]: JSON.stringify(report),
+    [RECORD_KEY]: JSON.stringify(record),
+    'banbu-registration-20260913-v1': JSON.stringify({ status: 'submitted' }),
+  };
+  Object.entries(legacyKeys).forEach(([k, v]) => store.set(k, v));
+  const fresh = ensureApplicationsState(fakeWindow.localStorage as never, NOW)!;
+  check(
+    '只剩旧全局键 → 建全新主体（不迁移、不采用旧进度证据）',
+    fresh.state.applications.length === 1 &&
+      fresh.state.applications[0].currentStep === 'survey' &&
+      fresh.state.applications[0].isDetailsSubmitted === false,
+    JSON.stringify({ 个数: fresh.state.applications.length, 落点: fresh.state.applications[0].currentStep })
+  );
+  check(
+    '旧键原样留着（不搬也不删）',
+    Object.entries(legacyKeys).every(([k, v]) => store.get(k) === v),
     ''
   );
 
-  // 存档里本来就有多个主体时，仍按 activeAppId 落在**那个主体自己的**步骤（模型层不受屏蔽影响）
+  // 有 per-app 存档时（= 上面的 render 预置的那种），主体名取诊断给的企业名称
+  const named = render({ [FORM_KEY]: form, [REPORT_KEY]: report, [RECORD_KEY]: record });
+  const namedState = JSON.parse(store.get('1b_copreg_apps_v1') ?? 'null');
+  check(
+    '主体名取诊断给的企业名称',
+    namedState?.applications?.[0]?.name === '甲乙丙科技有限公司',
+    JSON.stringify({ 名字: namedState?.applications?.[0]?.name })
+  );
+  check(
+    '多主体开启：顶栏渲染切换入口、并显示当前主体名',
+    named.html.includes('btn-applications-switcher') && named.html.includes('甲乙丙科技有限公司'),
+    JSON.stringify({
+      切换入口: named.html.includes('btn-applications-switcher'),
+      主体名: named.html.includes('甲乙丙科技有限公司'),
+    })
+  );
+
+  // 存档里本来就有多个主体时，按 activeAppId 落在**那个主体自己的**步骤
   const firstApp = createApplication(Date.now(), 0, '云帆科技');
   const secondApp: ApplicationRecord = {
     ...createApplication(Date.now() + 1, 1, '盛景科技'),
     currentStep: 'payment',
     unlockedSteps: ['survey', 'proposal', 'payment'],
   };
-  const switched = render({
-    '1b_copreg_apps_v1': { applications: [firstApp, secondApp], activeAppId: secondApp.id },
-    '1b_copreg_active_app_v1': secondApp.id,
-    [`1b_copreg_app:${secondApp.id}:plan_form`]: { survey, tier: 'standard', addons: [] },
-    [`1b_copreg_app:${secondApp.id}:plan_report`]: report,
-    [`1b_copreg_app:${secondApp.id}:plan_record`]: record,
-  });
+  const switched = render(
+    {
+      [`1b_copreg_app:${secondApp.id}:plan_form`]: { survey, tier: 'standard', addons: [] },
+      [`1b_copreg_app:${secondApp.id}:plan_report`]: report,
+      [`1b_copreg_app:${secondApp.id}:plan_record`]: record,
+    },
+    '',
+    { appsOverride: { applications: [firstApp, secondApp], activeAppId: secondApp.id } }
+  );
   check(
     '存档里多个主体时：按 activeAppId 落在它自己的步骤（第 3 步）',
     switched.step3,
     JSON.stringify({ step3: switched.step3 })
   );
   check(
-    '屏蔽期间页面上不出现任何主体名',
-    !switched.html.includes('云帆科技') && !switched.html.includes('盛景科技'),
+    '顶栏显示当前主体名（不是别的那个）',
+    switched.html.includes('盛景科技') && !switched.html.includes('云帆科技'),
     JSON.stringify({ 云帆: switched.html.includes('云帆科技'), 盛景: switched.html.includes('盛景科技') })
   );
 
-  // 已支付主体：仍落在支付成功界面
-  const paidApp: ApplicationRecord = {
+  // 本地摘要写着 paid、但**还没查单**：首帧只落第 3 步的「待支付」界面，不假装已支付
+  // （「有委托单号 / 本地标记 ≠ 已支付」—— 支付状态只有服务端查单说了算，见 stepRoute.ts）
+  const locallyPaidApp: ApplicationRecord = {
     ...secondApp,
     order: { status: 'paid', orderNo: 'ORD-1', paidAt: '2026-09-24 10:00', contactPhone: '', amount: 2500, tierName: '全年无忧服务（小规模）' },
   };
-  const paidHtml = render({
-    '1b_copreg_apps_v1': { applications: [paidApp], activeAppId: paidApp.id },
-    '1b_copreg_active_app_v1': paidApp.id,
-    [`1b_copreg_app:${paidApp.id}:plan_form`]: { survey, tier: 'standard', addons: [] },
-    [`1b_copreg_app:${paidApp.id}:plan_report`]: report,
-    [`1b_copreg_app:${paidApp.id}:plan_record`]: record,
-  });
-  check('已支付主体：落在支付成功界面', paidHtml.paidView, JSON.stringify({ paidView: paidHtml.paidView }));
+  const readKeys = {
+    [FORM_KEY]: { survey, tier: 'standard', addons: [] },
+    [REPORT_KEY]: report,
+    [RECORD_KEY]: record,
+  };
+  const locallyPaid = render(readKeys, '', { appsOverride: { applications: [locallyPaidApp], activeAppId: locallyPaidApp.id } });
+  // 本地摘要说 paid 时界面照样可以先用它渲染（比闪一下待支付体验好），但**地址栏的 #paid 与
+  // 「服务端说过未支付就改回 pending」都由真机脚本覆盖**（.mcp-work/verify-entry-paid-query.mjs）——
+  // 首帧不查单这件事这里看不出来。
+  check(
+    '本地摘要 paid 的主体：首帧按支付成功界面渲染（查单结论随后可推翻它）',
+    locallyPaid.paidView && !locallyPaid.step3,
+    JSON.stringify({ step3: locallyPaid.step3, paidView: locallyPaid.paidView })
+  );
+
+  // 查单确认已支付（浏览器里落成 isDetailsSubmitted 之外的第二条依据不存在）：
+  // SSR 首帧拿不到查单结论，所以「已支付 → 支付成功界面」由真机脚本覆盖
+  // （.mcp-work/verify-paid-cta.mjs / verify-submitted-landing.mjs）。
+  const submittedApp: ApplicationRecord = { ...secondApp, isDetailsSubmitted: true };
+  const submittedHtml = render(readKeys, '', { appsOverride: { applications: [submittedApp], activeAppId: submittedApp.id } });
+  check(
+    '申报资料已提交的主体：落在支付成功界面（它本身就说明付过款）',
+    submittedHtml.paidView,
+    JSON.stringify({ paidView: submittedHtml.paidView })
+  );
+}
+
+/* ---------------------- 「新标签页」深链：?open=fill-details（支付成功页的填报按钮） */
+
+{
+  const fillApp: ApplicationRecord = {
+    ...createApplication(NOW, 0, '盛景科技'),
+    currentStep: 'payment',
+    unlockedSteps: ['survey', 'proposal', 'payment'],
+    order: { status: 'paid', orderNo: 'ORD-1', paidAt: '2026-09-24 10:00', contactPhone: '', amount: 2500, tierName: '全年无忧服务（小规模）' },
+  };
+  const keys = {
+    [FORM_KEY]: form,
+    [REPORT_KEY]: report,
+    [RECORD_KEY]: record,
+  };
+  const deepKeys = {
+    [`1b_copreg_app:${fillApp.id}:plan_form`]: { survey, tier: 'standard', addons: [] },
+    [`1b_copreg_app:${fillApp.id}:plan_report`]: report,
+    [`1b_copreg_app:${fillApp.id}:plan_record`]: record,
+  };
+  const deepApp = { applications: [fillApp], activeAppId: fillApp.id };
+
+  // 付过款 + 带意图参数 → 直接落第 5 步（新标签页靠它，而不是靠 hash）
+  // 注：SSR 不跑 effect，所以「地址栏被规范化成 #fill-details」与「参数被抹掉」这两条
+  // 由真机脚本覆盖（.mcp-work/verify-paid-cta.mjs）。
+  const deepLinked = render(deepKeys, '', { appsOverride: deepApp, search: '?open=fill-details' });
+  check(
+    '★ 已支付 + ?open=fill-details → 直接落在第 5 步申报资料填报',
+    deepLinked.html.includes('企业注册申报资料填报与初审') && !deepLinked.html.includes('支付成功 · 委托代办已生效'),
+    JSON.stringify({ 第5步: deepLinked.html.includes('企业注册申报资料填报与初审') })
+  );
+  // 落点是**会话级**的：主体记录里的「进度」仍然停在 payment（第 5 步不落盘）
+  check(
+    '★ 深链只改会话内的浏览位置，落盘的步骤仍是 payment',
+    JSON.parse(store.get(APPLICATIONS_KEY) ?? 'null')?.applications?.[0]?.currentStep === 'payment',
+    store.get(APPLICATIONS_KEY)?.slice(0, 160)
+  );
+
+  // 存档里留着超限步骤（老版本写进去的）→ 读进来收口回 payment，不直接落进填报页
+  const staleFill = { ...fillApp, currentStep: 'fill_details' as const };
+  const clamped = render(deepKeys, '', { appsOverride: { applications: [staleFill], activeAppId: staleFill.id } });
+  check(
+    '★ 存档里写着 fill_details 也会被收口回 payment（第 5 步只能从支付页进）',
+    !clamped.html.includes('企业注册申报资料填报与初审') &&
+      JSON.parse(store.get(APPLICATIONS_KEY) ?? 'null')?.applications?.[0]?.currentStep === 'payment',
+    JSON.stringify({ 第5步: clamped.html.includes('企业注册申报资料填报与初审') })
+  );
+
+  // 没付过款 + 同样的参数 → 完全忽略（否则这条链接就是绕过支付的入口）
+  const notPaid: ApplicationRecord = { ...fillApp, order: { status: 'pending', orderNo: '', paidAt: '', contactPhone: '', amount: 0, tierName: '' } };
+  const notPaidDeep = render(deepKeys, '', { appsOverride: { applications: [notPaid], activeAppId: notPaid.id }, search: '?open=fill-details' });
+  check(
+    '★ 没付过款 + ?open=fill-details → 忽略参数，仍按本地证据落第 3 步（不是第 5 步）',
+    !notPaidDeep.html.includes('企业注册申报资料填报与初审') && notPaidDeep.step3,
+    JSON.stringify({ 第5步: notPaidDeep.html.includes('企业注册申报资料填报与初审'), step3: notPaidDeep.step3 })
+  );
+
+  // 参数不认识也一样忽略
+  const unknownParam = render(deepKeys, '', { appsOverride: deepApp, search: '?open=progress' });
+  check(
+    '不认识的意图值被忽略（白名单）',
+    !unknownParam.html.includes('企业开办与政务交付办理进度'),
+    JSON.stringify({ 进度页: unknownParam.html.includes('企业开办与政务交付办理进度') })
+  );
 }
 
 console.log(`\n${pass} 项通过，${fail} 项失败`);

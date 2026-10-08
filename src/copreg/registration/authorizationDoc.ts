@@ -63,19 +63,25 @@ export const buildAuthorizationLetterHtml = ({
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><title>${AUTHORIZATION_LETTER_TITLE}</title>
 <style>
+  /*
+    单页 A4：@page 不设页边距，留白全由 .page 的内边距控制。
+    ⚠️ **页面高度刻意留了余量**（285mm 而不是正好 297mm），底部留白也从 25mm 收到 15mm：
+    正好 297mm 时，只要打印时勾了「页眉和页脚」（多出十几毫米）或浏览器把 mm→px 取整顶出去一丁点，
+    内容就会被挤到第二页（白纸一页）——真机上遇到过。底部往上移 10mm 后，普通 A4 单面都能一页印完。
+  */
   @page { size: A4; margin: 0; }
   body{font-family:"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:0;background:#fff}
   .page{
-    width:210mm;min-height:297mm;box-sizing:border-box;
-    padding:25mm 22mm;color:#0F172A;line-height:2.2;
+    width:210mm;min-height:285mm;box-sizing:border-box;
+    padding:22mm 22mm 15mm;color:#0F172A;line-height:2.2;
     display:flex;flex-direction:column;
   }
-  h1{text-align:center;font-size:22pt;letter-spacing:.06em;margin:0 0 30mm;font-weight:800}
+  h1{text-align:center;font-size:22pt;letter-spacing:.06em;margin:0 0 26mm;font-weight:800}
   .body{font-size:12pt;line-height:2.4;text-align:justify}
   .underline{display:inline-block;min-width:100px;border-bottom:1px solid #0F172A;text-align:center;padding:0 8px;font-weight:600}
-  .sign{margin-top:auto;padding-top:20mm;font-size:12pt}
+  .sign{margin-top:auto;padding-top:16mm;font-size:12pt}
   .line{display:inline-block;min-width:220px;border-bottom:1px solid #0F172A}
-  .date{margin-top:8mm;font-size:12pt}
+  .date{margin-top:6mm;font-size:12pt}
 </style></head>
 <body>
   <div class="page">

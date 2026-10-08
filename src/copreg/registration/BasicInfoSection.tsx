@@ -17,6 +17,12 @@ import {
   workNatureForCopiedRegNature,
 } from './addressNatureHints';
 import {
+  ADD_NAME_LABEL,
+  NAME_PANEL_HINT,
+  alternateNamePlaceholderOf,
+  primaryNamePlaceholderFor,
+} from './nameHints';
+import {
   Plus,
   Trash2,
   Building,
@@ -222,9 +228,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
               <span>拟注册企业名称（按优先级排序）</span>
               <span className="text-rose-500 font-bold">*</span>
             </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              请输入 1 ~ 9 个字号，我们将按照由上到下的顺序依次向市监局发起名称自主申报核准。
-            </p>
+            <p className="text-xs text-slate-500 mt-0.5">{NAME_PANEL_HINT}</p>
           </div>
           <span className="text-xs font-bold text-[#2AA894] bg-[#E6F7F2] px-2.5 py-0.5 rounded-full">
             02
@@ -241,10 +245,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                 type="text"
                 value={name}
                 onChange={(e) => handleNameChange(index, e.target.value)}
+                // 第一个框的示例名按「企业组织形式」联动（选股份公司就示例「…股份有限公司」），
+                // 让人一眼看出要填**带组织形式后缀的完整名称**；备选框只提示是第几个
                 placeholder={
                   index === 0
-                    ? '首选名称，例如：云帆盛景（深圳）科技有限公司 *'
-                    : `备选字号 ${index + 1}`
+                    ? primaryNamePlaceholderFor(data.org, data.orgOther)
+                    : alternateNamePlaceholderOf(index)
                 }
                 className={`flex-1 px-3.5 py-2.5 rounded-xl border text-xs sm:text-sm outline-none transition-colors ${
                   errors[`name-${index}`]
@@ -277,7 +283,7 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-dashed border-slate-300 hover:border-[#36B39E] text-xs font-semibold text-slate-600 hover:text-[#1D6C5E] transition-colors cursor-pointer bg-slate-50/60"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>添加备选字号（最多 9 个）</span>
+                <span>{ADD_NAME_LABEL}</span>
               </button>
             </div>
           )}

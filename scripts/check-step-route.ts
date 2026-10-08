@@ -11,9 +11,15 @@
  * 地址栏是只读的 —— 手敲 / 前进后退都不再能决定去哪一步（详见 stepRoute.ts 的头部约定）。
  */
 import {
+  MAX_PERSISTED_STEP,
   PAID_HASH,
   STEP_ORDER,
   advanceOnPaid,
+  canPersistStep,
+  clampPersistedStep,
+  allowsFillDetailsIntent,
+  fillDetailsOpenUrl,
+  openIntentOf,
   progressRouteOf,
   showsPaidView,
   stepHash,
@@ -61,11 +67,17 @@ function ok(label: string, condition: boolean) {
   ok('拿到诊断结果才解锁第 2 步', report.unlocked.join(',') === 'survey,proposal');
 
   const recorded = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: false, detailsSubmitted: false });
-  ok('拿到过委托单号 → 第 3 步', recorded.landing === 'payment');
+  ok('拿到过委托单号（还没查单）→ 第 3 步', recorded.landing === 'payment');
   ok('拿到过单号只解锁到第 3 步（没支付不给进服务群）', recorded.unlocked.join(',') === 'survey,proposal,payment');
+  // 「有单号 ≠ 已支付」：落点也在第 3 步，但界面是**待支付**那一屏 —— 由 showsPaidView 决定
+  // （这条证据里 orderPaid 就是 false：服务端还没说过话）
+  ok('有委托单号但没查单 → 不是支付成功界面（单号只证明建过单）', !showsPaidView(false, false));
+  // 单号是「生成方案」那次请求里服务端给的：**只有单号、没有方案**不构成证据。
+  // 这条不变式由调用方（App bootstrap）保证 —— 它按「有诊断结果 && 有单号」算 hasRecord，
+  // 所以本地单号在、诊断结果被清掉时仍算有单号（上面的 recorded 就是这种：hasPlanReport 只影响 landing 的第 2 步分支）。
   ok(
-    '有委托单号但诊断结果本地丢了 → 仍进第 3 步（单号本身就说明那次请求成功过）',
-    progressRouteOf({ hasPlanReport: false, hasRecord: true, orderPaid: false, detailsSubmitted: false }).landing === 'payment'
+    '单号与诊断结果都被清掉 → 回第 1 步（没有方案就不该出现在支付页）',
+    progressRouteOf({ hasPlanReport: false, hasRecord: false, orderPaid: false, detailsSubmitted: false }).landing === 'survey'
   );
 
   const paid = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: false });
@@ -102,6 +114,8 @@ function ok(label: string, condition: boolean) {
   ok('申报资料已提交（查单还没回来）→ 也按支付成功界面', showsPaidView(false, true));
   ok('两者都不成立 → 待支付界面', !showsPaidView(false, false));
   ok('两者都成立 → 支付成功界面', showsPaidView(true, true));
+  // ★ 传进来的 orderPaid 必须是**查单结论**：本地那份 `order.status`（有单号 / 写着 paid）
+  //   一律不能当作 true 传进来，否则就又变成「有单号就等于已支付」了（2026-09 改的口径）
 }
 
 /* --------------------------------------- 异步查回「已支付」后要不要往前推 */
@@ -117,6 +131,42 @@ function ok(label: string, condition: boolean) {
   ok('已经走到服务群或更后 → 不把人拽回来', advanceOnPaid('group', 'proposal', noNav) === null && advanceOnPaid('progress', 'proposal', noNav) === null);
   ok('用户自己走动过（当前步 ≠ 首帧落点）→ 不动', advanceOnPaid('proposal', 'payment', noNav) === null);
   ok('明确标记为「用户操作过」→ 不动', advanceOnPaid('proposal', 'proposal', navigated) === null);
+}
+
+/* --------------------------------- 步骤的登记上限（进度最大到 payment） */
+
+{
+  ok('登记上限是 payment', MAX_PERSISTED_STEP === 'payment');
+  ok('survey / proposal / payment 都能落盘', ['survey', 'proposal', 'payment'].every((step) => canPersistStep(step as ProcessStep)));
+  ok('★ fill_details 不落盘（只能从支付成功页进）', canPersistStep('fill_details') === false);
+  ok('★ progress 也不落盘', canPersistStep('progress') === false);
+  ok('超限的步骤收口回 payment', clampPersistedStep('fill_details') === 'payment' && clampPersistedStep('progress') === 'payment');
+  ok('范围内的步骤原样返回', clampPersistedStep('proposal') === 'proposal');
+
+  // 落点本身从来不超过第 3 步：三种「已经做过更多」的证据都只落 payment
+  const worst = progressRouteOf({ hasPlanReport: true, hasRecord: true, orderPaid: true, detailsSubmitted: true });
+  ok('落点不超过第 3 步（已支付 + 已提交也只落 payment）', worst.landing === 'payment');
+}
+
+/* --------------------------------- 「新标签页」深链（?open=fill-details） */
+
+{
+  ok('认 ?open=fill-details → 目标是第 5 步', openIntentOf('?open=fill-details') === 'fill_details');
+  ok('前面还有别的参数也能认', openIntentOf('?a=1&open=fill-details&b=2') === 'fill_details');
+  ok('没传参数 → null', openIntentOf('') === null && openIntentOf('?') === null && openIntentOf(undefined) === null);
+  ok('别的值一律忽略（白名单）', openIntentOf('?open=progress') === null && openIntentOf('?open=paid') === null);
+  ok('别的参数不认', openIntentOf('?step=fill-details') === null);
+  ok('畸形查询串不抛异常', openIntentOf('?open=%E0%A4%A') === null);
+
+  const url = fillDetailsOpenUrl('https://x.example.com', '/OneBiz/copreg.html');
+  ok('深链地址带 origin + pathname + 意图参数', url === 'https://x.example.com/OneBiz/copreg.html?open=fill-details');
+  ok('地址里不带 hash（落点后由页面自己写）', !url.includes('#'));
+  // 拼出来的地址必须能被解析回同一个意图（两处常量不能各写各的）
+  ok('地址与解析器是同源口径（往返一致）', openIntentOf(url.slice(url.indexOf('?'))) === 'fill_details');
+
+  ok('付过款（查单确认已支付）才放行深链', allowsFillDetailsIntent(true, false) === true);
+  ok('申报资料已提交也放行（它本身就说明付过款）', allowsFillDetailsIntent(false, true) === true);
+  ok('★ 没付过款一律不放行（否则这条链接就是绕过支付的入口）', allowsFillDetailsIntent(false, false) === false);
 }
 
 console.log(`\n${passed} 项通过，${failed} 项失败`);

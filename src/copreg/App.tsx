@@ -4,6 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 import {
   ProcessStep,
   SurveyData,
@@ -24,7 +25,8 @@ import { RegistrationDetailsStep } from './components/RegistrationDetailsStep';
 import { registrationStorageKey } from './registration/defaultData';
 import { buildPlan } from './plan';
 import { addonsOf, quoteFor } from './components/proposalQuote';
-import { applyPlanSuggestion, generatePlanReport, PlanSuggestion } from './planGenerate';
+import { applyPlanSuggestion, generatePlanReport, modifyProposal, PlanSuggestion } from './planGenerate';
+import type { PlanReport } from './planGenerate';
 import type { PhoneVerification } from './verification';
 import {
   clearPlanDraftFor,
@@ -44,8 +46,10 @@ import {
   discardApplication,
   ensureApplicationsState,
   findApplication,
+  mergeApplicationsWrite,
   MULTI_APPLICATION_ENABLED,
   patchOrderSummary,
+  readApplicationsState,
   renameApplication,
   setActiveApplication,
   updateApplication,
@@ -57,6 +61,10 @@ import {
 import {
   PAID_HASH,
   advanceOnPaid,
+  canPersistStep,
+  clampPersistedStep,
+  allowsFillDetailsIntent,
+  openIntentOf,
   showsPaidView,
   stepHash,
 } from './stepRoute';
@@ -222,6 +230,13 @@ export default function App() {
    * 连空白主体都存不下（隐私模式 / 配额满）时退回内存里的一份，并提示「本次填写不会被保存」。
    */
   const bootstrapRef = useRef<{ state: ApplicationsState; notice: string | null } | null>(null);
+  /**
+   * 这次是**从支付成功页的「申报资料填报」按钮新开的标签页**吗（`?open=fill-details`）？
+   * 是的话：付过款就把落点直接定到第 5 步，并把这个参数抹掉（见下面那个挂载 effect）。
+   */
+  const deepLinkRef = useRef(false);
+  /** 深链要落的步骤（只作为会话级浏览位置，见下面 viewStep 的注释） */
+  const deepLinkStepRef = useRef<ProcessStep | null>(null);
   if (bootstrapRef.current === null) {
     const ensured = typeof window === 'undefined' ? null : ensureApplicationsState(window.localStorage);
     if (ensured === null) {
@@ -233,14 +248,44 @@ export default function App() {
     } else {
       // 回填早期存档缺的「套餐 / 金额」摘要：顶栏下拉要拿它显示「套餐: X · ¥Y」
       let state = ensured.state;
+      // 存档里可能留着超限的步骤（`fill_details` / `progress` 都是会话级浏览位置，本不该落盘）：
+      // 读进来时收口回 payment —— 第 5 步只能从支付成功页进，不能靠存档直接落进去
+      for (const app of state.applications) {
+        if (!canPersistStep(app.currentStep)) {
+          state = updateApplication(state, app.id, (item) => ({ ...item, currentStep: clampPersistedStep(item.currentStep) }));
+        }
+      }
       for (const app of state.applications) {
         const patch = orderSummaryOf(app.id);
         if (patch) state = patchOrderSummary(state, app.id, patch);
+      }
+      // 深链：`?open=fill-details` 只有在「已经付过款」时才认（否则这条链接就成了绕过支付的入口）
+      const intent = typeof window === 'undefined' ? null : openIntentOf(window.location.search);
+      if (intent !== null) {
+        const target = state.applications.find((app) => app.id === state.activeAppId) ?? state.applications[0];
+        if (allowsFillDetailsIntent(target.order.status === 'paid', target.isDetailsSubmitted)) {
+          deepLinkRef.current = true;
+          // **只记会话级浏览位置，不改落盘步骤**：登记的进度最大到 payment（见 canPersistStep）
+          deepLinkStepRef.current = intent;
+          state = updateApplication(state, target.id, (app) => ({
+            ...app,
+            unlockedSteps: app.unlockedSteps.includes(intent) ? app.unlockedSteps : [...app.unlockedSteps, intent],
+          }));
+        }
       }
       if (state !== ensured.state) writeApplicationsState(window.localStorage, state);
       bootstrapRef.current = { state, notice: null };
     }
   }
+
+  /**
+   * 深链参数用过就抹掉：地址栏只留 `{pathname}#fill-details`（步骤 hash 由下面那个 effect 写）。
+   * 不抹的话，刷新、复制、转发出去的地址都会带着它再跳一次步。
+   */
+  useEffect(() => {
+    if (!deepLinkRef.current) return;
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+  }, []);
 
   const [apps, setApps] = useState<ApplicationsState>(bootstrapRef.current.state);
   // 每个主体一份运行时；切到没加载过的主体时按它的存档现建
@@ -254,9 +299,33 @@ export default function App() {
   const activeIndex = apps.applications.findIndex((app) => app.id === activeApp.id);
   const runtime = runtimes[activeApp.id] ?? runtimeFromApplication(activeApp);
 
-  /** 主体列表落盘（含 activeAppId） */
+  /**
+   * 主体列表落盘 —— **合并写**，不是把自己那份快照盖上去。
+   *
+   * 为什么（真会踩的跨标签页场景）：整份列表是**一个** localStorage 键。
+   * 用户在支付成功页**新开一个标签页**去填申报资料，回原标签页**切了主体 / 新增了主体**，
+   * 再回到填报页点保存 —— 原来那版直接 `setItem(整个 apps)` 会把存档退回填报页启动时的快照：
+   * 新增的主体凭空消失、当前主体被拽回去。现在只覆盖「本标签页真正改过的那几条」，
+   * 并且**只有本标签页自己切过主体时才动 activeAppId**（见 `mergeApplicationsWrite`）。
+   */
+  const writeIntentRef = useRef<{ dirty: Set<string>; removed: Set<string>; takeActive: boolean }>({
+    dirty: new Set(),
+    removed: new Set(),
+    takeActive: false,
+  });
+
   useEffect(() => {
-    writeApplicationsState(window.localStorage, apps);
+    const intent = writeIntentRef.current;
+    const stored = readApplicationsState(window.localStorage);
+    const merged = mergeApplicationsWrite(stored, apps, {
+      dirtyAppIds: [...intent.dirty],
+      removedAppIds: [...intent.removed],
+      takeActiveAppId: intent.takeActive,
+    });
+    intent.dirty.clear();
+    intent.removed.clear();
+    intent.takeActive = false;
+    if (merged.changed) writeApplicationsState(window.localStorage, merged.state);
   }, [apps]);
 
   /** 切到没加载过的主体时，按它的存档补一份运行时 */
@@ -275,6 +344,7 @@ export default function App() {
 
   /** 改当前主体那一条（步骤 / 解锁 / 订单摘要 / 名称 / 是否已提交） */
   const updateActiveApp = (updater: (app: ApplicationRecord) => ApplicationRecord) => {
+    writeIntentRef.current.dirty.add(activeApp.id);
     setApps((prev) => updateApplication(prev, prev.activeAppId, updater));
   };
 
@@ -284,7 +354,14 @@ export default function App() {
    * 当前步骤与解锁范围都在主体记录里（持久化），所以「刷新回到哪一步」和「切主体」
    * 用的是同一份数据 —— 不用再在首帧按证据算一次落点（迁移/新建时已经算好了）。
    */
-  const currentStep = activeApp.currentStep;
+  /**
+   * 会话内的「浏览位置」：`fill_details` / `progress` 这类**超过登记上限**的步骤只放这里，
+   * 不写进主体记录（见 stepRoute.ts 的 `canPersistStep`）。刷新后自然回到第 3 步。
+   * 初值来自「新标签页深链」那次 bootstrap（`?open=fill-details`）。
+   */
+  const [viewStep, setViewStep] = useState<ProcessStep | null>(deepLinkStepRef.current);
+  /** 渲染用：有会话级浏览位置就用它，否则用主体记录里的「进度」 */
+  const currentStep = viewStep ?? activeApp.currentStep;
   const unlockedSteps = activeApp.unlockedSteps;
   const isDetailsSubmitted = activeApp.isDetailsSubmitted;
 
@@ -331,6 +408,12 @@ export default function App() {
   }, [activeApp.id]);
 
   const setCurrentStep = (step: ProcessStep) => {
+    // 超过登记上限的步骤（第 5 / 6 步）只在本次会话里显示，不落盘 —— 见 stepRoute.ts
+    if (!canPersistStep(step)) {
+      setViewStep(step);
+      return;
+    }
+    setViewStep(null);
     updateActiveApp((app) => ({ ...app, currentStep: step }));
   };
 
@@ -350,11 +433,20 @@ export default function App() {
   // 首帧先拿委托单号去查（下面那个 effect），结论出来之前**不写地址栏**，
   // 否则会把 #paid 先改成 #payment、查到已支付再改回来，地址栏白闪两下。
   const [paidCheck, setPaidCheck] = useState<'idle' | 'checking' | 'done'>('idle');
+  /**
+   * 查单说这条开户记录已经被后台删掉了（响应里 `scbUuid` 是空的）：
+   * 这份申请在服务端已经不存在，继续留着只会让人点「立即支付」时被拒。
+   * 置 true 后弹一个不可取消的提示，用户点「重新提交」→ 清掉旧数据、重开一份申请
+   * （把旧问卷填进新的那份，见 handleConfirmRecordDeleted）。
+   */
+  const [recordDeleted, setRecordDeleted] = useState(false);
   const isPaidOrder = activeApp.order.status === 'paid' || order.status === 'paid';
   /**
-   * 第 3 步该显示哪一个界面：查单说已支付，或者**申报资料已提交**（填报页只有支付成功页的
-   * 入口能进，所以那本身就说明付过款了）。地址栏写 `#paid`、第 3 步渲染支付成功界面都用它 ——
-   * 刷新时不必等查单，不会先闪一屏「待支付」。
+   * 第 3 步该显示哪一个界面：**查单确认已支付**，或者**申报资料已提交**（填报页只有支付成功页的
+   * 入口能进，所以那本身就说明付过款了）。地址栏写 `#paid`、第 3 步渲染支付成功界面都用它。
+   *
+   * `order.status` 只是**本地摘要**（可能过期、也可能是上一笔留下的）：它可以让界面先用着，
+   * 但**不能**替代查单结论 —— 见下面那段核实的注释。
    */
   const paidView = showsPaidView(isPaidOrder, isDetailsSubmitted);
 
@@ -377,13 +469,15 @@ export default function App() {
   }, [currentStep, paidView]);
 
   /* ------------------------------------------------------------ 订单状态核实 */
-  // 只要手上有委托单号、而且还不知道这笔已支付，就问一次服务端。两件事都靠它：
-  //   ① 地址栏是 `#paid` 时能不能真的显示「支付成功」；
-  //   ② **刷新后落回「待支付」、但订单其实早就付过了** —— 不问这一下，用户一点「立即支付」
-  //      就会被服务端以「当前订单已完成支付，或请联系客服」拒掉。
-  // 查不动（路径没配 / 超时 / 网络不通 / 响应认不出）一律当没付：收口回 `#payment`，用户照常付款。
-  // 闸门要在 StrictMode 的「挂载 → 清理 → 再挂载」下也成立（见 orderStatusCheck.ts）。
-  // 多主体：**每个委托单号一个 checker**（各自单飞），切主体互不影响，也不会重复查同一个单号。
+  // **有委托单号就要查一次**（2026-09 改）：单号只证明建过单，不证明付过款；
+  // 本地那份 `order.status`（哪怕写着 paid）也可能过期、也可能是上一笔留下的，
+  // 所以**不用它做「不用查了」的短路**，三种回答一律以服务端为准：
+  //   paid    → 标已支付（并补单号 / 支付时间 / 手机号），地址栏与第 3 步翻成支付成功界面；
+  //   unpaid  → **把本地那个 paid 改回 pending**（之前只是「查不动不动它」，等于纵容一个假已支付）；
+  //   unknown → 查不动（路径没配 / 超时 / 网络不通 / 响应认不出）不动它，宁可先按本地那笔显示。
+  // 同一单号在一次会话里仍然只查一次（`orderStatusCheck.ts` 的单飞闸门）——重复查没有新信息。
+  // 闸门还要在 StrictMode 的「挂载 → 清理 → 再挂载」下成立（第一轮结果被丢弃时不能把「查过了」记上）。
+  // 多主体：**每个委托单号一个 checker**（各自单飞），切主体互不影响。
   const checkersRef = useRef(new Map<string, OrderStatusChecker>());
   const checkerFor = (recordId: string): OrderStatusChecker => {
     let checker = checkersRef.current.get(recordId);
@@ -394,22 +488,20 @@ export default function App() {
     return checker;
   };
 
-  // 换主体相当于换了一笔单：核实状态从头开始（否则新主体会被上一个主体的结论挡着）
   useEffect(() => {
-    setPaidCheck('idle');
-  }, [activeApp.id]);
-
-  useEffect(() => {
-    if (isPaidOrder) return;
     const recordId = planRecord?.recordId ?? '';
+    if (recordId === '') return; // 还没建单：没有可查的东西
     const pending = checkerFor(recordId).check(recordId);
-    if (pending === null) return; // 空号 / 已核实过：不发请求
+    if (pending === null) return; // 同一单号这次会话已经查过了
 
     let cancelled = false;
     setPaidCheck('checking');
     pending.then(result => {
       if (cancelled) return;
-      if (result.status === 'paid') {
+      if (result.recordDeleted === true) {
+        // 后台把这条主体删了：这不是「未支付」，别标 paid/unpaid，弹提示让用户重开
+        setRecordDeleted(true);
+      } else if (result.status === 'paid') {
         updateRuntime(current => ({
           ...current,
           order: {
@@ -443,23 +535,38 @@ export default function App() {
           setCurrentStep(advanced);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }
+      } else if (result.status === 'unpaid') {
+        // 服务端说没付：本地那个 paid 摘要是错的（上一笔留下 / 已退款 / 已关闭），把付款痕迹整条清掉
+        // —— 状态回 pending，单号 / 支付时间也不再留着装样子。
+        // 「申报资料已提交」那一档不受影响：那种情况下这笔必然付过款，界面仍按 paidView 渲染。
+        updateRuntime(current => ({
+          ...current,
+          order: { ...current.order, status: 'pending', orderNo: '', paidAt: '' }
+        }));
+        updateActiveApp(app => ({
+          ...app,
+          order: { ...app.order, status: 'pending', orderNo: '', paidAt: '' }
+        }));
       }
       setPaidCheck('done');
     });
     return () => {
       cancelled = true;
     };
-  }, [planRecord, isPaidOrder, activeApp.id]);
+  }, [planRecord, activeApp.id]);
 
   /* ------------------------------------------------------------ 主体管理 */
 
   const handleSwitchApplication = (id: string) => {
+    setViewStep(null);
+    // 本标签页自己切的主体 → 这一次落盘才有资格改存档里的 activeAppId
+    writeIntentRef.current.takeActive = true;
     setApps((prev) => setActiveApplication(prev, id));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAddApplication = () => {
-    // 多主体暂时屏蔽（开关在 applications.MULTI_APPLICATION_ENABLED）：顶栏已经没有入口，
+    // 多主体开关（applications.MULTI_APPLICATION_ENABLED）关掉时顶栏没有入口，
     // 这里再兜一层，避免别处调用绕过去
     if (!MULTI_APPLICATION_ENABLED) {
       setNotice('多主体申请暂未开放，当前只能办理一个主体');
@@ -470,12 +577,60 @@ export default function App() {
       setNotice('最多只能同时申请 5 个主体，请先作废一个不用的');
       return;
     }
+    // 新增会顺手把**当前主体**换成新的那份 —— 那是本标签页自己的意思，落盘时才够格改
+    // 存档里的 activeAppId（不记这一笔，合并写会保留旧 activeAppId，刷新后又落回上一个主体）
+    if (result.state.activeAppId !== apps.activeAppId) writeIntentRef.current.takeActive = true;
     setApps(result.state);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleRenameApplication = (id: string, name: string) => {
+    writeIntentRef.current.dirty.add(id);
     setApps((prev) => renameApplication(prev, id, name));
+  };
+
+  /**
+   * 服务端说这条记录已经被后台删掉了 → 用户确认后**重开一份申请**。
+   *
+   * 做的四件事：
+   *   1. 把旧主体的三份方案存档（问卷 / 诊断结果 / 委托单号）与申报表草稿**清掉**
+   *      —— 单号在服务端已经不存在，留着只会让人一点「立即支付」就被拒；
+   *   2. **重开一份空白申请**（新的 appId、落在第 1 步），并顶掉旧主体在列表里的位置；
+   *   3. 把旧的 `plan_form`（问卷 + 套餐 + 自选增值服务）**填进新的那份**，用户不用重填问卷；
+   *   4. 清掉这个单号的查单缓存，免得下次（万一拿到同一个单号）被「已查询」挡住。
+   *
+   * 只搬 plan_form，不搬诊断结果与单号：报告是服务端按旧单号给的，跟着新申请走会前后矛盾。
+   */
+  const handleConfirmRecordDeleted = () => {
+    const oldId = activeApp.id;
+    const oldName = activeApp.name;
+    const oldForm = loadPlanDraftFor(oldId);
+
+    // ① 旧数据清干净
+    clearPlanDraftFor(oldId);
+    removeRegistrationDraft(oldId);
+    const oldRecordId = planRecord?.recordId ?? '';
+    if (oldRecordId !== '') checkersRef.current.delete(oldRecordId);
+
+    // ② 重开一份：顶掉旧主体的位置（其余主体不动），并把旧的问卷填进去
+    const others = apps.applications.filter((app) => app.id !== oldId);
+    const fresh = createApplication(Date.now(), others.length, oldName);
+    if (oldForm !== null) {
+      savePlanFormFor(fresh.id, { survey: oldForm.survey, tier: oldForm.tier, addons: oldForm.addons });
+    }
+
+    setRuntimes((prev) => {
+      const next = { ...prev };
+      delete next[oldId];
+      return { ...next, [fresh.id]: runtimeFromApplication(fresh) };
+    });
+    writeIntentRef.current.removed.add(oldId);
+    writeIntentRef.current.takeActive = true;
+    setApps({ applications: [...others, fresh], activeAppId: fresh.id });
+    setRecordDeleted(false);
+    setPaidCheck('idle');
+    setNotice(oldForm !== null ? '已重开一份申请，问卷内容已带过去' : '已重开一份申请');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   /**
@@ -492,6 +647,10 @@ export default function App() {
     }
     clearPlanDraftFor(id);
     removeRegistrationDraft(id);
+    writeIntentRef.current.removed.add(id);
+    // 作废的正好是当前主体时会顺延到另一个主体 —— 只有这种情况下本标签页才改存档的 activeAppId；
+    // 作废别的（非当前）主体时，别的标签页正指着的那个主体不该被这次落盘拽走
+    if (result.state.activeAppId !== apps.activeAppId) writeIntentRef.current.takeActive = true;
     setRuntimes((prev) => {
       const next = { ...prev };
       delete next[id];
@@ -505,13 +664,28 @@ export default function App() {
   /* ---------------------------------------------------------------- 各步骤 */
 
   /**
-   * 手机验证通过后提交问卷：调架构诊断接口（带上手机号与短信凭据，服务端比对验证码）。
+   * 第 1 步提交问卷的统一收尾：调接口（诊断 = 建单 / 改方案 = 改单）→ 存本次问卷与返回的
+   * 诊断结果、单号 → 作废上一笔的付款痕迹 → 落到方案页。
+   *
+   * 两条入口的区别只有**请求怎么发**：
+   *   - 第一次（本地没有委托单号）：`generatePlanReport(survey, 手机验证凭据)`，
+   *     服务端比对短信验证码并**建单**，返回的 `recordId` 是必给项；
+   *   - 已建单后再回第 1 步改问卷：`modifyProposal(survey, 旧单号)`（见 handleSurveyModify），
+   *     **不再走短信验证**；响应没回新单号就沿用旧单号（`fallbackRecordId`）。
    *
    * 失败**原样抛出**（不吞、不用本地规则兜底）：手机号没验过就不该出方案、更不该往下一步走，
-   * 由 SurveyStep 把原因写在手机验证弹框里让人原地重试。只有本地存档写不进去这类
+   * 由 SurveyStep 决定显在哪（手机验证弹框里 / 问卷页的 toast）。只有本地存档写不进去这类
    * 「不拦人前进」的毛病才走 warnings。
+   *
+   * @param request    真正发出去的那次请求（诊断建单 / 改方案）
+   * @param fallbackRecordId 响应没给单号时沿用的旧单号；第一次生成方案时没有（null）
+   * @param contactPhone 落到订单上的经办联系电话（第一次用刚验证过的手机号，改方案沿用单上已有的）
    */
-  const handleSurveySubmit = async (verification: PhoneVerification) => {
+  const runPlanSubmit = async (
+    request: () => Promise<PlanReport>,
+    fallbackRecordId: string | null,
+    contactPhone: string
+  ) => {
     const appId = activeApp.id;
     // 载荷用的是点击那一刻的问卷快照 —— 请求在途时用户还能接着改问卷，
     // 那些改动要重新点一次「生成需求方案」才会进方案。
@@ -525,12 +699,22 @@ export default function App() {
     if (!savePlanFormFor(appId, { survey, tier, addons: addonsOf(planRef.current.items) })) {
       warnings.push('问卷本地保存失败（浏览器可能禁用了本地存储），下次进入需要重新填写');
     }
-    // 上一次的诊断结果 / 委托单号对应的是上一份问卷，这次已提交新问卷，先作废
+    // 上一次的诊断结果对应的是上一份问卷，这次已提交新问卷，先作废（改方案同样：旧报告不再对应当前问卷）
     clearPlanReportFor(appId);
-    clearPlanRecordFor(appId);
+    // 同一张单上改方案时**不能**作废单号 —— 它就是这次改动要带上去的 recordId。
+    // 清掉的话「下单 → 查单」那条链就断了（支付全靠它），而且下次进来会被当成还没建单。
+    // 只有第一次生成方案（没有旧单号）才清，清完下面接口会建一张新的。
+    if (fallbackRecordId === null) clearPlanRecordFor(appId);
+    // 新一单：把上一笔的付款痕迹一起清掉（下面 updateRuntime / updateActiveApp 落进去）。
+    // 委托单号是服务端按这一次请求新建的，所以旧单的「已付 / 申报资料已提交」对新单不成立。
+    // 不清的话 `showsPaidView` 会拿上一轮的 `isDetailsSubmitted` 把新单判成已支付：
+    // 方案页 02/03 区被锁成「订单已支付 · 套餐已锁定」，套餐与加购都点不动
+    // （纯本地旧状态造成的，服务端查单这时还在说「未支付」）。
+    // 改方案同一条链（服务端说「修改需求方案」），所以这两条路都清。
 
     if (warnings.length > 0) setNotice(warnings.join('；'));
-    const { recordId, suggestion } = await generatePlanReport(survey, verification);
+    const report = await request();
+    const { recordId, suggestion } = report;
 
     // 「返回的」只在接口成功后存
     if (!savePlanReportFor(appId, suggestion)) {
@@ -551,8 +735,18 @@ export default function App() {
       plan: merged,
       suggestion,
       record,
-      // 手机号已经验过了：记在订单上，支付页的「经办联系电话」直接用它
-      order: { ...current.order, contactPhone: verification.mobile, amount: merged.finalPrice },
+      // 手机号：第一次生成方案用刚验证过的那个；改方案没有手机验证框，沿用单上已有的
+      // （支付页的「经办联系电话」就靠它，改成空会把这格弄丢）。
+      // 付款痕迹回 pending / 清空 —— 这一次是新的一单 / 改的这一单都要重走支付
+      // （见上面 clearPlanReportFor 之后那段注释）
+      order: {
+        ...current.order,
+        status: 'pending',
+        orderNo: '',
+        paidAt: '',
+        contactPhone,
+        amount: merged.finalPrice
+      },
     }));
 
     updateActiveApp((app) => {
@@ -561,22 +755,58 @@ export default function App() {
         app.name === defaultApplicationName(activeIndex)
           ? { ...app, name: deriveApplicationName({ companyNameProposal: suggestion.companyNameProposal, companyDesc: survey.companyDesc }, activeIndex) }
           : app;
-      // 导航与订单金额只在人还停在问卷页时更新：他已经自己走到方案页（或更后面）的话，
-      // 把人拽回来、把套餐价改回套餐包价都是错的
+      // 新一单：上一笔的「已付 / 申报资料已提交」对新单不成立，一起清掉（否则方案页被锁成已支付）
+      const renewed: ApplicationRecord = {
+        ...named,
+        isDetailsSubmitted: false,
+        order: {
+          ...named.order,
+          status: 'pending',
+          orderNo: '',
+          paidAt: '',
+          contactPhone,
+          amount: merged.finalPrice,
+          tierName: merged.tierName
+        },
+      };
+      // 导航只在人还停在问卷页时更新：他已经自己走到方案页（或更后面）的话，把人拽回来是错的
       if (stepRef.current !== 'survey') {
-        return {
-          ...named,
-          order: { ...named.order, contactPhone: verification.mobile, amount: merged.finalPrice, tierName: merged.tierName },
-        };
+        return renewed;
       }
       return {
-        ...named,
+        ...renewed,
         currentStep: 'proposal',
-        unlockedSteps: named.unlockedSteps.includes('proposal') ? named.unlockedSteps : [...named.unlockedSteps, 'proposal'],
-        order: { ...named.order, contactPhone: verification.mobile, amount: merged.finalPrice, tierName: merged.tierName },
+        unlockedSteps: renewed.unlockedSteps.includes('proposal') ? renewed.unlockedSteps : [...renewed.unlockedSteps, 'proposal'],
       };
     });
     if (stepRef.current === 'survey') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  /**
+   * 第一次生成方案（本地还没有委托单号）：过手机验证弹框，带着手机号与短信凭据调诊断接口建单。
+   */
+  const handleSurveySubmit = async (verification: PhoneVerification) => {
+    await runPlanSubmit(
+      () => generatePlanReport(survey, verification),
+      null,
+      verification.mobile
+    );
+  };
+
+  /**
+   * 已建单之后再回第 1 步改问卷：**不再走短信验证**，改调 `modify-proposal`
+   * （只过一道腾讯行为验证码，票据在 modifyProposal 里取），把当前这份问卷带上去。
+   *
+   * `onCaptchaPassed` 一路传给 `modifyProposal`：**行为验证通过之后**才让问卷页盖「AI 推演中」弹框，
+   * 免得生成弹框先弹出来把腾讯验证码盖在下面（见 planGenerate.ts 的 modifyProposal）。
+   *
+   * 为什么以「本地有没有委托单号」为准：手机号是**建单那一次**验过的，同一张单沿用；
+   * 重开一单（重置问卷会清掉单号）时又会回到上面那条要验证码的路，与「建单才需要验手机号」一致。
+   */
+  const handleSurveyModify = async (onCaptchaPassed?: () => void) => {
+    const recordId = planRecord?.recordId ?? '';
+    if (recordId === '') throw new Error('缺少委托单号，请重新生成需求方案');
+    await runPlanSubmit(() => modifyProposal(survey, recordId, onCaptchaPassed), recordId, order.contactPhone);
   };
 
   // Step 2 -> Step 3: 方案页只是把第 1 步给的结果展示出来，点「前往支付」就走一步
@@ -600,6 +830,8 @@ export default function App() {
 
   // Step 5: Submit details for review -> 回到「支付成功」界面看清单
   const handleSubmitForReview = () => {
+    // 第 5 步是会话级浏览位置，提交完要回第 3 步 —— 两个都要收掉，只改记录不够
+    setViewStep(null);
     updateActiveApp((app) => ({
       ...app,
       isDetailsSubmitted: true,
@@ -708,6 +940,8 @@ export default function App() {
             survey={survey}
             onChange={(nextSurvey) => updateRuntime((current) => ({ ...current, survey: nextSurvey }))}
             onSubmit={handleSurveySubmit}
+            onModify={handleSurveyModify}
+            modifyRecordId={planRecord?.recordId ?? ''}
             contactPhone={order.contactPhone}
             onReset={handleResetSurvey}
           />
@@ -822,6 +1056,42 @@ export default function App() {
           />
         )}
       </main>
+
+      {/*
+        服务端把这条主体删了：不可取消的提示 —— 用户点「重新提交」才重开一份申请。
+        不给他「留在原地」的选项：那个单号在服务端已经不存在，点什么都会被拒。
+      */}
+      {recordDeleted && (
+        <div className="fixed inset-0 z-[70] bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            id="record-deleted-modal"
+            className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 border border-slate-200/80 text-left"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800">该主体已被后台删除，请重新提交</h3>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed mb-1.5">
+              服务端已经没有这条开户记录了，当前这份申请无法继续支付或提交。
+            </p>
+            <p className="text-xs text-slate-500 leading-relaxed mb-4">
+              点「重新提交」会为你重开一份申请，<strong className="text-slate-700">你填过的问卷内容会一并带过去</strong>（套餐与自选增值服务也保留），已生成的方案与委托单号会作废并重新生成。
+            </p>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                id="btn-reopen-application"
+                onClick={handleConfirmRecordDeleted}
+                className="px-5 py-2 rounded-full bg-[#36B39E] hover:bg-[#2AA894] text-white text-xs font-bold cursor-pointer transition-colors"
+              >
+                重新提交
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 跨页提示（方案接口失败、主体上限、作废结果等），样式与问卷页的 toast 一致 */}
       {notice && (

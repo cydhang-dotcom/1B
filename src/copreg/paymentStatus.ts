@@ -41,6 +41,12 @@ export interface PaymentStatusResult {
   paidAt?: string;
   /** 查单返回的经办手机号：重新进入页面时用它补上「经办联系电话」 */
   mobile?: string;
+  /**
+   * **这条开户记录已经不在服务端了**（响应里的 `scbUuid` 是空的）——
+   * 正常单子建单时服务端就会写 `scbUuid`，空着说明后台把这条主体/记录删掉了。
+   * 调用方据此提示「该主体已被后台删除，请重新提交」并重开一份申请（见 App.tsx）。
+   */
+  recordDeleted?: boolean;
 }
 
 /** 只读预判，比下单短得多：8s 拿不到就当查不动，用户照常付款 */
@@ -79,6 +85,8 @@ export const fetchPaymentStatus = async (
       paidAt: fields.payTime,
       // 没支付时也可能有手机号（下单时填过），一并带回去补页面
       mobile: fields.mobile,
+      // scbUuid 空 = 服务端那条记录没了（后台删了主体）：这不是「未支付」，要单独提示重开
+      recordDeleted: result.snapshot.scbUuid === undefined || result.snapshot.scbUuid.trim() === '',
     };
   } catch {
     // 只读预判，失败不当错误：用户停在待支付页，点一下照样能付

@@ -20,6 +20,13 @@
  *
  * `html2canvas` / `jspdf` 合计几百 KB，改为**动态 import**：不点「存为 PDF」的人不会把它们
  * 打进首包，主 chunk 不受影响。
+ *
+ * ★ 用的是 **`html2canvas-pro`**（维护中的 fork），不是原版 `html2canvas@1.4.1`：原版把文字画得
+ * 比浏览器**偏下**（基线与行框的计算有 bug），中文尤其明显 —— 报告里每一行字都往下坠。
+ * fork 的 CHANGELOG 里一串正是在修这个：1.6.2「text rendered lower than in browser」、
+ * 2.0.1「fix letter-spacing and CJK baseline offset (#73)」、2.4.4「keep CJK on the alphabetic
+ * baseline with letter-spacing」、1.5.5「vertical text alignment fix (#3151)」。
+ * 两者 API 完全一致，换 import 即可。
  */
 
 import { printHtmlDocument } from '../utils/printDocument';
@@ -74,7 +81,10 @@ const blankRowDetector = (context: CanvasRenderingContext2D, width: number, heig
  * 存为 PDF。失败时抛错，由调用方决定提示与是否回落到打印。
  */
 export const exportProposalToPdf = async (input: ProposalReportInput): Promise<void> => {
-  const [html2canvasModule, jspdfModule] = await Promise.all([import('html2canvas'), import('jspdf')]);
+  const [html2canvasModule, jspdfModule] = await Promise.all([
+    import('html2canvas-pro'),
+    import('jspdf'),
+  ]);
   const html2canvas = html2canvasModule.default;
   const { jsPDF } = jspdfModule;
 

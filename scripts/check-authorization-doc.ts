@@ -39,6 +39,11 @@ function main() {
     date: '2026-03-05',
   });
   ok('单页 A4：@page 指定 size A4、无页边距', html.includes('@page { size: A4; margin: 0; }'));
+  // 整页高度必须**小于** A4（留余量）：正好 297mm 时，打印勾了页眉页脚或 mm→px 取整顶出去一点
+  // 就会多印一页（真机上遇到过）
+  ok('页面高度留了余量（285mm < 297mm，不是正好一页）', html.includes('min-height:285mm') && !html.includes('min-height:297mm'));
+  ok('底部留白收窄到 15mm（底部往上移，给页眉页脚留位置）', html.includes('padding:22mm 22mm 15mm'));
+  ok('签名块与日期也跟着收紧（16mm / 6mm）', html.includes('padding-top:16mm') && html.includes('margin-top:6mm'));
   ok('标题进了 <title>', html.includes(`<title>${AUTHORIZATION_LETTER_TITLE}</title>`));
   ok('标题在正文里渲染一次', (html.match(/法定代表人委托书/g) ?? []).length === 2);
   ok('受托人姓名进正文', html.includes('>张三</span>'));

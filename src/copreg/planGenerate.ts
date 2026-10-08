@@ -27,12 +27,19 @@
  * 服务端给什么都不改 —— 报价是产品定价，不是模型能决定的事。
  */
 
-import { COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH } from '../config/api';
+import {
+  COMPANY_PLAN_HOST,
+  PLAN_DIAGNOSE_PATH,
+  PLAN_MODIFY_PATH,
+  TENCENT_CAPTCHA_APP_ID,
+  TENCENT_CAPTCHA_USER_IP,
+} from '../config/api';
 import { joinUrl, optionalStringOf, postJson } from './apiClient';
 import { hasPlanContent, parsePlanSuggestion } from './planReport';
 import type { PlanSuggestion } from './planReport';
 import type { SurveyData } from './types';
 import type { PhoneVerification } from './verification';
+import { showTencentCaptcha } from '../utils/tencentCaptcha';
 
 // 解析 / 收口 / 覆盖是纯逻辑，放在 planReport.ts（不 import config/api.ts，好让 tsx 自检直接引）；
 // 这里原样转出，调用方（planDraft / App）继续从本模块拿，无需改 import 路径
@@ -92,6 +99,20 @@ export interface PlanGenerateRequest {
    * 三个字段都由第 1 步的手机验证弹框给出（见 verification.ts 的 PhoneVerification）。
    */
   phoneNumber: PhoneVerification;
+}
+
+/**
+ * 修改需求方案的请求体（`POST /api/company-plan/modify-proposal`）。
+ *
+ * 与 PlanGenerateRequest 只差一处：**没有 phoneNumber，改成必填的 recordId** ——
+ * 手机号在建单那一步已经验过，同一张单沿用，所以这一步不再走短信验证码；
+ * 腾讯行为验证码那一道仍然保留（票据走 query，见 modifyProposal）。
+ * formData 与第一次完全同形（同一个 PlanFormData）。
+ */
+export interface PlanModifyRequest {
+  /** 调查问卷记录 ID（= 建单时拿到的委托单号），修改需求方案场景必填（服务端注释原文） */
+  recordId: string;
+  formData: PlanFormData;
 }
 
 /** 问卷 → 请求体里的 formData（数组都复制一份，避免把 state 里的数组交出去） */
@@ -157,4 +178,54 @@ export const generatePlanReport = async (
   if (recordId === null) throw new Error('生成需求方案未返回委托单号，请稍后重试');
 
   return { recordId, suggestion };
+};
+
+/**
+ * 修改需求方案接口的地址：腾讯行为验证码的四件套走 query，参数名沿用 caa / ai-fill 那套约定
+ * （jcaptchaCode = ticket、jcaptchaId = randstr）。reason 与 aiFill 一样用 URLSearchParams 拼，
+ * 不用 `new URL`：host 被配成相对路径（本地代理）时 `new URL` 会抛原生 TypeError，
+ * 那会绕过 apiClient 的中文错误归一化。
+ */
+const modifyUrl = (ticket: string, randstr: string): string => {
+  const params = new URLSearchParams({
+    captchaAppId: TENCENT_CAPTCHA_APP_ID,
+    userIp: TENCENT_CAPTCHA_USER_IP,
+    jcaptchaCode: ticket,
+    jcaptchaId: randstr,
+  });
+  return `${joinUrl(COMPANY_PLAN_HOST, PLAN_MODIFY_PATH)}?${params.toString()}`;
+};
+
+/**
+ * 修改需求方案：本地已经有委托单号（= 建单过了）时，回第 1 步改完问卷走这个接口，
+ * **不走手机验证**（同一张单上手机号早就验过了），只过一道腾讯行为验证码。
+ *
+ * 请求形态见 config/api.ts 的 PLAN_MODIFY_PATH 段：票据与 ai-fill 同款放在 query
+ * （jcaptchaCode = ticket、jcaptchaId = randstr），body 是 `{ recordId, formData }`。
+ *
+ * `onCaptchaPassed` 在**行为验证通过、请求发出之前**触发一次：调用方用它弹「AI 推演中」生成弹框。
+ * 顺序必须是「先验证码、后生成弹框」—— 反过来的话生成弹框先盖上去，腾讯验证码弹在它后面，
+ * 用户会以为卡住了（那个弹框是给等接口用的，不是给等验证码用的）。
+ *
+ * 单号口径：响应里回了 `recordId` 就用它的（万一服务端换单，以它为准）；
+ * 没回或认不出就沿用传进来的那个 —— 改方案不是建单，本地那份凭据本来就还有效。
+ * 其余解析（报告字段、失败文案）与 generatePlanReport 完全同一套。
+ */
+export const modifyProposal = async (
+  survey: SurveyData,
+  recordId: string,
+  onCaptchaPassed?: () => void
+): Promise<PlanReport> => {
+  // 弹窗在 postJson 之外：用户取消验证码不该被当成网络故障，也不该算进 5 分钟超时
+  const { ticket, randstr } = await showTencentCaptcha(TENCENT_CAPTCHA_APP_ID);
+  // 行为验证过了：这时才盖「AI 推演中」弹框（顺序见上面的注释）
+  onCaptchaPassed?.();
+
+  const body: PlanModifyRequest = { recordId: recordId.trim(), formData: planFormFromSurvey(survey) };
+  const payload = await postJson(modifyUrl(ticket, randstr), body, LABEL);
+
+  const suggestion = parsePlanSuggestion(payload);
+  if (!hasPlanContent(suggestion)) throw new Error('生成需求方案未返回可用内容');
+
+  return { recordId: optionalStringOf(payload.recordId) ?? body.recordId, suggestion };
 };

@@ -55,6 +55,23 @@ const queryWith = (body: unknown, status = 200) =>
   ok('带出支付时间（支付成功界面要显示）', paid.paidAt === '2026-09-20 12:00:00');
   // 重新进入页面时「经办联系电话」就靠它：本地不存手机号
   ok('带出经办手机号', paid.mobile === '13800000000');
+  ok('记录还在（scbUuid 有值）→ recordDeleted 为假', paid.recordDeleted === false);
+}
+
+/* ------------------------------------------- 记录被后台删掉（scbUuid 为空） */
+
+{
+  // 正常单子建单时服务端就会写 scbUuid；空着说明后台把这条主体/记录删掉了。
+  // 这不是「未支付」：调用方要提示「该主体已被后台删除，请重新提交」并重开一份申请。
+  const missing = await queryWith({ orderUuid: null, scbUuid: null, orderNo: null, payTime: null, mobile: null, status: '0', payAmount: null });
+  ok('scbUuid 为 null → recordDeleted 为真', missing.recordDeleted === true);
+  ok('scbUuid 为 null 时状态仍是 unpaid（模板层不改语义，由调用方决定怎么处理）', missing.status === 'unpaid');
+  ok('scbUuid 为空白串 → 也算被删', (await queryWith({ scbUuid: '   ', status: '0' })).recordDeleted === true);
+  ok('字段整个缺失 → 也算被删（服务端换了字段名不该被当成「还在」）', (await queryWith({ status: '0' })).recordDeleted === true);
+  ok('scbUuid 有值（未支付）→ 不算被删', (await queryWith({ scbUuid: 'SCB-9', status: '0' })).recordDeleted === false);
+  // 查不动时不能报「被删」：否则网络抖一下就把用户的申请清掉了
+  ok('HTTP 500（查不动）不报被删', (await queryWith({ scbUuid: null, status: '0' }, 500)).recordDeleted === undefined);
+  ok('缺 status（认不出）不报被删', (await queryWith({ scbUuid: null })).recordDeleted === undefined);
 }
 
 /* ------------------------------------------------------------- 未支付 */

@@ -6,9 +6,6 @@
 /**
  * **多主体申请的模型与存档键空间**（纯逻辑，`scripts/check-applications.ts` 离线自检）。
  *
- * 现状是一个用户只有一份申请：三份全局键（`1b_copreg_plan_form/_report/_record`）加一份
- * 申报表（`banbu-registration-20260913-v1`）。多主体之后要变成：
- *
  *   `1b_copreg_apps_v1`                    主体列表（id / 名称 / 当前步 / 订单摘要 / 是否已提交）
  *   `1b_copreg_active_app_v1`              上次停留的主体 id（刷新按它恢复，地址栏不带 appId）
  *   `1b_copreg_app:{id}:plan_form`         该主体「填写的」
@@ -23,13 +20,14 @@
  *   - 名称可自定义，默认由诊断给的企业名称 / 申报表名称 / 企业描述派生；
  *   - 申报资料按 `busUnionId`（各自的 recordId）分别提交，与本模块无关。
  *
- * 迁移：老的三份全局键 + 全局申报表键 → 归成「主体 #1」，迁移成功后**才**删除旧键；
- * 任何一步写失败就整体放弃（旧键原样保留），宁可下次再迁，也不能把用户的存档弄丢。
+ * **不再有「老存档迁移」**（2026-09 去掉）：单主体时代的全局键（`1b_copreg_plan_form/_report/_record`
+ * 与 `banbu-registration-20260913-v1`）与那套 `planLegacyMigration` / `applyLegacyMigration` 已删除 ——
+ * 没有主体列表就是**全新的一份申请**，落第 1 步。旧键不读、不搬、也不删（留着无害，硬删反而可能
+ * 删掉别人正在用的东西）。
  *
  * 纯函数：不 import React、不 import config/api.ts；localStorage 由调用方以 `StorageLike` 注入。
  */
 
-import { hasPlanContent, parsePlanSuggestion } from './planReport';
 import { progressRouteOf, STEP_ORDER } from './stepRoute';
 import type { ProcessStep } from './types';
 
@@ -42,19 +40,14 @@ export const ACTIVE_APP_KEY = '1b_copreg_active_app_v1';
 export const MAX_APPLICATIONS = 5;
 
 /**
- * 多主体申请**是否对外开放**。
+ * 多主体申请**是否对外开放**（2026-09 重新打开）。
  *
- * 产品要求**暂时屏蔽**（当前只允许一个主体）：顶栏不渲染主体切换与「新增企业注册」，
- * App 也拒绝新增。模型层保持完整 —— 上限、切换、改名、作废、老存档迁移、每个主体各自的键
- * 都还在，恢复时把它改回 `true` 即可；已有的多主体存档不会被清掉，只是暂时用不到。
+ * `true`：顶栏渲染主体切换与「新增企业注册」，App 允许新增；最多 5 个主体。
+ * 曾经按产品要求屏蔽过一段时间（当时只允许一个主体，顶栏不给入口、App 也拒绝新增），
+ * 现在恢复。真机自检 `.mcp-work/verify-multi-app.mjs` 按这个开关自动选模式：
+ * 关掉时会退化成「确实没有入口、仍是单主体可用」那几条断言。
  */
-export const MULTI_APPLICATION_ENABLED = false;
-
-/** 迁移前的全局键；迁移完成后清掉 */
-export const LEGACY_PLAN_FORM_KEY = '1b_copreg_plan_form';
-export const LEGACY_PLAN_REPORT_KEY = '1b_copreg_plan_report';
-export const LEGACY_PLAN_RECORD_KEY = '1b_copreg_plan_record';
-export const LEGACY_REGISTRATION_KEY = 'banbu-registration-20260913-v1';
+export const MULTI_APPLICATION_ENABLED = true;
 
 /* --------------------------------------------------------------- 键工厂 */
 
@@ -334,184 +327,17 @@ export const discardApplication = (
   };
 };
 
-/* ------------------------------------------------------------------ 迁移 */
-
-export interface LegacyMigrationPlan {
-  /** 迁移出来的主体；没有旧存档时为 null */
-  application: ApplicationRecord | null;
-  /** 迁移后的列表状态；没有旧存档时为 null */
-  state: ApplicationsState | null;
-  /** 要写入的键值（先全部写完，才动 removals） */
-  writes: Array<{ key: string; value: string }>;
-  /** 写入全部成功后要删掉的旧键 */
-  removals: string[];
-}
-
-const EMPTY_PLAN: LegacyMigrationPlan = { application: null, state: null, writes: [], removals: [] };
-
-const readRaw = (storage: StorageLike, key: string): string | null => {
-  try {
-    return storage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
-const parseRaw = (raw: string | null): unknown => {
-  try {
-    return JSON.parse(raw ?? 'null');
-  } catch {
-    return null;
-  }
-};
-
-/**
- * 这份「填写的」里的问卷到底填过没有。
- *
- * 与 `planDraft.loadPlanDraft` 的 `hasAnyAnswer` 同一口径（问卷全空就当没存过），只是这里
- * 作用在**原始 JSON** 上 —— `applications.ts` 不能 import `planDraft`（planDraft 反过来要
- * import 本模块的键工厂，会成环），所以只能这样等价判断。
- */
-const hasAnySurveyAnswerRaw = (form: unknown): boolean => {
-  const survey = isRecord(form) ? form.survey : null;
-  if (!isRecord(survey)) return false;
-  return Object.values(survey).some((value) =>
-    Array.isArray(value) ? value.length > 0 : typeof value === 'string' && value.trim() !== ''
-  );
-};
-
-/** 单号是不是有效（与 planDraft.parsePlanRecord 同口径：非空字符串才算） */
-const hasRecordIdRaw = (raw: string | null): boolean => {
-  const parsed = parseRaw(raw);
-  return isRecord(parsed) && typeof parsed.recordId === 'string' && parsed.recordId.trim() !== '';
-};
-
-/** 从旧存档里尽量取一个主体名（申报表名称 / 诊断名称 / 企业描述） */
-const legacyNameSource = (formRaw: string | null, reportRaw: string | null, registrationRaw: string | null) => {
-  const source: ApplicationNameSource = {};
-  try {
-    const form = JSON.parse(formRaw ?? 'null') as { survey?: { companyDesc?: string } } | null;
-    source.companyDesc = form?.survey?.companyDesc ?? null;
-  } catch {
-    /* 坏 JSON 当没有 */
-  }
-  try {
-    const report = JSON.parse(reportRaw ?? 'null') as { companyNameProposal?: string } | null;
-    source.companyNameProposal = report?.companyNameProposal ?? null;
-  } catch {
-    /* 同上 */
-  }
-  try {
-    const registration = JSON.parse(registrationRaw ?? 'null') as { basic?: { names?: string[] } } | null;
-    source.registrationName = registration?.basic?.names?.[0] ?? null;
-  } catch {
-    /* 同上 */
-  }
-  return source;
-};
-
-/**
- * 规划一次「老存档 → 主体 #1」的迁移（**只看不写**，便于自检）。
- * 已经有主体列表（哪怕是空的坏档被收口成 null 但键还在）时不再迁移。
- */
-export const planLegacyMigration = (storage: StorageLike, now = Date.now()): LegacyMigrationPlan => {
-  if (readApplicationsState(storage, now) !== null) return EMPTY_PLAN;
-
-  const legacyForm = readRaw(storage, LEGACY_PLAN_FORM_KEY);
-  const legacyReport = readRaw(storage, LEGACY_PLAN_REPORT_KEY);
-  const legacyRecord = readRaw(storage, LEGACY_PLAN_RECORD_KEY);
-  const legacyRegistration = readRaw(storage, LEGACY_REGISTRATION_KEY);
-
-  const hasLegacy =
-    legacyForm !== null || legacyReport !== null || legacyRecord !== null || legacyRegistration !== null;
-  // 没有「填写的」也没有申报表 —— 旧键就算在也只是空壳，没有迁移价值
-  if (!hasLegacy) return EMPTY_PLAN;
-
-  let detailsSubmitted = false;
-  try {
-    const registration = JSON.parse(legacyRegistration ?? 'null') as { status?: string } | null;
-    detailsSubmitted = registration?.status === 'submitted';
-  } catch {
-    /* 坏 JSON 当作未提交 */
-  }
-
-  // 落点用的证据必须与旧的 `loadPlanDraft` 完全同口径：**问卷没填过（或压根没有问卷）时，
-  // 诊断结果与委托单号都不算数**（旧 App 那时也落第 1 步）。原始值照样搬过去，只是不算进度证据。
-  const hasForm = hasAnySurveyAnswerRaw(parseRaw(legacyForm));
-  const hasPlanReport = hasForm && hasPlanContent(parsePlanSuggestion(parseRaw(legacyReport)));
-  const hasRecord = hasForm && hasRecordIdRaw(legacyRecord);
-
-  const { landing, unlocked } = progressRouteOf({
-    hasPlanReport,
-    hasRecord,
-    // 订单是否已支付只有异步查单才知道，迁移这一刻一律按未支付算（App 查回来会补）
-    orderPaid: false,
-    detailsSubmitted,
-  });
-
-  const id = newApplicationId(now);
-  const iso = new Date(now).toISOString();
-  const application: ApplicationRecord = {
-    id,
-    name: deriveApplicationName(legacyNameSource(legacyForm, legacyReport, legacyRegistration), 0),
-    createdAt: iso,
-    updatedAt: iso,
-    currentStep: landing,
-    unlockedSteps: unlocked,
-    // 订单摘要在迁移时不带过来：手机号按约定不落本地，金额等 App 起来后按方案现算
-    order: { status: 'pending', orderNo: '', paidAt: '', contactPhone: '', amount: 0, tierName: '' },
-    isDetailsSubmitted: detailsSubmitted,
-  };
-  const state: ApplicationsState = { applications: [application], activeAppId: id };
-
-  const writes: Array<{ key: string; value: string }> = [];
-  if (legacyForm !== null) writes.push({ key: planFormKey(id), value: legacyForm });
-  if (legacyReport !== null) writes.push({ key: planReportKey(id), value: legacyReport });
-  if (legacyRecord !== null) writes.push({ key: planRecordKey(id), value: legacyRecord });
-  if (legacyRegistration !== null) writes.push({ key: registrationKey(id), value: legacyRegistration });
-  // 主体列表**最后写**：它是「迁移已完成」的标记。先写它的话，后面某份存档写失败时
-  // 下次进来会读到「已经有主体」而跳过迁移，旧键还在却再也不搬 —— 用户的方案就搁浅了
-  writes.push({ key: APPLICATIONS_KEY, value: JSON.stringify(state) });
-  writes.push({ key: ACTIVE_APP_KEY, value: id });
-
-  const legacyKeys = [LEGACY_PLAN_FORM_KEY, LEGACY_PLAN_REPORT_KEY, LEGACY_PLAN_RECORD_KEY, LEGACY_REGISTRATION_KEY];
-  const removals = legacyKeys.filter((key) => readRaw(storage, key) !== null);
-
-  return { application, state, writes, removals };
-};
-
-/**
- * 执行迁移：**先写全新键，全部成功才删旧键**。中途写失败（配额满 / 隐私模式）就整体放弃，
- * 旧键一个不动，下次进页面再试。
- */
-export const applyLegacyMigration = (storage: StorageLike, plan: LegacyMigrationPlan): boolean => {
-  if (plan.state === null) return false;
-  try {
-    for (const { key, value } of plan.writes) storage.setItem(key, value);
-  } catch {
-    return false;
-  }
-  for (const key of plan.removals) {
-    try {
-      storage.removeItem(key);
-    } catch {
-      /* 删不掉也无妨：下次迁移会因为已有主体列表而直接跳过 */
-    }
-  }
-  return true;
-};
-
 export interface EnsureApplicationsResult {
   state: ApplicationsState;
-  /** 这次是不是刚从老存档迁移过来的（用于提示 / 埋点） */
-  migrated: boolean;
 }
 
 /**
  * 取当前的主体列表，按需初始化：
  *   1. 已经有列表 → 收口（activeAppId 无效就落到第一个）；
- *   2. 没有列表但有旧存档 → 迁移成主体 #1；
- *   3. 什么都没有 → 建一个空白主体。
+ *   2. 没有列表 → 建一个空白主体（落第 1 步）。
+ *
+ * **没有「从旧存档迁移」这一步了**（2026-09 去掉）：单主体时代的全局键不再读、不再搬。
+ * 旧键留在那里也不影响（只有本模块的 per-app 键会被读），硬删反而可能删掉别人正在用的东西。
  *
  * 返回 null 表示「连空白主体都存不下来」（隐私模式 / 配额满），调用方据此提示。
  */
@@ -522,20 +348,82 @@ export const ensureApplicationsState = (storage: StorageLike, now = Date.now()):
     if (active !== '' && active !== existing.activeAppId && existing.applications.some((app) => app.id === active)) {
       const withActive = { ...existing, activeAppId: active };
       writeApplicationsState(storage, withActive);
-      return { state: withActive, migrated: false };
+      return { state: withActive };
     }
-    return { state: existing, migrated: false };
-  }
-
-  const plan = planLegacyMigration(storage, now);
-  if (plan.state !== null) {
-    const applied = applyLegacyMigration(storage, plan);
-    return applied ? { state: plan.state, migrated: true } : null;
+    return { state: existing };
   }
 
   const fresh = createApplication(now, 0);
   const state: ApplicationsState = { applications: [fresh], activeAppId: fresh.id };
-  return writeApplicationsState(storage, state) ? { state, migrated: false } : null;
+  return writeApplicationsState(storage, state) ? { state } : null;
+};
+
+/* ------------------------------------------------- 跨标签页的「合并写」 */
+
+/**
+ * 一次落盘的**意图**：说清「本标签页改了什么」，好让合并写只覆盖那些东西。
+ *
+ * 为什么要这么细：整份主体列表是**一个** localStorage 键，两个标签页各持一份快照时，
+ * 谁后写谁就把对方的改动整个盖掉 —— 典型场景是「支付成功页新开一个填报标签页，
+ * 回原标签页切了主体 / 新增了主体，然后填报页一保存」：原来那版直接 `setItem(整个 apps)`
+ * 会把存档里的主体列表与 activeAppId 一起**退回**填报页启动时的快照（新增的主体凭空消失，
+ * 当前主体被拽回去）。
+ */
+export interface ApplicationsWriteIntent {
+  /** 本标签页改过字段的主体 id：只有这些以本标签页内存里的那份为准 */
+  dirtyAppIds: string[];
+  /** 本标签页删掉的主体 id（别的标签页的快照里可能还在） */
+  removedAppIds: string[];
+  /** 本标签页是不是**自己切换了当前主体** —— 只有它才有资格改存档里的 activeAppId */
+  takeActiveAppId: boolean;
+}
+
+export interface MergedApplicationsWrite {
+  state: ApplicationsState;
+  /** 合并结果与存档一模一样时给 false，调用方就别写了（避免无谓的跨标签页覆盖） */
+  changed: boolean;
+}
+
+/**
+ * 跨标签页安全的合并写：`stored` 是**刚读到的**存档，`mine` 是本标签页内存里的那份。
+ *
+ * 规则：
+ *   - 以存档为底 —— 别的标签页新增 / 改名 / 改状态的主体原样保留；
+ *   - 只有 `dirtyAppIds` 里的主体用本标签页的版本覆盖（那些是我们真正改过的）；
+ *   - `removedAppIds` 里的主体删掉；本标签页新增（存档里没有）的追加进去；
+ *   - **activeAppId**：本标签页自己切过主体（`takeActiveAppId`）才动它，否则一律保留存档里的 ——
+ *     于是「另一个标签页切了主体」不会被这个标签页的保存动作覆盖掉，而这个标签页自己
+ *     也仍停留在自己那一份主体上（第 5 步填报页就是靠这一点钉住自己的主体）。
+ *   - 兜底：删空了就补一个空白主体（与 `discardApplication` 同口径）。
+ */
+export const mergeApplicationsWrite = (
+  stored: ApplicationsState | null,
+  mine: ApplicationsState,
+  intent: ApplicationsWriteIntent,
+  now = Date.now()
+): MergedApplicationsWrite => {
+  const base: ApplicationsState = stored ?? { applications: [], activeAppId: mine.activeAppId };
+  const dirty = new Set(intent.dirtyAppIds);
+  const removed = new Set(intent.removedAppIds);
+  const mineById = new Map(mine.applications.map((app) => [app.id, app]));
+
+  const applications: ApplicationRecord[] = [];
+  for (const app of base.applications) {
+    if (removed.has(app.id)) continue;
+    const own = mineById.get(app.id);
+    applications.push(dirty.has(app.id) && own ? own : app);
+  }
+  for (const app of mine.applications) {
+    if (removed.has(app.id)) continue;
+    if (!applications.some((item) => item.id === app.id)) applications.push(app);
+  }
+  if (applications.length === 0) applications.push(createApplication(now, 0));
+
+  const wantedActive = intent.takeActiveAppId ? mine.activeAppId : base.activeAppId;
+  const activeAppId = applications.some((app) => app.id === wantedActive) ? wantedActive : applications[0].id;
+
+  const state: ApplicationsState = { applications, activeAppId };
+  return { state, changed: JSON.stringify(state) !== JSON.stringify(base) };
 };
 
 /** 更新某个主体（App 的 `updateActiveApp` 底层用它） */

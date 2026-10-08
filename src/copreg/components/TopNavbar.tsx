@@ -147,8 +147,8 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
           </div>
         </div>
 
-        {/* Right: 多主体切换 —— 产品要求**暂时屏蔽**（开关在 applications.MULTI_APPLICATION_ENABLED）：
-            关掉时整块不渲染，顶栏只剩品牌；模型与下面这段代码都保留，恢复时改回 true 即可 */}
+        {/* Right: 多主体切换（开关在 applications.MULTI_APPLICATION_ENABLED，2026-09 已打开）：
+            关掉时整块不渲染、顶栏只剩品牌；模型与这段代码都保留，需要再屏蔽就改回 false */}
         {MULTI_APPLICATION_ENABLED && (
           <div className="flex items-center gap-2" ref={dropdownRef}>
           <div className="relative">
