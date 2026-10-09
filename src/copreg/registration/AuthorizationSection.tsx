@@ -9,6 +9,7 @@ import { Printer, Download, Upload, Eye, Trash2, Check, FileText } from 'lucide-
 import { formatSize } from './defaultData';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import { authorizationLetterFileName, buildAuthorizationLetterHtml } from './authorizationDoc';
+import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
 import { printHtmlDocument } from '../../utils/printDocument';
 
 interface AuthorizationSectionProps {
@@ -16,6 +17,18 @@ interface AuthorizationSectionProps {
   onChange: (data: AuthorizationData) => void;
   onPreviewFile: (file: FileAttachment) => void;
   onToast: (msg: string) => void;
+  /**
+   * 经办人信息（受托人姓名 / 身份证号）的读取状态。这两项**不再让用户手填**（2026-10-08 起）：
+   * 必须与「一窗通」公章经办人一致，由服务端下发（`registration/jingbanren.ts` → `/subscribe/handler`），
+   * 打开填报页时读一次。这里只负责把状态与值显示出来 + 失败时给一颗「重试」。
+   */
+  jingbanren: { status: 'loading' | 'ready' | 'error'; message?: string };
+  onReloadJingbanren: () => void;
+  /**
+   * 这一章的校验结果（章节级 id→文案）：**只用来判断卡片要不要亮高亮条**
+   * —— 没有待完善项才亮，与 #survey 的「已完善」同一口径（2026-10-08）。
+   */
+  errors?: Record<string, string>;
 }
 
 export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
@@ -23,14 +36,20 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
   onChange,
   onPreviewFile,
   onToast,
+  jingbanren,
+  onReloadJingbanren,
+  errors,
 }) => {
+  /** 这一章有没有待完善项：没有才亮高亮条（与 #survey 同一口径，2026-10-08） */
+  const sectionDone = Object.keys(errors || {}).length === 0;
+
   // 选完文件直接上传：拿到 fileUuid 才替掉旧的委托书附件
   const { isUploading, upload } = useAttachmentUpload();
 
-  // 受托人两项**初始化留空、由用户自己填**：不再回落到「联系人」那个人 ——
-  // 受托人未必是联系人（要与「一窗通」公章经办人一致），拿别人的名字顶上去只会印错委托书
+  // 受托人两项由接口带入（字段本身保留：确认页与打印都读它），界面上只读展示
   const trusteeName = data.trusteeName;
   const trusteeIdNumber = data.trusteeIdNumber;
+  const hasTrusteeInfo = trusteeName !== '' || trusteeIdNumber !== '';
 
   const dateVal = data.entrustDate || new Date().toISOString().split('T')[0];
   const [y, m, d] = dateVal.split('-');
@@ -96,7 +115,12 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="fill-sec-auth"
+        data-card-done={String(sectionDone)}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(sectionDone)}`}
+      >
+        {sectionDone && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-6 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -127,41 +151,43 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
             <div className="mb-2.5">
               <h3 className="text-xs sm:text-sm font-bold text-slate-800">第 1 步：生成并打印委托书</h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                填写下面的受托人信息后，A4 委托书会同步排版；确认无误再打印或下载。
+                受托人（须与「一窗通」公章经办人一致）由系统自动带入，无需填写；确认无误再打印或下载。
               </p>
             </div>
 
-            {/* 受托人信息：委托书正文与打印件都取这两项（初始为空，可随时改） */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1 block">受托人姓名</label>
-                <input
-                  type="text"
-                  value={data.trusteeName}
-                  maxLength={20}
-                  onChange={(e) => onChange({ ...data, trusteeName: e.target.value })}
-                  placeholder="请填写受托人姓名"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#36B39E]"
-                />
+            {/* 经办人信息：接口带入、只读展示（原来这两项是输入框，2026-10-08 改成自动带入） */}
+            <div className="rounded-xl border border-slate-200/80 bg-slate-50/70 px-4 py-3 mb-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs sm:text-sm">
+                  <span className="text-slate-400 font-medium">受托经办人：</span>
+                  {hasTrusteeInfo ? (
+                    <span className="text-slate-800 font-semibold">
+                      {trusteeName || '—'}
+                      {trusteeIdNumber ? ` · ${trusteeIdNumber}` : ''}
+                    </span>
+                  ) : jingbanren.status === 'loading' ? (
+                    <span className="text-slate-500 font-medium">正在读取…</span>
+                  ) : (
+                    <span className="text-amber-600 font-semibold">暂未获取到</span>
+                  )}
+                </div>
+                {(jingbanren.status === 'error' || (jingbanren.status === 'ready' && !hasTrusteeInfo)) && (
+                  <button
+                    type="button"
+                    onClick={onReloadJingbanren}
+                    className="px-2.5 py-1 rounded-full bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-[11px] font-semibold transition-colors cursor-pointer"
+                  >
+                    重新获取
+                  </button>
+                )}
               </div>
-              <div>
-                <label className="text-xs font-bold text-slate-700 mb-1 block">受托人身份证号码</label>
-                <input
-                  type="text"
-                  value={data.trusteeIdNumber}
-                  maxLength={18}
-                  // 身份证号只可能是数字与结尾的 X：边输边滤，免得打印出来一串怪字符
-                  onChange={(e) =>
-                    onChange({
-                      ...data,
-                      trusteeIdNumber: e.target.value.replace(/[^0-9Xx]/g, '').toUpperCase(),
-                    })
-                  }
-                  placeholder="请填写 18 位身份证号码"
-                  className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-[#36B39E]"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">需与「一窗通」公章经办人一致。</p>
-              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {jingbanren.status === 'error'
+                  ? `${jingbanren.message || '经办人信息读取失败'}（可点「重新获取」再试；一直读不到请联系企服专员）`
+                  : jingbanren.status === 'ready' && !hasTrusteeInfo
+                  ? '服务端还没登记这位经办人，可点「重新获取」再试；一直读不到请联系企服专员。'
+                  : '由服务人员按「一窗通」公章经办人信息自动带入，无需填写。'}
+              </p>
             </div>
 
             {/* Paper Presentation Stage */}

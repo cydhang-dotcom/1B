@@ -32,6 +32,8 @@ import {
 } from 'lucide-react';
 
 import { registrationStorageKey } from '../registration/defaultData';
+import { agentCardOf } from '../registration/contactInfo';
+import { useRegistrationContact } from '../registration/useRegistrationContact';
 import { fillDetailsOpenUrl } from '../stepRoute';
 import { PayQrCode } from '../../payment/PayQrCode';
 import { useWechatNativePay } from '../../payment/useWechatNativePay';
@@ -43,8 +45,15 @@ interface AgreementAndPaymentStepProps {
   plan: RegistrationPlan;
   order: PaymentOrder;
   onUpdateOrder?: (order: PaymentOrder | ((prev: PaymentOrder) => PaymentOrder)) => void;
-  onPaymentSuccess?: () => void;
-  onPaid?: (orderData: Partial<PaymentOrder>) => void;
+  /**
+   * 查单确认已支付：把**这份付过款的订单**交回 App。
+   *
+   * 必须把订单带上：App 除了解锁服务群，还要把「已支付」写回**主体记录里的订单摘要**
+   * —— 顶栏下拉的状态徽标 / 「作废服务」入口、以及支付成功页新开填报页的深链放行条件
+   * （`allowsFillDetailsIntent`）读的都是那份摘要，光改运行时那份 `order` 它们都看不到
+   * （2026-10 修：付完款顶栏仍显示「待支付」）。
+   */
+  onPaymentSuccess?: (paidOrder: PaymentOrder) => void;
   onBack: () => void;
   /** 申报资料是否已提交，决定清单里第一项的完成态与「查看/修改申报资料」入口 */
   isDetailsSubmitted?: boolean;
@@ -72,7 +81,6 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   order,
   onUpdateOrder,
   onPaymentSuccess,
-  onPaid,
   onBack,
   isDetailsSubmitted,
   paidView,
@@ -124,6 +132,14 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   });
 
   const effectiveSubmitted = Boolean(isDetailsSubmitted || localSubmitted);
+
+  /**
+   * 头部卡片的「经办人姓名 / 经办联系电话」：**申报资料里填了联系人就取联系人的**，
+   * 没填才退回订单上查单带回来的手机号 / 破折号（姓名一直没采集过，所以以前那格总是破折号）。
+   * 填报页是新标签页开的，那边一保存草稿这里就通过 storage 事件跟着更新，见 useRegistrationContact。
+   */
+  const contact = useRegistrationContact(appId, effectiveSubmitted);
+  const agentCard = agentCardOf(contact, order || {});
 
   const formatMoney = (val?: number | null) => {
     if (val === undefined || val === null || isNaN(val)) return '0';
@@ -207,6 +223,10 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   /**
    * 查单确认已支付（`phase === 'paid'`）才落订单与后续解锁。
    * 订单号 / 支付时间取查单返回的值；服务端没给就留空，前端不自己编。
+   *
+   * 两个回调**都要发**：`onUpdateOrder` 只改本页的运行时订单，`onPaymentSuccess` 让 App 把
+   * 这份订单写进主体记录里的摘要 —— 顶栏（多主体下拉的状态徽标 / 「作废服务」入口）与
+   * 支付成功页新开填报页的深链放行条件读的都是那份摘要。少发后者就是 2026-10 修的那个 bug。
    */
   useEffect(() => {
     if (pay.phase !== 'paid' || order.status === 'paid') return;
@@ -223,8 +243,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
     };
 
     if (onUpdateOrder) onUpdateOrder(updatedOrder);
-    if (onPaymentSuccess) onPaymentSuccess();
-    if (onPaid) onPaid(updatedOrder);
+    // 带上这份订单：App 要把它写进主体记录的订单摘要（顶栏徽标 / 深链放行都读那份）
+    if (onPaymentSuccess) onPaymentSuccess(updatedOrder);
     setShowPayModal(false);
 
     showToast('支付成功！委托代办已生效，已生成专属服务清单与企微顾问');
@@ -429,14 +449,6 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                     </button>
                   </label>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setShowAgreementModal(true)}
-                  className="text-xs text-slate-400 hover:text-[#36B39E] underline cursor-pointer text-left sm:text-right shrink-0"
-                >
-                  点击查看协议全文
-                </button>
               </div>
 
               {/* Section 3: Payment Method Selection */}
@@ -612,13 +624,13 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                     <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-emerald-100/70 shadow-2xs">
                       <span className="text-[11px] text-slate-400 block font-medium">经办人姓名</span>
                       <span className="font-semibold text-slate-800 text-xs mt-0.5 block">
-                        {order.contactName || '—'}
+                        {agentCard.name}
                       </span>
                     </div>
                     <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-emerald-100/70 shadow-2xs">
                       <span className="text-[11px] text-slate-400 block font-medium">经办联系电话</span>
                       <span className="font-semibold text-slate-800 text-xs font-mono mt-0.5 block">
-                        {order.contactPhone || '—'}
+                        {agentCard.phone}
                       </span>
                     </div>
                     <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-emerald-100/70 shadow-2xs">

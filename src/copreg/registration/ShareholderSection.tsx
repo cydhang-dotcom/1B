@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
 import { ShareholderRecord, PersonRecord, FileAttachment } from './types';
 import { ChevronRight, Plus, AlertTriangle, Users } from 'lucide-react';
 
@@ -22,6 +23,9 @@ export const ShareholderSection: React.FC<ShareholderSectionProps> = ({
   onEditShareholder,
   errors,
 }) => {
+  /** 这一章有没有待完善项：没有才亮高亮条（与 #survey 同一口径，2026-10-08） */
+  const sectionDone = Object.keys(errors || {}).length === 0;
+
   const totalRatio = shareholders.reduce((sum, s) => sum + (Number(s.ratio) || 0), 0);
 
   const getTitle = (s: ShareholderRecord): string => {
@@ -77,7 +81,12 @@ export const ShareholderSection: React.FC<ShareholderSectionProps> = ({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="fill-sec-shareholders"
+        data-card-done={String(sectionDone)}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(sectionDone)}`}
+      >
+        {sectionDone && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">

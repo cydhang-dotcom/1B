@@ -69,12 +69,6 @@ const nameOf = (form: RegistrationFullForm, record: RoleRecord): string =>
 
 /* ------------------------------------------------------------------ 规则 */
 
-/** 名称里是否出现某个组织形式字样（企业名称里通常含「有限公司 / 股份有限公司 / 合伙企业」） */
-const NAME_WORDS = {
-  joint: '股份',
-  partnership: '合伙',
-} as const;
-
 /**
  * 找出所有「关联冲突」。返回顺序按章节（0→4），同一章节内先整章级的、后具体行的，
  * 让用户从上往下改。
@@ -222,47 +216,26 @@ export const conflictErrorsOf = (form: RegistrationFullForm): ValidationErrorIte
   // 注：「不设董事会时该不该有总经理」不在这里查 —— 那是**必填**（validate 的 requiredRoles
   // 会要求指派总经理），不属于「两边对不上」；本文件只报自相矛盾。
 
-  /* ---------- 第 0 章：企业名称 ↔ 组织形式 ---------- */
-
-  const org = (form.basic?.org || '').trim();
-  const names = (form.basic?.names ?? []).map((name) => (name || '').trim());
-  names.forEach((name, index) => {
-    if (name === '') return;
-    if (name.includes(NAME_WORDS.joint) && org !== '股份有限公司') {
-      add(
-        0,
-        `name-${index}`,
-        `名称「${name}」含「股份」，但与基本信息里的组织形式「${org || '未选择'}」不符（应选股份有限公司）`
-      );
-    }
-    if (name.includes(NAME_WORDS.partnership) && org !== '合伙企业') {
-      add(
-        0,
-        `name-${index}`,
-        `名称「${name}」含「合伙」，但与基本信息里的组织形式「${org || '未选择'}」不符（应选合伙企业）`
-      );
-    }
-  });
-  if (names.some((name) => name !== '')) {
-    if (org === '股份有限公司' && !names.some((name) => name.includes(NAME_WORDS.joint))) {
-      add(0, 'name-0', '组织形式选了股份有限公司，但填写的名称里都没有「股份」字样，请核对');
-    }
-    if (org === '合伙企业' && !names.some((name) => name.includes(NAME_WORDS.partnership))) {
-      add(0, 'name-0', '组织形式选了合伙企业，但填写的名称里都没有「合伙」字样，请核对');
-    }
-  }
+  /* ---------- 第 0 章：企业名称 ↔ 组织形式 —— 已整块去掉（2026-10-08） ----------
+     名称那一格现在只填**字号（关键词）**（见 `nameHints.ts` 与 docs/copreg-registration-fields.md），
+     行政区划与组织形式后缀由系统按所选组织形式补全 —— 字号里本来就不该出现「股份 / 合伙」这类
+     组织形式字样，所以「名称里有没有『股份 / 合伙』」这套跨表对照既不能证明选错了组织形式、
+     也不该反过来要求字号里带这些字样（用户明确要求去掉后一类报错）。
+     真要按完整名称校验，得等系统拼出全名之后再按全名对账。 */
 
   /* ---------- 第 3 章：委托书两项是否成对、格式 ---------- */
 
+  // 受托人两项现在由接口带入（`registration/jingbanren.ts`，界面上没有输入框了），所以缺一项时
+  // 用户自己也补不了 —— 文案指向企服专员，不再说「（或都留空交申请人手写）」
   const trusteeName = (form.authorization?.trusteeName || '').trim();
   const trusteeId = (form.authorization?.trusteeIdNumber || '').trim();
   if (trusteeName !== '' && trusteeId === '') {
-    add(3, 'auth', '已填受托人姓名，但没填身份证号码：委托书上两项都要有（或都留空交申请人手写）');
+    add(3, 'auth', '受托人只有姓名、没有身份证号码：委托书上两项都要有，请联系企服专员核对「一窗通」经办人信息');
   } else if (trusteeName === '' && trusteeId !== '') {
-    add(3, 'auth', '已填受托人身份证号码，但没填姓名：委托书上两项都要有（或都留空交申请人手写）');
+    add(3, 'auth', '受托人只有身份证号码、没有姓名：委托书上两项都要有，请联系企服专员核对「一窗通」经办人信息');
   }
   if (trusteeId !== '' && !/^\d{17}[\dXx]$/.test(trusteeId)) {
-    add(3, 'auth', `受托人身份证号码「${trusteeId}」不是 18 位（17 位数字 + 数字或 X）`);
+    add(3, 'auth', `受托人身份证号码「${trusteeId}」不是 18 位（17 位数字 + 数字或 X）：号码由系统带入，请联系企服专员核对`);
   }
 
   /* ---------- 第 4 章：免申报承诺 ↔ 股东类型 ---------- */

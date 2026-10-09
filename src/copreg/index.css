@@ -28,3 +28,36 @@
     background-color: #FFFFFF;
   }
 }
+
+/*
+ * 主体下拉（顶栏「我的企业注册服务」）里那个可滚动列表：**Safari 上要一直看得见竖向滚动条**。
+ *
+ * 为什么：macOS 的 overlay 滚动条默认「滚动时才出现」，Safari 尤其明显 —— 列表明明能滚（max-h-72），
+ * 但用户看不到滚动条，以为就这么多（Chrome 上一直是显示的，所以只在 Safari 上暴露）。
+ * 只要显式画出 `::-webkit-scrollbar`，Safari 就会退化成**常显的经典滚动条**；
+ * 再把 `overflow-y` 从 auto 改成 **scroll**，让滚动条槽位一直占着 —— 内容变多变少时宽度不会跳。
+ * Firefox 走 `scrollbar-width / scrollbar-color`（窄一点、同色）。
+ */
+.applications-scroll {
+  overflow-y: scroll;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.55) transparent;
+}
+
+.applications-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.applications-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.applications-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.55);
+  border-radius: 9999px;
+}
+
+.applications-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.7);
+}
+

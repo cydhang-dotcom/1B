@@ -52,7 +52,8 @@ export function createBlankForm(): RegistrationFullForm {
       regFiles: [],
       workAddress: '',
       workRecommend: false,
-      workAddressNature: '商业租赁',
+      // 2026-10-08 起两个地址共用同一套性质，默认项也就是「租赁用房」（见 addressNatureHints.ts）
+      workAddressNature: '租赁用房',
       workFiles: [],
       board: '不设董事会',
       directors: '',

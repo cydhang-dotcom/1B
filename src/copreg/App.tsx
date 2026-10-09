@@ -40,6 +40,7 @@ import {
 } from './planDraft';
 import {
   addApplication,
+  applyPaidOrder,
   createApplication,
   defaultApplicationName,
   deriveApplicationName,
@@ -514,16 +515,10 @@ export default function App() {
             contactPhone: result.mobile ?? current.order.contactPhone
           }
         }));
-        updateActiveApp(app => ({
-          ...app,
-          order: {
-            ...app.order,
-            status: 'paid',
-            orderNo: result.orderNo ?? app.order.orderNo,
-            paidAt: result.paidAt ?? app.order.paidAt,
-            contactPhone: result.mobile ?? app.order.contactPhone
-          },
-          unlockedSteps: app.unlockedSteps.includes('group') ? app.unlockedSteps : [...app.unlockedSteps, 'group']
+        updateActiveApp(app => applyPaidOrder(app, {
+          orderNo: result.orderNo,
+          paidAt: result.paidAt,
+          contactPhone: result.mobile,
         }));
 
         // 首帧算落点时还不知道这笔已支付，可能先落在了第 2 步；查回来后把人补到
@@ -816,9 +811,22 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // Step 3: Payment Success -> unlock Service Group（只动当前主体）
-  const handlePaymentSuccess = () => {
-    unlockStep('group');
+  // Step 3: Payment Success -> 落「已支付」摘要 + 解锁 Service Group（只动当前主体）
+  //
+  // 为什么要改主体记录、而不是只解锁：顶栏下拉的状态徽标、「作废服务 / 已生效履约中」、
+  // 以及支付成功页新开填报页的深链放行条件（`allowsFillDetailsIntent` 读 `order.status`）
+  // **读的都是主体记录里的订单摘要**，运行时那份 `order`（`onUpdateOrder` 改的）它们看不到。
+  // 之前这里只 `unlockStep('group')`，于是「付完款点开顶栏还是待支付」、已支付主体还留着
+  // 「作废服务」（点下去会被 `discardApplication` 的 paid 规则拦住，但入口就不该在）、
+  // 新开的填报页深链被拒 —— 三个症状同一个根因。写入口径见 `applications.applyPaidOrder`。
+  const handlePaymentSuccess = (paidOrder: PaymentOrder) => {
+    updateActiveApp((app) =>
+      applyPaidOrder(app, {
+        orderNo: paidOrder.orderNo,
+        paidAt: paidOrder.paidAt,
+        contactPhone: paidOrder.contactPhone,
+      })
+    );
   };
 
   // Proceed from Payment to Fill Details —— 付款后该做的是填申报资料（第 5 步）
@@ -922,15 +930,19 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#FFFFFF] text-[#0F172A] relative flex flex-col selection:bg-[#E6F7F2] selection:text-[#2AA894]">
 
-      {/* Top Navbar：品牌（纯展示，不可点）+ 我的企业注册服务（多主体切换 / 新增 / 改名 / 作废） */}
-      <TopNavbar
-        applications={apps.applications}
-        currentAppId={activeApp.id}
-        onSwitchApplication={handleSwitchApplication}
-        onAddApplication={handleAddApplication}
-        onRenameApplication={handleRenameApplication}
-        onDiscardApplication={handleDiscardApplication}
-      />
+      {/* Top Navbar：品牌（纯展示，不可点）+ 我的企业注册服务（多主体切换 / 新增 / 改名 / 作废）。
+          **第 5 步填报页不显示**（2026-10-08 用户要求）：那一页是独立模块、平时从支付成功页
+          新开标签页进来，顶上不该再压一条向导导航（主体切换在这里也会把用户从填报页拽走）。 */}
+      {currentStep !== 'fill_details' && (
+        <TopNavbar
+          applications={apps.applications}
+          currentAppId={activeApp.id}
+          onSwitchApplication={handleSwitchApplication}
+          onAddApplication={handleAddApplication}
+          onRenameApplication={handleRenameApplication}
+          onDiscardApplication={handleDiscardApplication}
+        />
+      )}
 
       {/* Main Content Area */}
       <main className="relative z-10 flex-1">
@@ -1028,12 +1040,6 @@ export default function App() {
             busUnionId={planRecord?.recordId ?? ''}
             onUpdateDetails={(nextDetails) => updateRuntime((current) => ({ ...current, details: nextDetails }))}
             onSubmitForReview={handleSubmitForReview}
-            onBackToPaid={() => {
-              // 回到第 3 步的支付成功界面（order 已支付时 hash 会写成 #paid）：办理清单在那一页上
-              unlockStep('payment');
-              setCurrentStep('payment');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
           />
         )}
 

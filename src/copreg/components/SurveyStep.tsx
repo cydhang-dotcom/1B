@@ -13,9 +13,9 @@ import {
   Sparkles,
   Check,
   X,
-  ArrowRight,
-  Info
+  ArrowRight
 } from 'lucide-react';
+import { SectionDecor, sectionCardClass } from './SectionDecor';
 import { SENSITIVE_OPTIONS } from '../plan';
 import { aiFillSurvey } from '../aiFill';
 import { surveyCompletion, surveyRequiredFields } from '../surveyCheck';
@@ -57,12 +57,7 @@ interface SurveyStepProps {
  * 问卷区块右上角的「已完善」装饰（迁移自参考实现）：左侧一条品牌色亮条 + 右上角一团柔光。
  * 只在区块已完善时渲染，`pointer-events-none` 保证不挡点击。
  */
-const SectionDecor: React.FC = () => (
-  <>
-    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-[#4ED1BC] to-[#2AA894] opacity-90 z-10" />
-    <div className="absolute -top-12 -right-12 w-28 h-28 bg-[#E6F7F2]/35 rounded-full blur-2xl pointer-events-none" />
-  </>
-);
+// 卡片高亮条（左侧渐变竖条 + 右上柔光）：问卷与 #fill-details 共用同一个组件，见 SectionDecor.tsx
 
 /**
  * 问卷区块表头：左侧序号标签（已完善时是绿底对勾、否则灰点）+ 右侧「已完善 / 必选」徽标。
@@ -373,24 +368,12 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight mb-2">
               <span className="text-[#2AA894]">第 1 步：</span><span className="text-[#1D6C5E]">填写企业开办基本信息与需求评估</span>
             </h1>
-
-            {/* Flat Tips Bar */}
-            <div className="p-3 rounded-xl bg-amber-50/60 border border-amber-200/70 flex items-center gap-2.5 text-xs text-amber-900 leading-relaxed">
-              <Info className="w-4 h-4 text-amber-700 shrink-0" />
-              <span>
-                用于评估组织形式与税务开票方案。带 <span className="text-amber-800 font-semibold">必填</span> 项建议完整提供，经营范围可使用 AI 智能生成。
-              </span>
-            </div>
           </section>
 
           {/* ==================== 01 核心需求 ==================== */}
           <div
             id="sec-core"
-            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${
-              cardDone['sec-core']
-                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
-                : 'border-slate-200/80 bg-white hover:border-slate-300'
-            }`}
+            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(cardDone['sec-core'])}`}
           >
             {cardDone['sec-core'] && <SectionDecor />}
 
@@ -470,11 +453,7 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 02 企业与业务 ==================== */}
           <div
             id="sec-biz"
-            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${
-              cardDone['sec-biz']
-                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
-                : 'border-slate-200/80 bg-white hover:border-slate-300'
-            }`}
+            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(cardDone['sec-biz'])}`}
           >
             {cardDone['sec-biz'] && <SectionDecor />}
 
@@ -767,11 +746,7 @@ export const SurveyStep: React.FC<SurveyStepProps> = ({
           {/* ==================== 04 股权与资本 ==================== */}
           <div
             id="sec-equity"
-            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${
-              cardDone['sec-equity']
-                ? 'border-[#2AA894]/30 bg-gradient-to-br from-[#F7FCFA] via-white to-white shadow-[0_4px_16px_-4px_rgba(42,168,148,0.08)]'
-                : 'border-slate-200/80 bg-white hover:border-slate-300'
-            }`}
+            className={`rounded-2xl p-5 sm:p-6 mb-5 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(cardDone['sec-equity'])}`}
           >
             {cardDone['sec-equity'] && <SectionDecor />}
 

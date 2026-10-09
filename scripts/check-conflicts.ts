@@ -45,7 +45,7 @@ const baseForm = (): RegistrationFullForm =>
       regFiles: [],
       workAddress: '',
       workRecommend: true,
-      workAddressNature: '商业租赁',
+      workAddressNature: '租赁用房', // 两个地址 2026-10-08 起同一套性质
       workFiles: [],
       board: '不设董事会',
       directors: '',
@@ -263,38 +263,20 @@ expectClean('「由总经理代行职务」但没指派总经理 → 不在这�
   f.roles = [{ id: 'r1', personId: 'p1', roles: ['法定代表人', '财务负责人', '联系人'] }];
 });
 
-/* --------------------------------- 第 0 章：企业名称 ↔ 组织形式 */
+/* ------------- 第 0 章：企业名称 ↔ 组织形式（2026-10-08 整块去掉） -------------
+   名称那一格现在只填**字号（关键词）**（行政区划与组织形式后缀由系统补全），所以
+   「名称里有没有『股份 / 合伙』」这套跨表对照没有依据了：报了只会误伤（用户要求去掉）。 */
 
-{
-  const result = check('名称含「股份」但组织形式是有限责任公司 → 冲突', (f) => {
-    f.basic.names = ['甲乙丙股份有限公司', '', ''];
-  });
-  ok('  · 挂到具体那个名称输入框上（name-0）', result.messages.some((m) => m.includes('含「股份」')));
-}
-{
-  check('名称含「合伙」但组织形式是有限责任公司 → 冲突', (f) => {
-    f.basic.names = ['甲乙丙合伙企业', '', ''];
-  });
-}
-{
-  check('组织形式选了股份有限公司、但名称都没「股份」→ 冲突', (f) => {
-    f.basic.org = '股份有限公司';
-    f.basic.names = ['甲乙丙科技有限公司', '', ''];
-  });
-}
-{
-  check('组织形式选了合伙企业、但名称都没「合伙」→ 冲突', (f) => {
-    f.basic.org = '合伙企业';
-    f.basic.names = ['甲乙丙科技有限公司', '', ''];
-  });
-}
-expectClean('组织形式与名称一致（股份有限公司 + 含股份）→ 不报', (f) => {
+expectClean('字号里没有「股份」但组织形式是股份有限公司 → 不报（字号本来就不含组织形式字样）', (f) => {
   f.basic.org = '股份有限公司';
-  f.basic.names = ['甲乙丙科技股份有限公司', '', ''];
+  f.basic.names = ['甲乙丙科技', '', ''];
 });
-expectClean('合伙企业 + 名称含合伙 → 不报', (f) => {
+expectClean('字号里带「股份」但组织形式是有限责任公司 → 也不报（只填字号，不再跨表对账）', (f) => {
+  f.basic.names = ['甲乙丙股份', '', ''];
+});
+expectClean('合伙企业同理：字号里没有「合伙」也不报', (f) => {
   f.basic.org = '合伙企业';
-  f.basic.names = ['甲乙丙（有限合伙）', '', ''];
+  f.basic.names = ['甲乙丙科技', '', ''];
 });
 
 /* ------------------------------------------ 第 3 章：委托书两项成对 */
@@ -350,7 +332,6 @@ expectClean('有企业股东但没勾免申报 → 不报', (f) => {
 {
   // 一次把所有毛病都摆上：条数应当等于各自的冲突数，且都带章节下标
   const form = baseForm();
-  form.basic.names = ['甲乙丙股份有限公司', '', ''];
   form.basic.capital = '100';
   form.shareholders = [
     share({ id: 's1', ratio: '60', amount: '50', personId: null }),
@@ -364,11 +345,10 @@ expectClean('有企业股东但没勾免申报 → 不报', (f) => {
   form.confirm.exemption = true;
 
   const found = conflictErrorsOf(form);
-  ok('多种冲突同时存在时逐条列出（不是只报第一条）', found.length >= 6);
+  ok('多种冲突同时存在时逐条列出（不是只报第一条）', found.length >= 5);
   ok('每条都带着章节下标（0–4），提交时才能跳到第一个出错章节', found.every((e) => e.s >= 0 && e.s <= 4));
   ok('整章级冲突挂在章节 key 上（shareholders / roles）', found.some((e) => e.id === 'shareholders') && found.some((e) => e.id === 'roles'));
   ok('具体行的冲突挂到那一行（share-<id>）', found.some((e) => e.id === 'share-s1' && e.record?.kind === 'share'));
-  ok('名称冲突挂到对应输入框（name-0）', found.some((e) => e.id === 'name-0' && e.s === 0));
   ok('委托书冲突挂在第 3 章（auth）', found.some((e) => e.id === 'auth' && e.s === 3));
   ok('免申报冲突挂在第 4 章', found.some((e) => e.id === 'exemption' && e.s === 4));
 }

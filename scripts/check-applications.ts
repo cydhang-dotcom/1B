@@ -15,6 +15,7 @@ import {
   APPLICATIONS_KEY,
   MAX_APPLICATIONS,
   addApplication,
+  applyPaidOrder,
   canAddApplication,
   createApplication,
   deriveApplicationName,
@@ -33,6 +34,7 @@ import {
   updateApplication,
   writeApplicationsState,
   type ApplicationsState,
+  type ApplicationRecord,
   type StorageLike,
 } from '../src/copreg/applications';
 /**
@@ -328,6 +330,42 @@ function main() {
     const noop = patchOrderSummary(filled, a.id, { tierName: '企业注册服务', amount: 600 }, NOW + 4);
     ok('没什么可补时原样返回（App 据此跳过落盘）', noop === filled);
     ok('认不出的主体不动', patchOrderSummary(base, '不存在', { tierName: 'x' }) === base);
+  }
+
+  /* ------------------------------------------------------ 付款成功写回摘要 */
+  {
+    // 用户报的 bug：在支付页付完款，顶栏下拉还是「待支付」+ 留着「作废服务」，
+    // 支付成功页新开的填报页深链也被拒 —— 因为「已支付」只落在运行时订单上，没写回主体记录。
+    const a = createApplication(NOW, 0);
+    const before: ApplicationRecord = {
+      ...a,
+      name: '甲乙丙科技',
+      currentStep: 'payment',
+      unlockedSteps: ['survey', 'proposal', 'payment'],
+      order: { status: 'pending', orderNo: '', paidAt: '', contactPhone: '', amount: 2500, tierName: '企业注册服务' },
+    };
+    const paid = applyPaidOrder(before, { orderNo: 'ORD-1', paidAt: '2026-10-01 12:00', contactPhone: '13800000000' }, NOW + 10);
+
+    ok('付款成功把摘要置为已支付', paid.order.status === 'paid');
+    ok('付款成功写回单号 / 支付时间 / 手机号', paid.order.orderNo === 'ORD-1' && paid.order.paidAt === '2026-10-01 12:00' && paid.order.contactPhone === '13800000000');
+    ok('付款成功解锁服务群', paid.unlockedSteps.includes('group') && paid.unlockedSteps.length === 4);
+    ok('付款成功不动已付金额与套餐名', paid.order.amount === 2500 && paid.order.tierName === '企业注册服务');
+    ok('付款成功不改当前步（仍在支付页看支付成功界面）', paid.currentStep === 'payment');
+    ok('付款成功刷新 updatedAt', paid.updatedAt !== before.updatedAt);
+    ok('付款成功不动原记录（纯函数）', before.order.status === 'pending' && before.unlockedSteps.length === 3);
+
+    // 服务端什么都没带回来：保留摘要里原有的，前端不自己编，也不清空
+    const bare = applyPaidOrder(before, {}, NOW + 11);
+    ok('服务端没给字段时保留摘要原值', bare.order.status === 'paid' && bare.order.orderNo === '' && bare.order.paidAt === '' && bare.order.contactPhone === '');
+
+    // 重复调用（查单与付款两条路都写一次是正常的）：解锁范围不能写重复
+    const again = applyPaidOrder(paid, { orderNo: 'ORD-1' }, NOW + 12);
+    ok('重复写回不把 group 写重复', again.unlockedSteps.filter((step) => step === 'group').length === 1);
+    ok('重复写回不会把已有单号清掉', again.order.orderNo === 'ORD-1' && again.order.contactPhone === '13800000000');
+
+    // 空串是「服务端没给」而不是有效值：不能被空串盖掉已有的单号 / 手机号
+    const emptyFields = applyPaidOrder(paid, { orderNo: '', paidAt: '', contactPhone: '' }, NOW + 13);
+    ok('空串字段不覆盖已有值', emptyFields.order.orderNo === 'ORD-1' && emptyFields.order.paidAt === '2026-10-01 12:00' && emptyFields.order.contactPhone === '13800000000');
   }
 
   /* ------------------------------------------------------ 更新主体 */

@@ -30,7 +30,14 @@ import {
 } from '../registration/addressNatureHints';
 import { conflictErrorsOf } from '../registration/conflicts';
 import { OPEN_INFO_TIMEOUT_MS, saveOpenInfo, type OpenInfoEndpoint } from '../registration/openInfo';
-import { DOC_HOST, OPEN_INFO_PATH } from '../../config/api';
+import {
+  applyJingbanren,
+  fetchJingbanren,
+  type JingbanrenEndpoint,
+  type JingbanrenInfo,
+} from '../registration/jingbanren';
+import { createOnceGate } from '../registration/onceGate';
+import { DOC_HOST, JINGBANREN_PATH, OPEN_INFO_PATH } from '../../config/api';
 import type { RegistrationPlan, SurveyData } from '../types';
 import {
   ArrowLeft,
@@ -60,16 +67,20 @@ interface RegistrationDetailsStepProps {
   busUnionId: string;
   onUpdateDetails: (details: RegistrationDetails) => void;
   onSubmitForReview: () => void;
-  /**
-   * 返回第 3 步的**支付成功页**（`#paid`）：页头与底部操作条两颗「返回办理清单」都走它
-   * —— 办理清单（服务进度状态与办理清单）就在那一页上，所以按钮就照那一页的东西命名。
-   * （原来是回第 4 步服务群；服务群仍解锁、hash 仍可直达，只是不再是这一页的返回目标。）
-   */
-  onBackToPaid: () => void;
 }
 
 /** 只有 React 这一层读 config/api.ts：它依赖 import.meta.env，是 Vite 专有的 */
 const OPEN_INFO_ENDPOINT: OpenInfoEndpoint = { host: DOC_HOST, path: OPEN_INFO_PATH };
+const JINGBANREN_ENDPOINT: JingbanrenEndpoint = { host: DOC_HOST, path: JINGBANREN_PATH };
+
+/**
+ * 经办人信息每次**打开填报页**读一次。
+ *
+ * 用单飞闸门而不是裸 fetch：dev 的 StrictMode 会「挂载 → 清理 → 再挂载」，effect 跑两遍 ——
+ * 没有闸门就是两次 GET（服务人员查看页当初就是因此把一次性查看码用掉的）。
+ * 闸门按单号记结果，同一单在这一页里只读一次；用户点「重试」时先 `reset` 再读。
+ */
+const jingbanrenGate = createOnceGate<JingbanrenInfo>();
 
 const CHAPTERS = [
   { id: 0, num: '01', title: '基本信息', fullTitle: '企业基本信息' },
@@ -88,7 +99,6 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   busUnionId,
   onUpdateDetails,
   onSubmitForReview,
-  onBackToPaid,
 }) => {
   /** 这个主体的申报表存档键（多主体：每个主体一份） */
   const storageKey = registrationStorageKey(appId);
@@ -116,6 +126,16 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   // 保存 / 提交接口在途：按钮置灰，避免同一份资料连发两次
   const [isSaving, setIsSaving] = useState(false);
+
+  /**
+   * 经办人信息（受托人姓名 / 身份证号）的读取状态 —— 这两项不再让用户手填，
+   * 打开填报页时从接口读（见下面那个 effect）。`attempt` 是「重试」按钮的计数器。
+   */
+  const [jingbanrenState, setJingbanrenState] = useState<{
+    status: 'loading' | 'ready' | 'error';
+    message?: string;
+  }>({ status: 'loading' });
+  const [jingbanrenAttempt, setJingbanrenAttempt] = useState(0);
 
   // Modals state
   const [showTypeModal, setShowTypeModal] = useState<boolean>(false);
@@ -154,6 +174,62 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     setForm((prev) => ({ ...prev, ...partial }));
     setIsDirty(true);
   };
+
+  /**
+   * 打开填报页就读一次经办人信息：
+   *   GET {DOC_HOST}/xcx/yqt-co/subscribe/handler?busUnionId={委托单号} → { handName, handIdNumber }
+   *
+   * 为什么要读：委托书上那两项必须与「一窗通」公章经办人一致（见 authorizationDoc.ts），
+   * 让用户手填只会印错；**但字段保留** —— 确认页与委托书打印读的还是
+   * `authorization.trusteeName / trusteeIdNumber`，只是填的人从用户换成了服务端。
+   *
+   * 接口这次没给的那一项保留原值（`applyJingbanren` 只覆盖非空），两项都一样就整个不动。
+   * 拿到值顺手落一次本地草稿：用户还没点「保存草稿」时，确认页与委托书预览也要看得到。
+   */
+  useEffect(() => {
+    const recordId = (busUnionId || '').trim();
+    if (recordId === '') {
+      setJingbanrenState({ status: 'error', message: '缺少委托单号，无法读取经办人信息' });
+      return;
+    }
+    let cancelled = false;
+    setJingbanrenState({ status: 'loading' });
+    const key = `jingbanren\u0000${recordId}`;
+    // 重试：先抹掉闸门里的旧结果（成功/失败都记着），否则点了重试也只会拿到上一次那个 promise
+    if (jingbanrenAttempt > 0) jingbanrenGate.reset(key);
+
+    jingbanrenGate
+      .run(key, () => fetchJingbanren(JINGBANREN_ENDPOINT, recordId))
+      .then((info) => {
+        if (cancelled) return;
+        setForm((prev) => {
+          const { next, changed } = applyJingbanren(prev.authorization, info);
+          if (!changed) return prev;
+          const merged: RegistrationFullForm = {
+            ...prev,
+            authorization: { ...prev.authorization, ...next },
+          };
+          try {
+            localStorage.setItem(storageKey, JSON.stringify(merged));
+          } catch {
+            /* 浏览器禁用了本地存储：内存里这份照样能用，别因此打断 */
+          }
+          return merged;
+        });
+        setJingbanrenState({ status: 'ready' });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setJingbanrenState({
+          status: 'error',
+          message: error instanceof Error ? error.message : '经办人信息读取失败，请稍后重试',
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [busUnionId, storageKey, jingbanrenAttempt]);
 
   // Validation engine
   const validate = (): ValidationErrorItem[] => {
@@ -629,22 +705,14 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-10 pb-4">
         {/* ==================== INDEPENDENT MODULE HEADING ==================== */}
         <section className="mb-6">
-          <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#1D6C5E] border border-[#2AA894]/30 select-none">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#2AA894]" />
-              <span className="font-bold">独立业务模块</span>
-              <span className="text-[#2AA894]">·</span>
-              <span>企业注册申报资料填报与初审</span>
-            </div>
-
-            <button
-              type="button"
-              onClick={onBackToPaid}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-900 text-xs font-medium transition-all shadow-2xs cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-slate-500" />
-              <span>返回办理清单</span>
-            </button>
+          {/* 这一页是**独立模块**：不显示全局顶栏（App 里按 currentStep 屏蔽），页头也不再放
+              「返回办理清单」—— 它平时是支付成功页**新开标签页**打开的，回到清单就是关掉这一页 /
+              切回原来那个标签页；同标签页兜底进来时可以先「保存草稿」，提交后也会自动回到支付页。 */}
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium bg-[#E6F7F2] text-[#1D6C5E] border border-[#2AA894]/30 select-none mb-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#2AA894]" />
+            <span className="font-bold">独立业务模块</span>
+            <span className="text-[#2AA894]">·</span>
+            <span>企业注册申报资料填报与初审</span>
           </div>
 
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -783,6 +851,9 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
               onChange={(authorization) => updateForm({ authorization })}
               onPreviewFile={(file) => setPreviewFile(file)}
               onToast={showToast}
+              jingbanren={jingbanrenState}
+              onReloadJingbanren={() => setJingbanrenAttempt((n) => n + 1)}
+              errors={currentErrorsMap}
             />
           )}
 
@@ -805,14 +876,18 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       <div className="fixed left-0 right-0 bottom-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/80 py-3 px-4 sm:px-6 shadow-md">
         <div className="max-w-4xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
           <div className="flex items-center gap-2 sm:gap-2.5">
-            <button
-              type="button"
-              onClick={currentChapter === 0 ? onBackToPaid : handlePrev}
-              className="px-3.5 sm:px-5 py-2 rounded-full border border-slate-200 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>{currentChapter === 0 ? '返回办理清单' : '上一项'}</span>
-            </button>
+            {/* 第 1 章时这颗原来是「返回办理清单」—— 已经去掉（这一页不提供回清单的入口，
+                见页头那段说明）；第 2 章起仍是「上一项」 */}
+            {currentChapter > 0 && (
+              <button
+                type="button"
+                onClick={handlePrev}
+                className="px-3.5 sm:px-5 py-2 rounded-full border border-slate-200 bg-white text-slate-700 text-xs font-medium hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>上一项</span>
+              </button>
+            )}
 
             {/* 草稿已保存 / 保存草稿 */}
             <button

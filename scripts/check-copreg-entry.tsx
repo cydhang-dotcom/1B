@@ -508,7 +508,6 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
       busUnionId="TEST-RECORD-1"
       onUpdateDetails={() => {}}
       onSubmitForReview={() => {}}
-      onBackToPaid={() => {}}
     />,
   );
 
@@ -568,39 +567,48 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
         busUnionId="TEST-RECORD-1"
         onUpdateDetails={() => {}}
         onSubmitForReview={() => {}}
-        onBackToPaid={() => {}}
-      />
+        />
     );
   };
 
-  const ownReg = renderWithNatures('自有房产', '居家办公申报');
+  const ownReg = renderWithNatures('自有房产', '自有房产');
   check(
-    '第 5 步：注册地址占位提示按性质换成「不动产权证」口径',
+    '第 5 步：注册地址占位提示按性质换成「按房产证上的地址填写。」',
     ownReg.includes(regAddressPlaceholder('自有房产')) &&
       !ownReg.includes(regAddressPlaceholder(undefined)),
     ''
   );
   check(
-    '第 5 步：实际经营地址占位提示按性质换成「门牌号」口径',
-    ownReg.includes(workAddressPlaceholder('居家办公申报')) &&
+    // 2026-10-08 起两个地址**同一套性质**，实际经营那一栏也按「自有房产」换词
+    '第 5 步：实际经营地址占位提示同样按性质换（两边同一套）',
+    ownReg.includes(workAddressPlaceholder('自有房产')) &&
       !ownReg.includes(workAddressPlaceholder(undefined)),
     ''
   );
 
-  const parkReg = renderWithNatures('园区孵化器', '联合办公/众创工位');
+  const freeUse = renderWithNatures('自有房产', '无偿使用证明');
   check(
-    '第 5 步：换成园区孵化器 / 联合办公后提示词跟着换（不是写死一句话）',
-    parkReg.includes(regAddressPlaceholder('园区孵化器')) &&
-      !parkReg.includes(regAddressPlaceholder('自有房产')) &&
-      parkReg.includes(workAddressPlaceholder('联合办公/众创工位')) &&
-      !parkReg.includes(workAddressPlaceholder('居家办公申报')),
+    // 两个地址的「填写口径」是同一套，所以不能拿另一档的占位做「不该出现」的反证（自有房产那句
+    // 两边都会出现）—— 这里改用**各自性质专属的东西**：需上传材料那块的小标题 + 无偿使用证明的报错原文
+    '第 5 步：换成自有房产 / 无偿使用证明后提示词跟着换（不是写死一句话）',
+    // 注意：SSR 会在相邻文本节点之间插 `<!-- -->`，所以带插值的「需上传材料（XX）」不好整串匹配，
+    // 这里直接拿两档**专属的材料条目**当证据（纯字符串，不插值）
+    freeUse.includes('房产证复印件（需产权人签字或盖章）') &&
+      freeUse.includes('关联方出具的《无偿使用证明》（需盖章/签字）') &&
+      freeUse.includes(regAddressPlaceholder('自有房产')) &&
+      // 无偿使用证明那一档的占位是它专属的短句
+      freeUse.includes(workAddressPlaceholder('无偿使用证明')),
     ''
   );
   check(
-    '第 5 步：两套性质选项仍完整渲染（选项表搬进 addressNatureHints 后没丢项）',
-    ['租赁用房', '自有房产', '集中办公/众创空间', '园区孵化器', '无偿使用证明', '商业租赁', '自有产权', '联合办公/众创工位', '居家办公申报'].every(
-      (v) => parkReg.includes(v)
-    ),
+    '第 5 步：两个地址渲染的是同一套性质（只剩 3 项：租赁用房 / 自有房产 / 无偿使用证明）',
+    ['租赁用房', '自有房产', '无偿使用证明'].every((v) => freeUse.includes(v)) &&
+      // 已下架与旧那套的词都不该出现
+      !freeUse.includes('集中办公/众创空间') &&
+      !freeUse.includes('园区孵化器') &&
+      !freeUse.includes('居家办公申报') &&
+      !freeUse.includes('联合办公/众创工位') &&
+      !freeUse.includes('商业租赁'),
     ''
   );
 }
@@ -637,8 +645,7 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
         busUnionId="TEST-RECORD-1"
         onUpdateDetails={() => {}}
         onSubmitForReview={() => {}}
-        onBackToPaid={() => {}}
-      />,
+        />,
     );
   };
 
@@ -805,6 +812,33 @@ check('没有存档时 #payment → 第 1 步', hashNoDraft.step1, `step1=${hash
     deepLinked.html.includes('企业注册申报资料填报与初审') && !deepLinked.html.includes('支付成功 · 委托代办已生效'),
     JSON.stringify({ 第5步: deepLinked.html.includes('企业注册申报资料填报与初审') })
   );
+  // 高亮条（与 #survey 同款，`components/SectionDecor.tsx`）：两张页面的「需要输入的卡片」都要有
+  const decorCount = (html: string) => (html.match(/data-section-decor="bar"/g) ?? []).length;
+  const doneCount = (html: string) => (html.match(/data-card-done="true"/g) ?? []).length;
+  const pendingCount = (html: string) => (html.match(/data-card-done="false"/g) ?? []).length;
+  check(
+    // 口径与 #survey 一致：**没有待完善项的卡片才亮**，没验证通过的一律白底
+    // （所以「高亮条数」必须正好等于 data-card-done="true" 的卡片数）
+    '★ 第 5 步：只有「校验过了」的卡片亮高亮条（高亮条数 = 已完成卡片数）',
+    deepLinked.html.includes('企业注册申报资料填报与初审') &&
+      decorCount(deepLinked.html) >= 1 &&
+      decorCount(deepLinked.html) === doneCount(deepLinked.html) &&
+      pendingCount(deepLinked.html) >= 1,
+    JSON.stringify({ 高亮条: decorCount(deepLinked.html), 已完成: doneCount(deepLinked.html), 待完善: pendingCount(deepLinked.html) })
+  );
+  check(
+    '★ 第 5 步：没验证通过的卡片**不是**绿色（待完善卡片没有高亮竖条）',
+    decorCount(deepLinked.html) < doneCount(deepLinked.html) + pendingCount(deepLinked.html) &&
+      pendingCount(deepLinked.html) > 0,
+    JSON.stringify({ 卡片总数: doneCount(deepLinked.html) + pendingCount(deepLinked.html) })
+  );
+  check(
+    // 问卷页（只有问卷存档 → 落第 1 步）的卡片同样带 data-section-decor="bar"，确认抽出去没走形
+    '高亮条就是问卷那套组件（问卷页的卡片也带同款）',
+    withoutConfirm.step1 && decorCount(withoutConfirm.html) >= 1,
+    JSON.stringify({ 问卷高亮条数: decorCount(withoutConfirm.html) })
+  );
+
   // 落点是**会话级**的：主体记录里的「进度」仍然停在 payment（第 5 步不落盘）
   check(
     '★ 深链只改会话内的浏览位置，落盘的步骤仍是 payment',

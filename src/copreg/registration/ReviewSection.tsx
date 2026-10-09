@@ -6,6 +6,7 @@
 import React from 'react';
 import { RegistrationFullForm, FileAttachment } from './types';
 import { formatSize } from './defaultData';
+import { capitalReviewTextOf } from './capitalHints';
 import { ExternalLink, CheckCircle2, AlertCircle, FileText, ChevronDown, Check, ArrowRight } from 'lucide-react';
 
 interface ReviewSectionProps {
@@ -135,7 +136,7 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
           <div>
             <dt className="text-slate-400 font-medium">注册资本：</dt>
             <dd className="text-slate-800 font-semibold mt-0.5">
-              {basic.expert ? '专家推荐（由顾问出资建议方案确定）' : basic.capital ? `${basic.capital} 万元人民币` : '未填写'}
+              {capitalReviewTextOf(basic)}
             </dd>
           </div>
           <div className="sm:col-span-2">

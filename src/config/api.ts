@@ -164,6 +164,17 @@ export const OPEN_INFO_PATH =
   import.meta.env.VITE_OPEN_INFO_PATH || '/xcx/yqt-co/subscribe/open-info';
 
 /**
+ * 第 5 步（#fill-details）的**经办人信息读取**：
+ *   GET {DOC_HOST}/xcx/yqt-co/subscribe/handler?busUnionId={委托单号}
+ *   返回 { handName, handIdNumber }
+ * 委托书那一章的「受托经办人姓名 / 受托人身份证号」不再让用户手填，改由这里下发
+ * （与「一窗通」公章经办人一致）。每打开一次填报页读一次。
+ * 见 src/copreg/registration/jingbanren.ts。
+ */
+export const JINGBANREN_PATH =
+  import.meta.env.VITE_JINGBANREN_PATH || '/xcx/yqt-co/subscribe/handler';
+
+/**
  * 服务人员只读查看：按开户单 uuid（`scbUuid`）读回客户提交的申报资料。
  *
  *   GET {DOC_HOST}/xcx/yqt-co/subscribe/{scbUuid}[?code={访问码}]

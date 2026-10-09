@@ -469,3 +469,39 @@ export const patchOrderSummary = (
 
   return updateApplication(state, id, (app) => ({ ...app, order: { ...app.order, tierName, amount } }), now);
 };
+
+/**
+ * 付款成功：把「已支付」写回主体记录的**订单摘要**，并顺手解锁服务群。
+ *
+ * 为什么必须有这一步（2026-10 修的真实 bug）：顶栏下拉的状态徽标、「作废服务 / 已生效履约中」、
+ * 以及支付成功页新开填报页的深链放行条件（`stepRoute.allowsFillDetailsIntent`）读的都是
+ * **主体记录里的订单摘要**；付款那一刻如果只改运行时那份订单（`AppRuntime.order`），
+ * 这些地方一个都看不到 —— 于是「付完款点开顶栏还是待支付」，已付款的主体还留着「作废服务」，
+ * 新开的填报页深链也被拒。
+ *
+ * 规则：
+ *   - `status` 一定置 `paid`；
+ *   - 单号 / 支付时间 / 手机号：**有才写**（服务端没给就保留原值，前端不自己编）；
+ *   - `amount` / `tierName` **一律不动**：摘要里的金额是当时实际付的那笔，而调用方手上那份订单
+ *     是按**现价**现算的 —— 报价改版后不能把已付金额盖掉（与 `patchOrderSummary` 同一个口径）；
+ *   - 解锁 `group`：重复调用不会把解锁范围写乱。
+ *
+ * 作用在单条记录上（App 的 `updateActiveApp` 直接拿它当 updater）；`updatedAt` 这里刷新一次，
+ * 经 `updateApplication` 落盘时还会再刷一次，重复但无害。
+ */
+export const applyPaidOrder = (
+  app: ApplicationRecord,
+  paid: { orderNo?: string; paidAt?: string; contactPhone?: string },
+  now = Date.now()
+): ApplicationRecord => ({
+  ...app,
+  updatedAt: new Date(now).toISOString(),
+  order: {
+    ...app.order,
+    status: 'paid',
+    orderNo: paid.orderNo || app.order.orderNo,
+    paidAt: paid.paidAt || app.order.paidAt,
+    contactPhone: paid.contactPhone || app.order.contactPhone,
+  },
+  unlockedSteps: app.unlockedSteps.includes('group') ? app.unlockedSteps : [...app.unlockedSteps, 'group'],
+});

@@ -155,7 +155,10 @@ export const PlanReportView: React.FC<PlanReportViewProps> = ({ report, plan, su
               </div>
 
               {decision.recommended && (
-                <div className={`font-bold mb-2 ${amber ? 'text-base text-[#1D6C5E]' : 'text-sm text-slate-900'}`}>
+                // 四张卡片的结论**统一 text-sm**：原来给 amber（注册资本那一档）单独开了 `text-base`，
+                // 于是只有「注册资本与出资规划」的结论比别的大一号、看着不齐（用户 2026-10-08 报的）。
+                // 颜色差异（amber）保留 —— 那是配色口径，不是字号。
+                <div className={`font-bold text-sm mb-2 ${amber ? 'text-[#1D6C5E]' : 'text-slate-900'}`}>
                   {decision.recommended}
                 </div>
               )}

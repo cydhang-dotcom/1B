@@ -23,6 +23,7 @@ import { sanitizeFormAttachments } from './attachments';
 import {
   DEFAULT_REG_ADDRESS_NATURE,
   DEFAULT_WORK_ADDRESS_NATURE,
+  normalizeAddressNature,
 } from './addressNatureHints';
 import type { RegistrationFullForm } from './types';
 
@@ -46,8 +47,17 @@ export const normalizeRegistrationForm = (raw: unknown): RegistrationFullForm | 
   if (!next.basic.board) next.basic.board = '不设董事会';
   if (!next.basic.singleDirector) next.basic.singleDirector = '由总经理代行职务（不设董事）';
   if (next.basic.unanimous === undefined || next.basic.unanimous === null) next.basic.unanimous = true;
-  if (!next.basic.regAddressNature) next.basic.regAddressNature = DEFAULT_REG_ADDRESS_NATURE;
-  if (!next.basic.workAddressNature) next.basic.workAddressNature = DEFAULT_WORK_ADDRESS_NATURE;
+  // 两个地址的性质 2026-10-08 起是**同一套**（租赁用房 / 自有房产 / 无偿使用证明），且当天又下架了
+  // 「集中办公·众创空间 / 园区孵化器」两档：
+  //   同义老值平移（商业租赁 → 租赁用房、自有产权 → 自有房产），
+  //   **已下架那几档（含居家办公申报）留空让用户重选** —— 性质决定要传哪些场地材料，
+  //   替他猜一个等于猜错材料。本来就没填的才算「该给默认值」。
+  const rawRegNature = typeof next.basic.regAddressNature === 'string' ? next.basic.regAddressNature : '';
+  next.basic.regAddressNature =
+    rawRegNature.trim() === '' ? DEFAULT_REG_ADDRESS_NATURE : normalizeAddressNature(rawRegNature);
+  const rawWorkNature = typeof next.basic.workAddressNature === 'string' ? next.basic.workAddressNature : '';
+  next.basic.workAddressNature =
+    rawWorkNature.trim() === '' ? DEFAULT_WORK_ADDRESS_NATURE : normalizeAddressNature(rawWorkNature);
 
   // 附件逐项收口：旧版本存档里存的是 dataURL（本地文件内容），服务端并不知道那些文件，
   // 现在只认上传接口给过 fileUuid 的附件 —— 没有的丢掉，免得渲染出裂图、提交上空附件

@@ -5,13 +5,14 @@
 
 import React, { useEffect, useRef } from 'react';
 import { BasicInfoData, FileAttachment } from './types';
-import { formatSize } from './defaultData';
+import { formatSize, uid } from './defaultData';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import {
   DEFAULT_REG_ADDRESS_NATURE,
   DEFAULT_WORK_ADDRESS_NATURE,
   REG_ADDRESS_NATURES,
   WORK_ADDRESS_NATURES,
+  addressHintOf,
   regAddressPlaceholder,
   workAddressPlaceholder,
   workNatureForCopiedRegNature,
@@ -22,6 +23,8 @@ import {
   alternateNamePlaceholderOf,
   primaryNamePlaceholderFor,
 } from './nameHints';
+import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
+import { CAPITAL_EXPERT_HINT, capitalEditPatch } from './capitalHints';
 import {
   Plus,
   Trash2,
@@ -60,6 +63,33 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
   const update = (partial: Partial<BasicInfoData>) => {
     onChange({ ...data, ...partial });
   };
+
+  /**
+   * 每张面板「有没有待完善项」——高亮条**只在这一块校验过了才亮**（与 #survey 同一口径）。
+   * 判据直接用这一章的校验结果（`errors` 是章节级 id→文案）：这块的字段还错着就说明没填好。
+   * 面板 ↔ 校验 id 的对应关系写死在这里（`RegistrationDetailsStep.validate()` 用的是同一批 id）。
+   */
+  const PANEL_ERROR_IDS: Record<string, string[]> = {
+    '01': ['org', 'orgOther'],
+    '02': ['__names__'], // 名称那一组：id 形如 name-0 / name-1 …
+    '03': ['capital'],
+    '04': ['scope'],
+    '05': ['regAddress', 'regAddressNature', 'regFiles', 'workAddress', 'workAddressNature', 'workFiles'],
+    '06': ['board', 'directors', 'singleDirector'],
+    '07': ['singleSupervisor', 'unanimous'],
+  };
+  const basicPanelDone = (panel: string): boolean => {
+    const ids = PANEL_ERROR_IDS[panel] ?? [];
+    const keys = Object.keys(errors || {});
+    if (ids.includes('__names__')) return !keys.some((key) => key.startsWith('name-'));
+    return !keys.some((key) => ids.includes(key));
+  };
+
+  /** 两个地址当前的提示口径（占位 / 缺填报错 / 需上传材料 / 要不要红字强调），按所选性质取 */
+  const regHint = addressHintOf('reg', data.regAddressNature);
+  const workHint = addressHintOf('work', data.workAddressNature);
+  const regMaterials = regHint.materials;
+  const workMaterials = workHint.materials;
 
   // 默认选择不设董事会、不设董事（由总经理代行职权）
   const currentBoard = data.board || '不设董事会';
@@ -154,7 +184,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
   return (
     <div className="space-y-5">
       {/* Panel 01: 企业组织形式 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="01"
+        data-card-done={String(basicPanelDone('01'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('01'))}`}
+      >
+        {basicPanelDone('01') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -221,7 +256,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       </div>
 
       {/* Panel 02: 拟注册企业名称 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="02"
+        data-card-done={String(basicPanelDone('02'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('02'))}`}
+      >
+        {basicPanelDone('02') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -291,7 +331,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       </div>
 
       {/* Panel 03: 注册资本 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="03"
+        data-card-done={String(basicPanelDone('03'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('03'))}`}
+      >
+        {basicPanelDone('03') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -312,7 +357,9 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             <input
               type="text"
               value={data.capital}
-              onChange={(e) => update({ capital: e.target.value.replace(/[^\d]/g, '') })}
+              // 用户自己动过这一格就不再算「专家推荐」（见 capitalHints.ts）：
+              // 否则 05 确认提交那一章会一直显示「专家推荐」、把他填的数字吞掉
+              onChange={(e) => update(capitalEditPatch(e.target.value))}
               placeholder="例如：100"
               className={`w-full px-3.5 py-2.5 pr-12 rounded-xl border text-xs sm:text-sm outline-none transition-colors ${
                 errors.capital
@@ -325,6 +372,9 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
             </span>
           </div>
 
+          {/* 还是方案建议值时把来源说清楚：用户改一下就撤标记，这行也跟着消失 */}
+          {data.expert && <p className="text-xs text-slate-500 leading-relaxed">{CAPITAL_EXPERT_HINT}</p>}
+
           {errors.capital && (
             <p className="text-xs text-rose-500 font-medium">{errors.capital}</p>
           )}
@@ -332,7 +382,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       </div>
 
       {/* Panel 04: 企业简介与主营服务 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="04"
+        data-card-done={String(basicPanelDone('04'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('04'))}`}
+      >
+        {basicPanelDone('04') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -401,7 +456,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       </div>
 
       {/* Panel 05: 注册地址与实际经营地址 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="05"
+        data-card-done={String(basicPanelDone('05'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('05'))}`}
+      >
+        {basicPanelDone('05') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-5 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -468,8 +528,11 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                       errors.regAddress
                         ? 'border-rose-300 bg-rose-50/40 text-rose-900 focus:border-rose-500'
                         : 'border-slate-200 text-slate-800 focus:border-[#36B39E] focus:ring-2 focus:ring-[#E6F7F2]'
-                    }`}
+                    } ${regHint.emphasis ? 'placeholder:text-rose-400/90' : ''}`}
                   />
+                  {/* 输入框下面**只留一行**：「地址怎么填」已经在占位里（换性质会跟着换），
+                      再写一行小字就会和红字报错叠在一起、两句话说同一件事，不好看（用户 2026-10-08）。
+                      无偿使用证明那一档靠**红色占位** + 红色报错保留「红字重点」（不带 ⚠️ 前缀） */}
                   {errors.regAddress && (
                     <p className="text-xs text-rose-500 font-medium mt-1">{errors.regAddress}</p>
                   )}
@@ -511,9 +574,29 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                       <span>注册场地证明材料</span>
                       <span className="text-rose-500">*</span>
-                      <span className="text-[11px] text-slate-400 font-normal">（如租赁合同、房产证复印件或场地使用证明）</span>
+                      {/* 有材料清单时明细在下面那块里，这里就不再重复举例 */}
+                      {regMaterials.length === 0 && (
+                        <span className="text-[11px] text-slate-400 font-normal">（如租赁合同、房产证复印件或场地使用证明）</span>
+                      )}
                     </label>
                   </div>
+
+                  {/* 需上传材料：按所选地址性质给出（用户 2026-10-08 给的口径） */}
+                  {regMaterials.length > 0 && (
+                    <div className="mb-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2.5">
+                      <p className="text-[11px] font-bold text-slate-700 mb-1">
+                        需上传材料（{data.regAddressNature || DEFAULT_REG_ADDRESS_NATURE}）
+                      </p>
+                      <ul className="space-y-0.5">
+                        {regMaterials.map((item) => (
+                          <li key={item} className="text-[11px] text-slate-600 leading-relaxed flex gap-1.5">
+                            <span className="text-[#2AA894] shrink-0">•</span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Upload Box */}
                   <input
@@ -636,15 +719,25 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                       <button
                         type="button"
                         onClick={() => {
-                          // 一一对应：注册地址性质在实际经营那边有同名口径才跟着切（租赁用房 → 商业租赁
-                          // 等），园区孵化器 / 无偿使用证明那边没有对应选项 → 只搬地址，不动已选性质
+                          // 两个地址现在是**同一套性质**：性质直接跟着切过去（认不出就只搬地址与材料）
                           const workNature = workNatureForCopiedRegNature(data.regAddressNature);
+                          // 场地证明材料一起搬：**保留 fileUuid**（服务端已经收过这份文件，不必重传），
+                          // 只换本地行 id，免得两份清单共用同一个 id
+                          const copiedFiles: FileAttachment[] = (data.regFiles || []).map((file) => ({
+                            ...file,
+                            id: uid(),
+                          }));
                           update({
                             workAddress: data.regAddress,
                             ...(workNature ? { workAddressNature: workNature } : {}),
+                            ...(copiedFiles.length > 0 ? { workFiles: copiedFiles } : {}),
                           });
                           if (onToast) {
-                            onToast(workNature ? '已复制法定注册地址并同步地址性质' : '已复制法定注册地址');
+                            onToast(
+                              copiedFiles.length > 0
+                                ? '已复制法定注册地址，并同步地址性质与场地证明材料'
+                                : '已复制法定注册地址并同步地址性质'
+                            );
                           }
                         }}
                         className="text-[11px] text-[#2AA894] hover:underline cursor-pointer flex items-center gap-1 font-medium"
@@ -663,8 +756,9 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                       errors.workAddress
                         ? 'border-rose-300 bg-rose-50/40 text-rose-900 focus:border-rose-500'
                         : 'border-slate-200 text-slate-800 focus:border-[#36B39E] focus:ring-2 focus:ring-[#E6F7F2]'
-                    }`}
+                    } ${workHint.emphasis ? 'placeholder:text-rose-400/90' : ''}`}
                   />
+                  {/* 同法定注册地址：输入框下面只留报错那一行（见上面的说明） */}
                   {errors.workAddress && (
                     <p className="text-xs text-rose-500 font-medium mt-1">{errors.workAddress}</p>
                   )}
@@ -706,9 +800,28 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
                     <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
                       <span>实际办公场地证明材料</span>
                       <span className="text-rose-500">*</span>
-                      <span className="text-[11px] text-slate-400 font-normal">（如租赁合同、物业入驻证明或场地使用协议）</span>
+                      {workMaterials.length === 0 && (
+                        <span className="text-[11px] text-slate-400 font-normal">（如租赁合同、物业入驻证明或场地使用协议）</span>
+                      )}
                     </label>
                   </div>
+
+                  {/* 需上传材料：按所选地址性质给出（居家办公申报这一档没有口径，不显示这块） */}
+                  {workMaterials.length > 0 && (
+                    <div className="mb-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 px-3 py-2.5">
+                      <p className="text-[11px] font-bold text-slate-700 mb-1">
+                        需上传材料（{data.workAddressNature || DEFAULT_WORK_ADDRESS_NATURE}）
+                      </p>
+                      <ul className="space-y-0.5">
+                        {workMaterials.map((item) => (
+                          <li key={item} className="text-[11px] text-slate-600 leading-relaxed flex gap-1.5">
+                            <span className="text-[#2AA894] shrink-0">•</span>
+                            <span>{item}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
                   {/* Upload Box */}
                   <input
@@ -789,7 +902,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       </div>
 
       {/* Panel 06: 董事设置 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="06"
+        data-card-done={String(basicPanelDone('06'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('06'))}`}
+      >
+        {basicPanelDone('06') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">
@@ -932,7 +1050,12 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
       </div>
 
       {/* Panel 07: 监事设置 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+      <div
+        data-fill-panel="07"
+        data-card-done={String(basicPanelDone('07'))}
+        className={`rounded-2xl p-5 sm:p-6 border transition-all duration-300 relative overflow-hidden ${sectionCardClass(basicPanelDone('07'))}`}
+      >
+        {basicPanelDone('07') && <SectionDecor />}
         <div className="flex items-start justify-between gap-4 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h2 className="text-sm sm:text-base font-bold text-slate-800 flex items-center gap-1.5">

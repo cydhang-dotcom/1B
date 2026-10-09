@@ -187,8 +187,9 @@ export const TopNavbar: React.FC<TopNavbarProps> = ({
                   </div>
                 </div>
 
-                {/* Applications list */}
-                <div className="max-h-72 overflow-y-auto p-1.5 space-y-1">
+                {/* Applications list —— `applications-scroll`：滚动条样式在 index.css 里定死
+                    （Safari 上要**一直看得见**竖向滚动条，见那边的注释） */}
+                <div id="applications-list" className="applications-scroll max-h-72 overflow-y-auto p-1.5 space-y-1">
                   {applications.map((app) => {
                     const isCurrent = app.id === activeApp?.id;
                     const isPaid = app.order.status === 'paid';

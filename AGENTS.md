@@ -82,11 +82,14 @@ npm run deploy         # 构建并上传（生产发布请让用户确认）
 ## 3. 工程约定
 
 - **每个功能都带自检**，三层：
-  1. 纯逻辑抽到不依赖 DOM / `import.meta.env` 的模块（否则 `npx tsx scripts/…` 会崩），配 `scripts/check-*.ts`（当前 23 个）；
+  1. 纯逻辑抽到不依赖 DOM / `import.meta.env` 的模块（否则 `npx tsx scripts/…` 会崩），配 `scripts/check-*.ts`（当前 26 个）；
   2. 涉及真实组件渲染/落点的，加 `scripts/check-copreg-entry.tsx` 的断言（`npm run check:entry`）；
-  3. 涉及真实浏览器行为（点击、渲染像素、localStorage 串场）的，写 `.mcp-work/verify-*.mjs`（无头 Chrome + 独立 browser context；当前 35 个，**目录被 gitignore**）。
+  3. 涉及真实浏览器行为（点击、渲染像素、localStorage 串场）的，写 `.mcp-work/verify-*.mjs`（无头 Chrome + 独立 browser context；当前 38 个，**目录被 gitignore**）。
 - **改文案/价目/超时这类"口径"必须同步改断言**：如 `check-price-table.ts`、`check-plan-timeout.ts`、`check-address-nature-hints.ts`、`.mcp-work/verify-price-table.mjs`。
-- **提交前跑全套**：`npm run lint` → `npm run build` → `npm run check:entry` → 所有 `npx tsx scripts/check-*.ts` → 受影响的 `.mcp-work/verify-*.mjs`（全跑一遍也就几分钟）。
+- **⚠️ 不要每改一次代码就跑验证脚本**（2026-10-08 用户明确要求）：上面那三层自检是「口径的台账 + 需要时能复现」用的，**不是每次改动的必过关卡**。
+  - 日常改完最多跑一下 `npm run lint`（`tsc --noEmit`，几秒）确认没写坏类型；`npm run check:entry`、`scripts/check-*.ts`、`.mcp-work/verify-*.mjs` **按需**跑 —— 改到哪一层、只跑那一层里**直接相关的那一两个**，或者等发版前 / 用户开口时再整套跑。
+  - **删掉或改了界面元素的接口，要顺手把用到它的脚本一起改对**（例如把输入框换成接口带入值，就要改 `verify-trustee.mjs` / `verify-conflicts.mjs` / `verify-authorization-print.mjs`），别留下一点就崩的脚本；但改完**不必当场跑一遍**。
+  - 跑了哪些就在 `git-change.md` 的「回归」一行里**如实写哪些跑了**，没跑的不写 —— 宁可写「本层未跑，等发版前整套回归」。
 - **`git-change.md` 是追加式变更记录**（`## [开发中]` 下最新一条在最上面），每次改动补一条：改了什么、为什么、断言数变化、文档更新。
 - **`docs/` 是实现说明**：`copreg-steps.md`（六步与 hash）、`copreg-plan-api.md`（诊断/确认接口 + 方案存档 + 表价）、`copreg-registration-fields.md`（第 5 步字段与校验）、`copreg-multi-app.md`（多主体）、`copreg-service-view.md`（服务人员只读查看页 `copreg-view.html`）。改了行为就同步。
 - **tsconfig 没开 `strict` / `strictNullChecks`**：字面量布尔判别必须写 `x.ok === false`，写 `!x.ok` 不会收窄类型。
@@ -96,5 +99,6 @@ npm run deploy         # 构建并上传（生产发布请让用户确认）
 ## 4. 用户偏好
 
 - 大范围迁移/改动前**先确认范围**（对齐设计稿的改动尤其如此）。
+- **不要每次改完代码就跑一堆验证脚本**：用户会自己验，日常最多 `npm run lint`；自检脚本按需跑、按需补（见 §3）。
 - 视觉/文案以设计稿为准；**产品逻辑**以本项目的产品决策为准（见 §1.2）。
 - 交付物 = 本项目代码 + 校验脚本 + 文档 + `git-change.md`；设计稿仓库不动。
