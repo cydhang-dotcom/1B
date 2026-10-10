@@ -36,8 +36,9 @@ export default function TrustModal({ isOpen, onClose }: { isOpen: boolean; onClo
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitStatus, setSubmitStatus] = useState<SubmitStatus>('idle');
   const shareUserUuid = useShareUserUuid();
-  // 提交成功后展示客服码：先查询再判断后显示，逻辑与 copreg 那两处弹窗共用一份实现
-  const { url: qrCodeUrl, loading: qrLoading } = useCustomerServiceQr(isSuccess);
+  // 提交成功后展示客服码：先查询再判断后显示，逻辑与 copreg 那两处弹窗共用一份实现。
+  // 分享人取**这次进站的链接**（落地页没有单，归属还没有落点），与上面提交表单带的是同一个值。
+  const { url: qrCodeUrl, loading: qrLoading } = useCustomerServiceQr(isSuccess, shareUserUuid);
 
   useEffect(() => {
     if (!isOpen) return;

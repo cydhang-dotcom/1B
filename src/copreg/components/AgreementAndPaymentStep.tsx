@@ -38,7 +38,6 @@ import { fillDetailsOpenUrl } from '../stepRoute';
 import { PayQrCode } from '../../payment/PayQrCode';
 import { useWechatNativePay } from '../../payment/useWechatNativePay';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
-import { useShareUserUuid } from '../../hooks/useShareUserUuid';
 
 interface AgreementAndPaymentStepProps {
   /** 当前主体 id：申报表存档按主体各一份，读「是否已提交」要用它 */
@@ -74,6 +73,12 @@ interface AgreementAndPaymentStepProps {
   onProceedToFillDetails?: () => void;
   /** 第 1 步诊断接口返回的委托单号：下单时的业务关联 id（busUnionId）。没有它下不了单 */
   busUnionId?: string;
+  /**
+   * **这一单的分享人**（`plan_record.shareUserUuid`，建单时存下的）：「微信扫码咨询」弹窗按它
+   * 查专属客服码，开新标签页时也把它带过去（新标签页读的还是同一份本地凭据）。
+   * 空串 = 这单没有分享人（自然流量 / 老单没存过）→ 弹窗显示通用客服码。
+   */
+  shareUserUuid?: string;
 }
 
 export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = ({
@@ -86,11 +91,10 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   isDetailsSubmitted,
   paidView,
   onProceedToFillDetails,
-  busUnionId
+  busUnionId,
+  shareUserUuid
 }) => {
   const isPaid = paidView ?? order?.status === 'paid';
-  /** 这条链接的分享人：唯一用处是**带进新开的填报页**（那一页要用它查分享人的专属客服码） */
-  const shareUserUuid = useShareUserUuid();
 
   /**
    * 「申报资料填报」/「查看/修改申报资料」→ **在新标签页打开**填报页。
@@ -100,8 +104,9 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
    *
    * 新标签页只会按本地证据落点（地址栏不指挥页面），所以地址里带一个显式意图
    * `?open=fill-details`；付过款才会被认（见 stepRoute.ts 的 openIntentOf）。
-   * **分享人跟着地址一起过去**：新标签页是全新的一份 `window.location`，
-   * 不带它就查不到分享人的专属客服码，第 5 步的「微信扫码咨询」只能显示通用码。
+   * 分享人（这一单的）也跟着地址过去：地址栏里那份**不是**客服码的依据（那是 `plan_record`），
+   * 带上它是为了让新标签页仍持有同一条链接的上下文 —— 在那边（或绕回来）再建新单时，
+   * 归属还认得出是谁带来的。
    * 万一被浏览器拦了弹窗（返回 null），退回原来的同页跳转，别让按钮变成没反应。
    */
   const openFillDetailsInNewTab = () => {
@@ -162,8 +167,9 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   const [showServiceContentModal, setShowServiceContentModal] = useState(false);
   const [showWecomModal, setShowWecomModal] = useState(false);
 
-  // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图
-  const wecomQr = useCustomerServiceQr(showWecomModal);
+  // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图。
+  // 查的是**这一单的**分享人（props 从 plan_record 来），不是地址栏 —— 见 useCustomerServiceQr 的注释
+  const wecomQr = useCustomerServiceQr(showWecomModal, shareUserUuid);
 
   // Payment method
   // 支付方式：目前只有微信（支付方式选择区里支付宝那一项先注释掉了），所以 'alipay'

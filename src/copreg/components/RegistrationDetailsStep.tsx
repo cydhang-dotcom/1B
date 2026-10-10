@@ -65,6 +65,13 @@ interface RegistrationDetailsStepProps {
   contactPhone?: string;
   /** 委托单号（第 1 步生成方案时服务端给的 recordId）：保存 / 提交接口的 busUnionId */
   busUnionId: string;
+  /**
+   * **这一单的分享人**（`plan_record.shareUserUuid`，建单时存下的）：「填报须知 → 微信扫码咨询」
+   * 弹窗按它查专属客服码。空串 = 这单没有分享人（自然流量 / 老单没存过）→ 显示通用客服码。
+   * ⚠️ 不能改成读地址栏：这一页常在新标签页里打开，客户中途也可能点过别人的分享链接 ——
+   * 那样会把客户推给别的顾问（2026-10 修）。
+   */
+  shareUserUuid?: string;
   onUpdateDetails: (details: RegistrationDetails) => void;
   onSubmitForReview: () => void;
 }
@@ -97,6 +104,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   plan,
   contactPhone,
   busUnionId,
+  shareUserUuid,
   onUpdateDetails,
   onSubmitForReview,
 }) => {
@@ -150,8 +158,9 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
   const [showHelpModal, setShowHelpModal] = useState<boolean>(false);
   const [showWecomModal, setShowWecomModal] = useState<boolean>(false);
 
-  // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图
-  const wecomQr = useCustomerServiceQr(showWecomModal);
+  // 「微信扫码咨询」弹窗里的专属顾问企微码：点开才去查，查到专属码用它，查不到用通用兜底图。
+  // 查的是**这一单的**分享人（props 从 plan_record 来），不是地址栏 —— 见 useCustomerServiceQr 的注释
+  const wecomQr = useCustomerServiceQr(showWecomModal, shareUserUuid);
 
   /**
    * 提示。**必须把上一条的定时器清掉**：连着两条提示（例如「保存草稿失败」→ 紧接着「提交失败」）时，

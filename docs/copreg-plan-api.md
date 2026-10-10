@@ -80,9 +80,15 @@
 所以这三个字段必须原样收下。与 caa 同接口的信封（`{ formData, phoneNumber }`）完全一致：
 分享人也放在 `phoneNumber` 里（同一层，不另开一个顶层字段），口径逐字对齐。
 
-自检：`npx tsx scripts/check-share-user-uuid.ts`（信封形状与「空串而不是省略」那条是源码级断言）、
-`.mcp-work/verify-diagnose-report.mjs`（真机：带着 `?shareUserUuid=SHARE-7` 走完问卷 → 手机验证 →
-诊断，断言**真实请求体**里 `phoneNumber.shareUserUuid === 'SHARE-7'`）。
+**这次上报的分享人同时落进这一单的本地凭据**（`1b_copreg_app:{appId}:plan_record` 的
+`shareUserUuid`，见 `planDraft.ts` 的 `PlanRecord`）：此后这张单的客服码、以及再开新单时的归属
+都从那里读，**不再看地址栏** —— 客户中途点开别人的分享链接时地址栏会变，而「这单是谁带来的」不变
+（详见 `docs/copreg-steps.md` 的「『微信扫码咨询』弹窗」）。改方案（第二·补节）沿用这份值，不上报也不覆盖。
+
+自检：`npx tsx scripts/check-share-user-uuid.ts`（37 项：信封形状、「空串而不是省略」、建单落单、
+改方案沿用、读档收口等等都是源码级断言）、`.mcp-work/verify-diagnose-report.mjs`（真机：带着
+`?shareUserUuid=SHARE-7` 走完问卷 → 手机验证 → 诊断，既断言**真实请求体**里
+`phoneNumber.shareUserUuid === 'SHARE-7'`，也断言**这张单的凭据里存下了 SHARE-7**）。
 
 **验证失败与接口失败都留在手机验证弹框里**（弹框不关、错误写在弹框里、可改验证码原地重试）：
 手机号没验过就不该出方案，所以这个接口**没有**「失败就按本地规则生成一份方案」的兜底 ——

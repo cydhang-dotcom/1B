@@ -67,28 +67,31 @@ copreg.html?open=fill-details[&shareUserUuid=…]
    否则这条链接就成了绕过支付直接进填报页的入口（`allowsFillDetailsIntent`）；
 3. **参数用过就抹掉**（挂载后 `replaceState`）：刷新、复制、转发出去的地址不会再触发跳步。
    **只抹 `open` 这一个**（`searchAfterOpenIntentUsed`，白名单重建）：`shareUserUuid` 留在地址里 ——
-   填报表单里的客服码弹窗是后面才挂载的，它从 URL 上读分享人，整条查询串一起抹掉的话，
-   这个标签页刷新一次专属码就没了（2026-10 修）。
+   它记的是「这个标签页是从谁的链接进来的」，在这一页里**再建新单**时要靠它上报归属
+   （`${pathname}${hash}` 那种写法会把整条查询串抹掉，链接上下文就断了）。
 4. **落点只到第 3 步**：`fill_details` / `progress` 都是**会话级浏览位置，不写进主体记录**
    （`canPersistStep` / `MAX_PERSISTED_STEP = 'payment'`）——「进度」最大到 `payment`，
    第 5 步只能从支付成功页进。所以：深链进来的那一页刷新一下就回到支付成功界面；
    读存档时若发现写着 `fill_details`（老版本写进去的）也收口回 `payment`（`clampPersistedStep`）。
 
 **分享人为什么要跟着深链走**（2026-10 加）：新标签页是全新的一份 `window.location`，打开者那页的 URL
-它读不到 —— 深链里不带 `shareUserUuid`，第 5 步「微信扫码咨询」里那张客服码就只能回落通用码
-（分享人的客户扫到的是公司的公共码，归属就断了）。所以 `fillDetailsOpenUrl(origin, pathname,
-shareUserUuid)` 把它拼上去（复用 `utils/shareUserUuid.ts` 的 `appendShareUserUuid`；没有分享人时不带，
-地址与以前一字不差）。同理，步骤 hash 那两处 `replaceState` 写的是**纯 fragment**（`#proposal`），
-它相对当前地址解析、pathname 与查询串都留着 —— 别改成 `${pathname}${hash}`。
+它读不到。所以 `fillDetailsOpenUrl(origin, pathname, shareUserUuid)` 把**这条链接的**分享人拼上去
+（复用 `utils/shareUserUuid.ts` 的 `appendShareUserUuid`；没有分享人时不带，地址与以前一字不差）。
+⚠️ 它**不是**客服码的依据（那认的是这一单的 `plan_record.shareUserUuid`，见下面
+「『微信扫码咨询』弹窗」那节）—— 带过去只是让新标签页仍持有同一条链接的上下文，
+在那边（或绕回来）再建新单时归属还认得出来。同理，步骤 hash 那两处 `replaceState` 写的是
+**纯 fragment**（`#proposal`），它相对当前地址解析、pathname 与查询串都留着 ——
+别改成 `${pathname}${hash}`（那样链接上下文会被抹掉）。
 
 自检：`scripts/check-step-route.ts`（65 项：深链四条 + 带上分享人 / 只抹 open / 别的参数一律不留 +
-登记上限）、`npx tsx scripts/check-share-user-uuid.ts`（26 项：分享人参数怎么读怎么拼 + 三个接线点
-没被写歪）、`npm run check:entry`（已支付+参数 → 落第 5 步；未支付+参数 → 忽略仍落第 3 步；
+登记上限）、`npx tsx scripts/check-share-user-uuid.ts`（37 项：分享人参数怎么读怎么拼 +
+「建单上报并落单 / 改方案沿用 / 读档收口 / 客服码不看地址栏」这些接线点）、
+`npm run check:entry`（已支付+参数 → 落第 5 步；未支付+参数 → 忽略仍落第 3 步；
 不认识的意图值 → 忽略）、`.mcp-work/verify-paid-cta.mjs`（12 项，真机：**真实鼠标手势**点按钮 →
 `window.open` 真开成功（不是 null，否则会误走兜底把原网页跳走）、当前页留在 `#paid`、
 新标签页真的落在填报页、参数已抹掉、**主体记录里的步骤仍是 payment**、**刷新那一页回到支付成功界面**）、
-`.mcp-work/verify-wecom-qr.mjs`（3 幕，真机：带分享人 → 专属码；不带 → 兜底图；
-**支付成功页点真实按钮 → 新标签页地址留着分享人、弹窗拿到专属码**）。
+`.mcp-work/verify-wecom-qr.mjs`（4 幕，真机：记录优先于地址栏；老单没分享人不许猜；
+地址栏没有也照样拿专属码；**支付成功页点真实按钮 → 新标签页里仍是单上那个人的专属码**）。
 
 已支付界面上「订单编号 / 支付时间」两格的数据来源是**查单响应**（`orderNo` / `payTime`）；
 「经办人姓名 / 经办联系电话」**以申报资料里填的「联系人」为准**（`registration/contactInfo.ts`
@@ -213,23 +216,36 @@ shareUserUuid)` 把它拼上去（复用 `utils/shareUserUuid.ts` 的 `appendSha
 第 3 步的按钮、填报页的同一个弹窗、落地页提交成功后的客服码弹窗，走的是**同一份实现**
 （`src/utils/customerServiceQr.ts` 判断 + `src/hooks/useCustomerServiceQr.ts` 请求）：
 
-1. **先查询**：弹窗打开时才去问服务端，地址 `{DOC_HOST}/xcx/yqt-co/user/{shareUserUuid}/get`
-   （分享人来自 URL 的 `?shareUserUuid=`）；查询期间显示「正在获取专属顾问二维码…」，
-   不会先闪一张兜底图再换成专属码。
+1. **先查询**：弹窗打开时才去问服务端，地址 `{DOC_HOST}/xcx/yqt-co/user/{shareUserUuid}/get`；
+   查询期间显示「正在获取专属顾问二维码…」，不会先闪一张兜底图再换成专属码。
 2. **再判断**：响应里有 `perShareEwmFile` → 用 `{DOC_HOST}/doc/uuid/{file}/get` 上的专属企微码；
    没有 / 不是字符串 / 超时 / 网络不通 / 没分享人 → 一律回落
    `https://www.ibanbu.com/image-yqt/customer-service-qr.png`（通用兜底图，绝对地址，换域名也不 404）。
 3. **后显示**：`<img>` 永远拿到一个可用地址，不会出现裂图或空二维码。
 
-分享人本身的口径（参数名、怎么读、怎么拼）在 `src/utils/shareUserUuid.ts`（纯函数）：
-**只认 URL，不落盘** —— 存进 localStorage 会让「先点开 A 的分享链接、再点开 B 的」串味，
-两个客户都会算到 A 头上。所以它必须能活过 copreg 自己的地址栏重写与开新标签页
-（见上面「新标签页怎么落到第 5 步」）；生成需求方案那一次还会把它塞进 `phoneNumber` 上送
-（`docs/copreg-plan-api.md` 2.1）。
+**「谁的码」由调用方传进来，hook 自己不看地址栏**（2026-10 修，这是三处唯一的差别）：
+
+| 调用处 | 传的分享人 | 为什么 |
+|---|---|---|
+| 第 3 步 / 第 5 步（copreg） | **这一单的**：`plan_record.shareUserUuid`（建单时从 URL 读到的，与请求一起上报服务端） | 客户中途点开**别人的**分享链接时地址栏会变，但「这一单是谁带来的」不该变 —— 按地址栏显示就会把客户推到别的顾问那里 |
+| 落地页提交成功弹窗（TrustModal） | **这次进站链接**上的 `?shareUserUuid=` | 落地页还没有单，归属还没有落点；与它提交表单时带的是同一个值 |
+
+所以「分享人」有两个真源、各管一段：**URL 管归属上报（建单那一次）**，
+**`plan_record` 管这张单此后的一切显示**。老单（这次改动之前建的、凭据里没有这个字段）读出来是
+空串 → 显示通用兜底码：不知道是谁带来的就给公司公共码，**绝不拿当前地址栏上那个人去猜**。
+`parsePlanRecord` 对缺失 / 非字符串 / 空白一律收成空串，就是在守这条。
+
+分享人本身的口径（参数名、怎么读、怎么拼）在 `src/utils/shareUserUuid.ts`（纯函数）。
 
 自检：`npx tsx scripts/check-customer-service-qr.ts`（20 项，覆盖地址拼接、转义、
-以及八种「拿不到」都必须回落兜底图）、`npx tsx scripts/check-share-user-uuid.ts`（26 项，
-覆盖分享人参数的读与拼、以及「App 交给 generatePlanReport / 深链带上 / 空串而不是省略字段」三个接线点）。
+以及八种「拿不到」都必须回落兜底图）、`npx tsx scripts/check-share-user-uuid.ts`（37 项：
+分享人参数的读与拼 + 「建单上报并落单 / 改方案沿用原值 / 读档收口空串 / 客服码 hook 不读地址栏 /
+两处 copreg 弹窗用 props 下发的单上分享人 / 落地页用 URL」这些接线点）、
+`.mcp-work/verify-wecom-qr.mjs`（4 幕，真机：**记录优先于地址栏**、**老单没分享人时不许猜
+（一个请求都不发、显示兜底图）**、地址栏没有也照样拿专属码、支付成功页真手势点按钮进新标签页后仍是单上那个）。
+另有 `npx tsx scripts/check-plan-archive.ts`（38 项，存档形状）与
+`.mcp-work/verify-diagnose-report.mjs`（26 项，真机：带着 `?shareUserUuid=SHARE-7` 建单后，
+**这张单的凭据里就是 SHARE-7**）。
 
 ## `#paid` 比别的 hash 更严格
 

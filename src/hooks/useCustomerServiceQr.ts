@@ -10,16 +10,19 @@
  * 问不到 / 没分享人 / 接口挂了就用 www 上的通用兜底图。查询期间 `loading` 为 true，
  * 弹窗显示「正在获取专属顾问二维码…」而不是先闪一张兜底图再换成专属码。
  *
+ * **分享人由调用方传进来**（`shareUserUuid`），本 hook 不自己去读地址栏 —— 这一点很要紧：
+ *   1. copreg 的第 3 / 5 步传的是**这一单的**分享人（`plan_record.shareUserUuid`，建单时存下的）。
+ *      客户中途点开别人的分享链接时地址栏会变，但「这单是谁带来的」不该变 ——
+ *      按地址栏显示，客户就会扫到**别人的**专属码、联系错顾问（2026-10 修）。
+ *   2. 落地页的提交成功弹窗（TrustModal）没有单，传的是**这次进站的链接**上的分享人。
+ * 所以「谁的码」是调用方的决定，这里只管查、判、显。
+ *
  * 判断逻辑与地址拼接在 src/utils/customerServiceQr.ts（纯函数、有自检），
  * 这里只负责请求与状态；只有这一层读 config/api.ts（它依赖 import.meta.env，是 Vite 专有的）。
- *
- * 三处共用：落地页的提交成功弹窗（TrustModal）、第 3 步的「微信扫码咨询」（AgreementAndPaymentStep）、
- * 填报页的同一个弹窗（RegistrationDetailsStep）—— 行为必须一致，所以只有这一份实现。
  */
 
 import { useEffect, useState } from 'react';
 import { DOC_HOST } from '../config/api';
-import { useShareUserUuid } from './useShareUserUuid';
 import { FALLBACK_CUSTOMER_SERVICE_QR, perShareQrEndpoint, perShareQrUrl } from '../utils/customerServiceQr';
 
 /** 取码是弹窗里的小请求，慢过 6s 就当拿不到，直接用兜底图，别让人对着转圈 */
@@ -32,8 +35,14 @@ export interface CustomerServiceQr {
   loading: boolean;
 }
 
-export function useCustomerServiceQr(enabled: boolean): CustomerServiceQr {
-  const shareUserUuid = useShareUserUuid();
+/**
+ * @param enabled       弹窗是否打开（打开才去查，关掉就把状态收回去）
+ * @param shareUserUuid 该显示谁的专属码；空 / null（没分享人、或老单没存过）→ 通用兜底图，不发请求
+ */
+export function useCustomerServiceQr(
+  enabled: boolean,
+  shareUserUuid: string | null | undefined
+): CustomerServiceQr {
   const [url, setUrl] = useState(FALLBACK_CUSTOMER_SERVICE_QR);
   const [loading, setLoading] = useState(false);
 

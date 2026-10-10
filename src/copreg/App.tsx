@@ -286,8 +286,8 @@ export default function App() {
    * 深链参数用过就抹掉：地址栏只留 `{pathname}[?shareUserUuid=…]#fill-details`（步骤 hash 由下面
    * 那个 effect 写）。不抹的话，刷新、复制、转发出去的地址都会带着它再跳一次步。
    *
-   * **只抹意图参数 `open`，分享人留在地址里**：客服码弹窗是后面才挂载的，它从 URL 上读分享人
-   * （`useShareUserUuid`）—— 整条查询串一起抹掉的话，这个标签页刷新一次专属码就没了。
+   * **只抹意图参数 `open`，分享人留在地址里**：它记的是「这个标签页是从谁的链接进来的」，
+   * 在这一页里再建新单时要靠它上报归属（客服码不读它 —— 那认的是这一单的 `plan_record`）。
    * 重建口径见 stepRoute.ts 的 searchAfterOpenIntentUsed。
    */
   useEffect(() => {
@@ -363,9 +363,12 @@ export default function App() {
   const { survey, plan, suggestion: planSuggestion, record: planRecord, order, details, messages, timeline, reviewBranch, bankBooked } = runtime;
 
   /**
-   * 这条链接的分享人（`?shareUserUuid=`，只在挂载时读一次）。
-   * 用途有两个，都是「别把分享人弄丢」：生成需求方案时随 `phoneNumber` 上送（服务端据此把
-   * 这单算给分享人），以及支付成功页开填报页的深链把它带进新标签页（见 AgreementAndPaymentStep）。
+   * **这条链接**的分享人（`?shareUserUuid=`，只在挂载时读一次）。
+   *
+   * 用途只有一个：**建单那一次**把它随 `phoneNumber` 上报给服务端，并落进这一单的本地凭据
+   * （`plan_record.shareUserUuid`）。此后客服码弹窗认的是单上那份，**不再看地址栏** ——
+   * 客户中途点开别人的分享链接时，地址栏会变，但「这一单是谁带来的」不该变
+   * （显示错分享人的专属码 = 把客户推给别的顾问）。
    */
   const shareUserUuid = useShareUserUuid();
 
@@ -696,11 +699,17 @@ export default function App() {
    * @param request    真正发出去的那次请求（诊断建单 / 改方案）
    * @param fallbackRecordId 响应没给单号时沿用的旧单号；第一次生成方案时没有（null）
    * @param contactPhone 落到订单上的经办联系电话（第一次用刚验证过的手机号，改方案沿用单上已有的）
+   * @param attributedShareUserUuid 落到这张单上的**分享人**（空串 = 没有）：
+   *   第一次建单用这条链接的分享人（URL 上的，刚随请求一起上报给服务端）；
+   *   改方案**沿用原来那个**（归属在建单那一刻就定了，中途点了别人的链接也不该改口）。
+   *   存进 `plan_record` 之后，客服码弹窗只认它 —— 不认地址栏（否则老客户点开别人的分享链接
+   *   就会显示别人的专属码，客户扫过去联系错人）。
    */
   const runPlanSubmit = async (
     request: () => Promise<PlanReport>,
     fallbackRecordId: string | null,
-    contactPhone: string
+    contactPhone: string,
+    attributedShareUserUuid: string
   ) => {
     const appId = activeApp.id;
     // 载荷用的是点击那一刻的问卷快照 —— 请求在途时用户还能接着改问卷，
@@ -737,7 +746,8 @@ export default function App() {
       setNotice([...warnings, '诊断结果本地保存失败，下次进入需要重新生成方案'].join('；'));
     }
 
-    const record: PlanRecord = { recordId };
+    // 分享人跟单一起存（见 runPlanSubmit 的 @param）：客服码弹窗只认这里，不认地址栏
+    const record: PlanRecord = { recordId, shareUserUuid: attributedShareUserUuid };
     if (!savePlanRecordFor(appId, record)) {
       setNotice('委托单号本地保存失败，下次进入需要重新生成方案');
     }
@@ -801,14 +811,16 @@ export default function App() {
   /**
    * 第一次生成方案（本地还没有委托单号）：过手机验证弹框，带着手机号与短信凭据调诊断接口建单。
    *
-   * 分享人（`?shareUserUuid=`）跟着这次请求一起上去（塞在 `phoneNumber` 信封里，与 caa 同形）：
-   * 归属在第一张单建出来的那一刻就得定下来，之后改方案、支付都只是这一单上的动作。
+   * 分享人（`?shareUserUuid=`）跟着这次请求一起上去（塞在 `phoneNumber` 信封里，与 caa 同形），
+   * 并**存进这一单的本地凭据**（`plan_record.shareUserUuid`）：归属在第一张单建出来的那一刻
+   * 就得定下来，之后改方案、支付、填资料都只是这一单上的动作，客服码也认这一份。
    */
   const handleSurveySubmit = async (verification: PhoneVerification) => {
     await runPlanSubmit(
       () => generatePlanReport(survey, verification, shareUserUuid),
       null,
-      verification.mobile
+      verification.mobile,
+      shareUserUuid ?? ''
     );
   };
 
@@ -821,11 +833,20 @@ export default function App() {
    *
    * 为什么以「本地有没有委托单号」为准：手机号是**建单那一次**验过的，同一张单沿用；
    * 重开一单（重置问卷会清掉单号）时又会回到上面那条要验证码的路，与「建单才需要验手机号」一致。
+   *
+   * 分享人**沿用这张单原来的**（`planRecord.shareUserUuid`）：改方案不是建单，归属不该改口 ——
+   * 中途点了别人的分享链接，这一单也还是原来那位带来的。老单（没存过这字段）沿用下来的就是空串，
+   * 客服码走通用兜底图，绝不拿地址栏上别人的分享人去猜。
    */
   const handleSurveyModify = async (onCaptchaPassed?: () => void) => {
     const recordId = planRecord?.recordId ?? '';
     if (recordId === '') throw new Error('缺少委托单号，请重新生成需求方案');
-    await runPlanSubmit(() => modifyProposal(survey, recordId, onCaptchaPassed), recordId, order.contactPhone);
+    await runPlanSubmit(
+      () => modifyProposal(survey, recordId, onCaptchaPassed),
+      recordId,
+      order.contactPhone,
+      planRecord?.shareUserUuid ?? ''
+    );
   };
 
   // Step 2 -> Step 3: 方案页只是把第 1 步给的结果展示出来，点「前往支付」就走一步
@@ -1023,6 +1044,7 @@ export default function App() {
             plan={plan}
             order={order}
             busUnionId={planRecord?.recordId ?? ''}
+            shareUserUuid={planRecord?.shareUserUuid ?? ''}
             isDetailsSubmitted={isDetailsSubmitted}
             paidView={paidView}
             onUpdateOrder={(orderUpdater) => {
@@ -1064,6 +1086,7 @@ export default function App() {
             plan={plan}
             contactPhone={order.contactPhone}
             busUnionId={planRecord?.recordId ?? ''}
+            shareUserUuid={planRecord?.shareUserUuid ?? ''}
             onUpdateDetails={(nextDetails) => updateRuntime((current) => ({ ...current, details: nextDetails }))}
             onSubmitForReview={handleSubmitForReview}
           />

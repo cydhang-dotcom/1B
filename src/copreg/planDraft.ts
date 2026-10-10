@@ -12,11 +12,17 @@
  *    它和上面那份问卷是配套的。提交新问卷时先把旧的作废：上一份问卷的结论
  *    挂在新问卷上是错的。
  * 3. `1b_copreg_plan_record`（**委托单凭据**）：诊断接口同一次响应里给的 `recordId`
- *    （服务端生成方案时就建好了单）。**只在接口成功后**写；它是下单（`busUnionId`）
+ *    （服务端生成方案时就建好了单）**+ 这一单的分享人**（`shareUserUuid`，建单那次从 URL 上
+ *    读到的，见 utils/shareUserUuid.ts）。**只在接口成功后**写；单号是下单（`busUnionId`）
  *    与查单的唯一凭据，有它下次进来就直接落在第 3 步（协议与支付）。
  *    提交新问卷、重置问卷都会作废它 —— 旧单号代表的是上一份问卷建的单。
  *    （第 2 步不再调确认接口，也不再因为「改了套餐」作废：单号是第 1 步建的，
  *    改套餐只改前端报价，服务端按单号复核价格。）
+ *
+ *    **分享人为什么跟单存**（2026-10 改）：客服码弹窗要显示「把这位客户带来的人」的专属企微码。
+ *    以前它读的是**当前地址栏**的 `?shareUserUuid=` —— 那是「这次从哪条链接进来的」，
+ *    不是「这一单是谁带来的」：老客户点开别人的分享链接，第 3 / 5 步的弹窗就会显示**别人的**
+ *    客服码，客户扫过去就联系错人了。归属只在建单那一刻定得下来，所以它必须落在这张单上。
  *
  * 下次打开：有 report 就落到第 2 步，有 record 再往前一步落到第 3 步。
  * 存的是**输入**而不是算出来的方案 —— 方案由 buildPlan(survey, quoteFor(tier, addons 的 id)) 现算、
@@ -63,9 +69,17 @@ export interface PlanForm {
   addons: PlanAddon[];
 }
 
-/** 委托单凭据：第 1 步诊断接口返回的 `recordId`，支付下单与查单都用它 */
+/**
+ * 委托单凭据：第 1 步诊断接口返回的 `recordId`（支付下单与查单都用它）
+ * + **这一单的分享人**（`shareUserUuid`：建单那次 URL 上的 `?shareUserUuid=`，没有就是空串）。
+ *
+ * 分享人跟着单走而不是跟着地址栏走：客户可能中途又点开另一个人的分享链接，
+ * 但「这一单是谁带来的」在建单那一刻就定了 —— 客服码弹窗显示错人=把客户推到别的顾问那里。
+ */
 export interface PlanRecord {
   recordId: string;
+  /** 空串 = 这条链接没有分享人（自然流量 / 老单没存过这个字段），客服码走通用兜底图 */
+  shareUserUuid: string;
 }
 
 /** 读出来的存档：三份键合起来的样子 */
@@ -79,11 +93,15 @@ export interface PlanDraft extends PlanForm {
 /**
  * 存档里的委托单凭据收口：不是对象、`recordId` 不是非空字符串都不认（当作没有）。
  * 单号是支付的前提，认不出就不能拿去下单。
+ *
+ * 分享人**缺失／不是字符串／只有空白一律收成空串**：老存档（这次改动之前建的单）没有这个字段，
+ * 那时宁可显示通用客服码，也不能拿当前地址栏上别人的分享人去猜 —— 猜错就是把客户推给别的顾问。
  */
 export const parsePlanRecord = (value: unknown): PlanRecord | null => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const recordId = textOf((value as Record<string, unknown>).recordId).trim();
-  return recordId === '' ? null : { recordId };
+  const raw = value as Record<string, unknown>;
+  const recordId = textOf(raw.recordId).trim();
+  return recordId === '' ? null : { recordId, shareUserUuid: textOf(raw.shareUserUuid).trim() };
 };
 
 const textOf = (value: unknown): string => (typeof value === 'string' ? value : '');

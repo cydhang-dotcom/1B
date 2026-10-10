@@ -128,10 +128,10 @@ export const openIntentOf = (search: string | undefined): ProcessStep | null => 
  * 深链地址：`{origin}{pathname}?open=fill-details[&shareUserUuid=…]`
  * （不带 hash —— 落点后由页面自己写进地址栏）。
  *
- * `shareUserUuid` 是**分享人**（URL 上 `?shareUserUuid=`，见 utils/shareUserUuid.ts）：
- * 新标签页是全新的一份 `window.location`，不带过去它就读不到分享人，第 5 步「微信扫码咨询」
- * 里那张客服码只能回落通用码 —— 分享人的客户扫到的是公司的公共码，归属就断了。
- * 所以打开者是谁的分享人，这条深链就带谁的（没有分享人时不带，与以前完全一样）。
+ * `shareUserUuid` 是**这条链接的分享人**（URL 上 `?shareUserUuid=`，见 utils/shareUserUuid.ts）。
+ * 注意：**它不是客服码的依据** —— 客服码认的是这一单的 `plan_record.shareUserUuid`（建单时存下的），
+ * 因为客户中途点开别人的分享链接时地址栏会变、而「这单是谁带来的」不该变。
+ * 把链接上下文带进新标签页，是为了在那边（或绕回来）**再建新单**时归属还认得出是谁带来的。
  */
 export const fillDetailsOpenUrl = (
   origin: string,
@@ -146,10 +146,10 @@ export const fillDetailsOpenUrl = (
 /**
  * 深链意图参数**用过之后**，地址栏里该留下什么。
  *
- * 只抹 `open`，**分享人要留下**：App 落点后会用 replaceState 重写地址栏，
- * 以前是 `${pathname}${hash}` —— 连查询串一起抹了（分享人跟着没了），于是同一个标签页里
- * 刷新一次、或再挂载一次客服码弹窗，专属码就退化成通用码。这里按白名单重建：
- * 只保留分享人这一个参数，其余（意图参数、以及任何别人塞进来的东西）一律丢掉。
+ * 只抹 `open`，**分享人留下**：它表达的是「这个标签页是从谁的链接进来的」，
+ * 以后在这一页里再建新单（新增主体 / 重置问卷）时要靠它上报归属。
+ * 以前是 `${pathname}${hash}` —— 连查询串一起抹了，那条链接的上下文就断了。
+ * 这里按白名单重建：只保留分享人这一个参数，其余（意图参数、以及任何别人塞进来的东西）一律丢掉。
  */
 export const searchAfterOpenIntentUsed = (search: string | undefined): string => {
   const shareUserUuid = readShareUserUuid(search);
