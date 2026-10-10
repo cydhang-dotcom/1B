@@ -63,19 +63,26 @@
 
 ```json
 { "formData": { ...见 2.2... },
-  "phoneNumber": { "mobile": "13800000000", "smsCodeId": "…", "smsValidCode": "654321" } }
+  "phoneNumber": { "mobile": "13800000000", "smsCodeId": "…", "smsValidCode": "654321",
+                   "shareUserUuid": "…" } }
 ```
 
 | 位置 | 字段 | 类型 | 必填 | 说明 |
 |---|---|---|---|---|
 | body | `formData` | `object` | 是 | 问卷 16 个字段，逐项见 2.2 |
-| body | `phoneNumber` | `object` | 是 | 手机验证弹框给出的三件套（`verification.ts` 的 `PhoneVerification`） |
+| body | `phoneNumber` | `object` | 是 | 手机验证弹框给出的三件套（`verification.ts` 的 `PhoneVerification`）+ 分享人 |
 | body | `phoneNumber.mobile` | `string` | 是 | 用户填的手机号，已 trim |
 | body | `phoneNumber.smsCodeId` | `string` | 是 | 发短信时服务端返回的会话 id |
 | body | `phoneNumber.smsValidCode` | `string` | 是 | 用户填的短信验证码，服务端与 `smsCodeId` 一起校验 |
+| body | `phoneNumber.shareUserUuid` | `string` | 是 | **分享人 uuid**（URL 的 `?shareUserUuid=`）：服务端据此把这一单算给分享人。**没有分享人时是空串**（不是省略字段）—— caa `/api/company-plan/generate` 就是这么发的。见 `utils/shareUserUuid.ts` |
 
 前端只校验格式（11 位手机号、4~6 位数字），真正的比对在服务端 —— 前端没有任何接口能验证它，
-所以这三个字段必须原样收下。与 caa 同接口的信封（`{ formData, phoneNumber }`）完全一致。
+所以这三个字段必须原样收下。与 caa 同接口的信封（`{ formData, phoneNumber }`）完全一致：
+分享人也放在 `phoneNumber` 里（同一层，不另开一个顶层字段），口径逐字对齐。
+
+自检：`npx tsx scripts/check-share-user-uuid.ts`（信封形状与「空串而不是省略」那条是源码级断言）、
+`.mcp-work/verify-diagnose-report.mjs`（真机：带着 `?shareUserUuid=SHARE-7` 走完问卷 → 手机验证 →
+诊断，断言**真实请求体**里 `phoneNumber.shareUserUuid === 'SHARE-7'`）。
 
 **验证失败与接口失败都留在手机验证弹框里**（弹框不关、错误写在弹框里、可改验证码原地重试）：
 手机号没验过就不该出方案，所以这个接口**没有**「失败就按本地规则生成一份方案」的兜底 ——
@@ -219,6 +226,11 @@
 所以这一步不可能是「另一个人拿别人的单号来改」—— 改的是同一张单上的问卷内容。
 行为验证码那一道保留（防脚本批量改），只是不弹短信。
 
+**也没有 `shareUserUuid`**（2026-10 定）：归属（这一单算给哪位分享人）在**建单那一次**
+（2.1 的 `phoneNumber.shareUserUuid`）就已经定在这一张单上了，改方案不是建单。
+如果后端要求每次请求都带，需先确认字段位置（顶层还是信封）再补 —— 位置没确认前不猜着发，
+发错位置等于没发，还会让人以为已经带上了。
+
 用户取消腾讯验证码时**静默留在问卷页**（`CaptchaCancelledError`，与「AI 智能填充」同一处理）。
 
 **弹框顺序：先行为验证码、后「AI 推演中」生成弹框。**`modifyProposal(survey, recordId, onCaptchaPassed)`
@@ -284,6 +296,9 @@
   页面原地留在第 1 步，静默不报错。验证通过（点了「验证并生成方案」）后带着手机号调诊断接口，
   请求在途期间盖一层**「生成方案弹框」**（`PlanGeneratingModal`，迁移自参考实现：四段推演步骤 +
   进度条，**每 10 秒推进一段**（10s / 20s / 30s），进度条停在 95% 不谎报 100%），手机弹框**只被盖住、不卸载**；
+  四段文案**对应方案页 01 区块的四张「核心决策」建议卡** —— 推演组织形式与股权架构 / 测算注册资本与
+  出资规划 / 匹配财税身份与发票统筹 / 核验经营场所与住所合规（动词后面那半截即 `report.coreDecisions`
+  的四个维度标题，顺序同 `PlanReportView` / `proposalReportDoc`），弹框里不承诺方案页上看不到的东西；
   **接口失败一样拦人**：生成弹框收掉、手机弹框原样露出（校验与短信凭据都还在）、原因写在里面、
   按钮恢复可点，改验证码原地重试 —— 手机号没验过就不该出方案（这里没有「用本地规则生成一份」的兜底，见 2.1）。
   「生成需求方案」按钮在途置灰显示「生成方案中…」，避免连点发两次请求；
@@ -408,7 +423,8 @@
 2. **`capitalAmount` 的取数**：`registrationBridge.ts` 已随 registration.html 一并移除，原来靠它把
    整句 `capitalAmount` 用 `digitsOf` 取第一个数字串写进 `basic.capital`；现在的申报表在
    `BasicInfoSection` 里直接收纯数字，服务端那句建议仍只用于方案页展示。
-3. **验证与建单都在诊断接口**（2026-09）：诊断接口带 `phoneNumber`（第 1 步手机验证弹框给出）
+3. **验证与建单都在诊断接口**（2026-09）：诊断接口带 `phoneNumber`（第 1 步手机验证弹框给出，
+   信封里还带 `shareUserUuid` 分享人 —— 2026-10 加，见 2.1）
    并在同一次响应里返回委托单号 `recordId` —— 与 caa「诊断前先短信验证」的顺序一致。
    前端这一侧的弹框在 `SurveyStep`（`PhoneVerifyModal`）；确认接口整个不再调用（见第三节），
    所以第 2 步没有任何接口调用、也没有任何验证框。

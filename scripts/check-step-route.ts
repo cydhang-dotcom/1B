@@ -21,6 +21,7 @@ import {
   fillDetailsOpenUrl,
   openIntentOf,
   progressRouteOf,
+  searchAfterOpenIntentUsed,
   showsPaidView,
   stepHash,
 } from '../src/copreg/stepRoute';
@@ -29,12 +30,12 @@ import type { ProcessStep } from '../src/copreg/types';
 let passed = 0;
 let failed = 0;
 
-function ok(label: string, condition: boolean) {
+function ok(label: string, condition: boolean, extra = '') {
   if (condition) {
     passed += 1;
   } else {
     failed += 1;
-    console.error(`✗ ${label}`);
+    console.error(`✗ ${label}${extra ? ` —— ${extra}` : ''}`);
   }
 }
 
@@ -163,6 +164,22 @@ function ok(label: string, condition: boolean) {
   ok('地址里不带 hash（落点后由页面自己写）', !url.includes('#'));
   // 拼出来的地址必须能被解析回同一个意图（两处常量不能各写各的）
   ok('地址与解析器是同源口径（往返一致）', openIntentOf(url.slice(url.indexOf('?'))) === 'fill_details');
+
+  // 分享人必须跟着深链进新标签页：新标签页读不到打开者那页的 URL，只能靠带过来
+  const sharedUrl = fillDetailsOpenUrl('https://x.example.com', '/OneBiz/copreg.html', 'SHARE-1');
+  ok('★ 有分享人时深链带上 ?shareUserUuid=', sharedUrl === 'https://x.example.com/OneBiz/copreg.html?open=fill-details&shareUserUuid=SHARE-1', sharedUrl);
+  ok('带分享人后意图参数照样认得出', openIntentOf(sharedUrl.slice(sharedUrl.indexOf('?'))) === 'fill_details');
+  ok('没有分享人时与以前完全一样（不多带空参数）', fillDetailsOpenUrl('https://x.example.com', '/OneBiz/copreg.html', null) === url && fillDetailsOpenUrl('https://x.example.com', '/OneBiz/copreg.html', '  ') === url);
+  ok('分享人里的特殊字符被转义', fillDetailsOpenUrl('https://x.example.com', '/p', 'a&b').endsWith('shareUserUuid=a%26b'));
+
+  // 深链参数用过之后地址栏留什么：只抹 open，分享人留下
+  ok('★ 抹掉意图参数时留下分享人', searchAfterOpenIntentUsed('?shareUserUuid=SHARE-1&open=fill-details') === '?shareUserUuid=SHARE-1');
+  ok('没有分享人 → 查询串整个清掉（与以前一致）', searchAfterOpenIntentUsed('?open=fill-details') === '');
+  ok('没有意图参数时分享人也不会被顺手抹掉', searchAfterOpenIntentUsed('?shareUserUuid=SHARE-1') === '?shareUserUuid=SHARE-1');
+  ok('没传 / 只有 ? → 空串', searchAfterOpenIntentUsed('') === '' && searchAfterOpenIntentUsed('?') === '' && searchAfterOpenIntentUsed(undefined) === '');
+  ok('★ 别的参数一律不留（白名单，不收别人塞进来的东西）', searchAfterOpenIntentUsed('?a=1&open=fill-details&b=2') === '');
+  ok('分享人只有空白 → 当没有', searchAfterOpenIntentUsed('?shareUserUuid=%20%20&open=fill-details') === '');
+  ok('分享人里的特殊字符会被转义着留下', searchAfterOpenIntentUsed('?shareUserUuid=a%26b') === '?shareUserUuid=a%26b');
 
   ok('付过款（查单确认已支付）才放行深链', allowsFillDetailsIntent(true, false) === true);
   ok('申报资料已提交也放行（它本身就说明付过款）', allowsFillDetailsIntent(false, true) === true);

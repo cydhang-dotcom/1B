@@ -13,7 +13,7 @@
  *   - 四大核心维度**上下竖排**（不是左右分列）：每张卡 = 图标 + 序号·标题 + 右侧标签 +
  *     加粗结论 + 「【小标题】正文」逐条要点
  *   - 经营范围卡：营业执照规范表述 + 标签 + 后置资质提醒
- *   - 初创期合规避坑：竖排卡片（避坑指南 + 行业合规提示）
+ *   - 初创期合规避坑：**一张卡**里逐条列出（避坑指南 + 行业合规提示），不再每条一张卡
  *   - 底部一行免责小字
  *
  * 内容来源与参考实现的差别：参考实现读本地模板生成的平铺字段、每段建议写死在组件里；
@@ -224,7 +224,8 @@ export const PlanReportView: React.FC<PlanReportViewProps> = ({ report, plan, su
         )}
       </div>
 
-      {/* 初创期合规避坑建议 */}
+      {/* 初创期合规避坑建议：所有提示收在**一张卡**里（原来是每条一张卡竖排，
+          条数一多就像一串各自独立的板块，读起来不成一段建议） */}
       {pitfalls.length > 0 && (
         <div className="mb-4">
           <h3 className="text-xs font-bold text-slate-800 mb-2.5 flex items-center gap-1.5">
@@ -232,9 +233,9 @@ export const PlanReportView: React.FC<PlanReportViewProps> = ({ report, plan, su
             <span>初创期合规避坑建议（针对性提示）</span>
           </h3>
 
-          <div className="flex flex-col gap-2.5 text-xs text-slate-600">
+          <div className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 text-xs text-slate-600 space-y-3">
             {pitfalls.map((item, index) => (
-              <div key={index} className="p-3.5 rounded-xl border border-slate-100 bg-slate-50/50">
+              <div key={index}>
                 <div className="font-semibold text-slate-900 mb-1 flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#1D6C5E]" />
                   <span>{item.title}</span>

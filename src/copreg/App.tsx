@@ -53,6 +53,7 @@ import {
   readApplicationsState,
   renameApplication,
   setActiveApplication,
+  suggestedContactPhone,
   updateApplication,
   writeApplicationsState,
   type ApplicationRecord,
@@ -66,9 +67,11 @@ import {
   clampPersistedStep,
   allowsFillDetailsIntent,
   openIntentOf,
+  searchAfterOpenIntentUsed,
   showsPaidView,
   stepHash,
 } from './stepRoute';
+import { useShareUserUuid } from '../hooks/useShareUserUuid';
 import { fetchPaymentStatus } from './paymentStatus';
 import { createOrderStatusChecker, type OrderStatusChecker } from './orderStatusCheck';
 import { PAY_HOST, WECHAT_NATIVE_CREATE_PATH, WECHAT_NATIVE_QUERY_PATH } from '../config/api';
@@ -280,12 +283,20 @@ export default function App() {
   }
 
   /**
-   * 深链参数用过就抹掉：地址栏只留 `{pathname}#fill-details`（步骤 hash 由下面那个 effect 写）。
-   * 不抹的话，刷新、复制、转发出去的地址都会带着它再跳一次步。
+   * 深链参数用过就抹掉：地址栏只留 `{pathname}[?shareUserUuid=…]#fill-details`（步骤 hash 由下面
+   * 那个 effect 写）。不抹的话，刷新、复制、转发出去的地址都会带着它再跳一次步。
+   *
+   * **只抹意图参数 `open`，分享人留在地址里**：客服码弹窗是后面才挂载的，它从 URL 上读分享人
+   * （`useShareUserUuid`）—— 整条查询串一起抹掉的话，这个标签页刷新一次专属码就没了。
+   * 重建口径见 stepRoute.ts 的 searchAfterOpenIntentUsed。
    */
   useEffect(() => {
     if (!deepLinkRef.current) return;
-    window.history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
+    window.history.replaceState(
+      null,
+      '',
+      `${window.location.pathname}${searchAfterOpenIntentUsed(window.location.search)}${window.location.hash}`,
+    );
   }, []);
 
   const [apps, setApps] = useState<ApplicationsState>(bootstrapRef.current.state);
@@ -350,6 +361,13 @@ export default function App() {
   };
 
   const { survey, plan, suggestion: planSuggestion, record: planRecord, order, details, messages, timeline, reviewBranch, bankBooked } = runtime;
+
+  /**
+   * 这条链接的分享人（`?shareUserUuid=`，只在挂载时读一次）。
+   * 用途有两个，都是「别把分享人弄丢」：生成需求方案时随 `phoneNumber` 上送（服务端据此把
+   * 这单算给分享人），以及支付成功页开填报页的深链把它带进新标签页（见 AgreementAndPaymentStep）。
+   */
+  const shareUserUuid = useShareUserUuid();
 
   /**
    * 当前步骤与解锁范围都在主体记录里（持久化），所以「刷新回到哪一步」和「切主体」
@@ -454,6 +472,9 @@ export default function App() {
   useEffect(() => {
     if (paidCheck === 'checking') return; // 核实中，地址栏先不动
     // 已支付的支付页有自己的 hash（#paid）；其余情况按当前步骤的 hash
+    // ⚠️ 写进去的是**纯 fragment**（`#proposal`）：replaceState 会拿它相对当前地址解析，
+    // 于是 pathname 与查询串都原样留着 —— 分享人（`?shareUserUuid=`）就是这样活过每一步的。
+    // 别改成 `${pathname}${hash}`：那是「整条查询串一起抹掉」的写法（App 里已经踩过一次）。
     const target = paidView && currentStep === 'payment' ? PAID_HASH : stepHash(currentStep);
     if (window.location.hash !== target) window.history.replaceState(null, '', target);
   }, [currentStep, paidView, paidCheck]);
@@ -779,10 +800,13 @@ export default function App() {
 
   /**
    * 第一次生成方案（本地还没有委托单号）：过手机验证弹框，带着手机号与短信凭据调诊断接口建单。
+   *
+   * 分享人（`?shareUserUuid=`）跟着这次请求一起上去（塞在 `phoneNumber` 信封里，与 caa 同形）：
+   * 归属在第一张单建出来的那一刻就得定下来，之后改方案、支付都只是这一单上的动作。
    */
   const handleSurveySubmit = async (verification: PhoneVerification) => {
     await runPlanSubmit(
-      () => generatePlanReport(survey, verification),
+      () => generatePlanReport(survey, verification, shareUserUuid),
       null,
       verification.mobile
     );
@@ -954,7 +978,9 @@ export default function App() {
             onSubmit={handleSurveySubmit}
             onModify={handleSurveyModify}
             modifyRecordId={planRecord?.recordId ?? ''}
-            contactPhone={order.contactPhone}
+            // 手机号预填：本主体验过的优先；新主体还没有号时借**别的已生成方案的主体**用过的号
+            // （同一台机器同一个人，省得再敲一遍 —— 见 applications.suggestedContactPhone）
+            contactPhone={suggestedContactPhone(apps, activeApp.id, order.contactPhone)}
             onReset={handleResetSurvey}
           />
         )}

@@ -31,6 +31,7 @@ import {
   registrationKey,
   renameApplication,
   setActiveApplication,
+  suggestedContactPhone,
   updateApplication,
   writeApplicationsState,
   type ApplicationsState,
@@ -366,6 +367,50 @@ function main() {
     // 空串是「服务端没给」而不是有效值：不能被空串盖掉已有的单号 / 手机号
     const emptyFields = applyPaidOrder(paid, { orderNo: '', paidAt: '', contactPhone: '' }, NOW + 13);
     ok('空串字段不覆盖已有值', emptyFields.order.orderNo === 'ORD-1' && emptyFields.order.paidAt === '2026-10-01 12:00' && emptyFields.order.contactPhone === '13800000000');
+  }
+
+  /* ------------------------------------------- 第 1 步手机号预填（借别的主体的号） */
+  {
+    // 一个「已经生成过方案」的主体：摘要里有手机号（手机号只在生成方案 / 查单确认支付时写进去）
+    const withPhone = (name: string, phone: string, updatedAt: string): ApplicationRecord => ({
+      ...createApplication(NOW, 0, name),
+      order: { status: 'pending', orderNo: 'ORD-1', paidAt: '', contactPhone: phone, amount: 600, tierName: '企业注册服务' },
+      updatedAt,
+    });
+    const a = withPhone('甲科技', '13800000000', '2026-10-01T00:00:00.000Z');
+    const b = withPhone('乙科技', '13911112222', '2026-10-05T00:00:00.000Z');
+    const fresh = createApplication(NOW, 2, '丙科技');
+    const state: ApplicationsState = { applications: [a, b, fresh], activeAppId: fresh.id };
+
+    ok('本主体自己没号 → 借别的主体的号', suggestedContactPhone(state, fresh.id, '') === '13911112222');
+    ok(
+      '★ 多个候选时取最近更新的那个（最近用过的号最可能是同一个人的号）',
+      suggestedContactPhone(state, fresh.id, '') === b.order.contactPhone
+    );
+    ok(
+      '本主体自己已经有号 → 用自己的（不借别人的）',
+      suggestedContactPhone(state, fresh.id, '13700000000') === '13700000000'
+    );
+    ok(
+      '两端的空格都算掉（自己的号只写空格也算没号，照样借）',
+      suggestedContactPhone(state, fresh.id, '   ') === '13911112222'
+    );
+    ok(
+      '不会拿**自己**的号当「别人的号」（自己那条被排除）',
+      suggestedContactPhone({ applications: [a, b], activeAppId: b.id }, b.id, '') === '13800000000'
+    );
+    ok(
+      '谁都没号 → 空串（不编、不回落默认）',
+      suggestedContactPhone({ applications: [fresh], activeAppId: fresh.id }, fresh.id, '') === ''
+    );
+
+    // 真的走一遍「新增一个空白主体 → 它的问卷预填」：新增后自己没号，借老主体的号
+    const added = addApplication(state);
+    const addedId = added.ok ? added.state.activeAppId : '';
+    ok(
+      '新增主体（空白）之后，它的手机号预填就是老主体用过的号',
+      added.ok === true && addedId !== '' && suggestedContactPhone(added.state, addedId, '') === '13911112222'
+    );
   }
 
   /* ------------------------------------------------------ 更新主体 */

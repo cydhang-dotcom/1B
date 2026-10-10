@@ -97,8 +97,16 @@ export interface PlanGenerateRequest {
   /**
    * 手机号 + 短信凭据（caa 同款信封里的 phoneNumber）。服务端据此比对短信验证码；
    * 三个字段都由第 1 步的手机验证弹框给出（见 verification.ts 的 PhoneVerification）。
+   * 分享人也塞在这个信封里（见下），与 caa 的 `/api/company-plan/generate` 完全同形。
    */
-  phoneNumber: PhoneVerification;
+  phoneNumber: PhoneVerification & {
+    /**
+     * 分享人 uuid（URL 的 `?shareUserUuid=`，见 utils/shareUserUuid.ts）。
+     * **没有分享人时给空串**（不是省略字段）—— caa 那边也是这么发的，服务端按空串处理；
+     * 归属（这一单算给谁）就看这个字段。
+     */
+    shareUserUuid: string;
+  };
 }
 
 /**
@@ -108,6 +116,10 @@ export interface PlanGenerateRequest {
  * 手机号在建单那一步已经验过，同一张单沿用，所以这一步不再走短信验证码；
  * 腾讯行为验证码那一道仍然保留（票据走 query，见 modifyProposal）。
  * formData 与第一次完全同形（同一个 PlanFormData）。
+ *
+ * **分享人（`shareUserUuid`）这一步暂不带**：归属在第一次建单（generatePlanReport）时就已经定在
+ * 这一张单上，改方案不是建单。若后端要求每次请求都带，再按它的字段位置（顶层 or 信封）补 ——
+ * 位置没确认前不猜着发（发错位置等于没发，还会让人以为已经带上了）。
  */
 export interface PlanModifyRequest {
   /** 调查问卷记录 ID（= 建单时拿到的委托单号），修改需求方案场景必填（服务端注释原文） */
@@ -158,14 +170,22 @@ export interface PlanReport {
  * 失败抛带中文提示的 Error（超时 / 网络 / 后端文案 / 没有任何可用字段 / 没给委托单号），
  * 由调用方决定怎么兜 —— 现在没有本地兜底：失败留在手机验证弹框里，改验证码重试。
  *
+ * `shareUserUuid` 是这条链接的分享人（`?shareUserUuid=`，没有就传 null）：
+ * 塞进 `phoneNumber` 信封一起上送，与 caa 的 `/api/company-plan/generate` 同形，
+ * 服务端据此把这一单算给分享人。**只有建单这一次送**（改方案走 modifyProposal，那是同一张单）。
+ *
  * 「响应是合法 JSON 但认不出任何字段」也算失败：那多半是字段名对不上，
  * 此时若当成成功，用户会看到一份本地模板方案却以为它是服务端给的。
  */
 export const generatePlanReport = async (
   survey: SurveyData,
-  phoneNumber: PhoneVerification
+  phoneNumber: PhoneVerification,
+  shareUserUuid?: string | null
 ): Promise<PlanReport> => {
-  const body: PlanGenerateRequest = { formData: planFormFromSurvey(survey), phoneNumber };
+  const body: PlanGenerateRequest = {
+    formData: planFormFromSurvey(survey),
+    phoneNumber: { ...phoneNumber, shareUserUuid: shareUserUuid ?? '' },
+  };
   const payload = await postJson(joinUrl(COMPANY_PLAN_HOST, PLAN_DIAGNOSE_PATH), body, LABEL);
 
   const suggestion = parsePlanSuggestion(payload);

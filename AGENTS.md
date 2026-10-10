@@ -72,7 +72,7 @@ npm run dev            # 本机预览：http://127.0.0.1:5173/1B/copreg.html
 npm run lint           # tsc --noEmit（没开 strict，见 §3）
 npm run build          # 构建 dist-www/（base /OneBiz/）
 npm run build:biz      # 构建 dist-biz/（base /）
-npm run check:entry    # 用 vite SSR 把真实 App 树渲染一遍，验证首屏落点 / 渲染结果（当前 75 项）
+npm run check:entry    # 用 vite SSR 把真实 App 树渲染一遍，验证首屏落点 / 渲染结果（当前 78 项）
 npx tsx scripts/check-xxx.ts   # 单个纯逻辑自检（无需构建）
 node .mcp-work/verify-xxx.mjs  # 单个真机验证（无头 Chrome，需要 dev server 在跑）
 npm run deploy         # 构建并上传（生产发布请让用户确认）
@@ -84,7 +84,7 @@ npm run deploy         # 构建并上传（生产发布请让用户确认）
 - **每个功能都带自检**，三层：
   1. 纯逻辑抽到不依赖 DOM / `import.meta.env` 的模块（否则 `npx tsx scripts/…` 会崩），配 `scripts/check-*.ts`（当前 26 个）；
   2. 涉及真实组件渲染/落点的，加 `scripts/check-copreg-entry.tsx` 的断言（`npm run check:entry`）；
-  3. 涉及真实浏览器行为（点击、渲染像素、localStorage 串场）的，写 `.mcp-work/verify-*.mjs`（无头 Chrome + 独立 browser context；当前 38 个，**目录被 gitignore**）。
+  3. 涉及真实浏览器行为（点击、渲染像素、localStorage 串场）的，写 `.mcp-work/verify-*.mjs`（无头 Chrome + 独立 browser context；当前 39 个，**目录被 gitignore**）。
 - **改文案/价目/超时这类"口径"必须同步改断言**：如 `check-price-table.ts`、`check-plan-timeout.ts`、`check-address-nature-hints.ts`、`.mcp-work/verify-price-table.mjs`。
 - **⚠️ 不要每改一次代码就跑验证脚本**（2026-10-08 用户明确要求）：上面那三层自检是「口径的台账 + 需要时能复现」用的，**不是每次改动的必过关卡**。
   - 日常改完最多跑一下 `npm run lint`（`tsc --noEmit`，几秒）确认没写坏类型；`npm run check:entry`、`scripts/check-*.ts`、`.mcp-work/verify-*.mjs` **按需**跑 —— 改到哪一层、只跑那一层里**直接相关的那一两个**，或者等发版前 / 用户开口时再整套跑。

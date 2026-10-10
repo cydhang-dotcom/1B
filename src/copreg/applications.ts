@@ -505,3 +505,27 @@ export const applyPaidOrder = (
   },
   unlockedSteps: app.unlockedSteps.includes('group') ? app.unlockedSteps : [...app.unlockedSteps, 'group'],
 });
+
+/**
+ * **第 1 步手机号的预填**：本主体验过的号优先；本主体还没有号时，借**别的已经生成过方案的主体**
+ * 用过的号（同一台机器、同一个人，多半就是同一个号），省得客户再敲一遍（2026-10-08 用户要求）。
+ *
+ * 「别的主体生成过方案」怎么认：手机号只在**生成方案时**（以及查单确认已支付时）写进主体记录的
+ * `order.contactPhone`，所以**摘要里有号**就等于那个主体走过一次手机验证 —— 不用再去判断它的步骤 / 单号。
+ * 多个候选时取 `updatedAt` 最新的那个（最近用过的号最可能是同一个人现在的号）。
+ *
+ * 只读不写：返回的号只用来**预填**问卷里的手机输入框，用户照样可以改；他不点「生成需求方案」，
+ * 这个号也不会落到这个主体上（真正写回在 `runPlanSubmit` 里，用的是他验证过的那个号）。
+ */
+export const suggestedContactPhone = (
+  state: ApplicationsState,
+  activeAppId: string,
+  ownPhone: string
+): string => {
+  const own = textOf(ownPhone);
+  if (own !== '') return own;
+  const borrowed = state.applications
+    .filter((app) => app.id !== activeAppId && textOf(app.order.contactPhone) !== '')
+    .sort((a, b) => (textOf(b.updatedAt) > textOf(a.updatedAt) ? 1 : -1));
+  return borrowed.length > 0 ? textOf(borrowed[0].order.contactPhone) : '';
+};

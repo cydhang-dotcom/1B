@@ -38,6 +38,7 @@ import { fillDetailsOpenUrl } from '../stepRoute';
 import { PayQrCode } from '../../payment/PayQrCode';
 import { useWechatNativePay } from '../../payment/useWechatNativePay';
 import { useCustomerServiceQr } from '../../hooks/useCustomerServiceQr';
+import { useShareUserUuid } from '../../hooks/useShareUserUuid';
 
 interface AgreementAndPaymentStepProps {
   /** 当前主体 id：申报表存档按主体各一份，读「是否已提交」要用它 */
@@ -88,6 +89,8 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
   busUnionId
 }) => {
   const isPaid = paidView ?? order?.status === 'paid';
+  /** 这条链接的分享人：唯一用处是**带进新开的填报页**（那一页要用它查分享人的专属客服码） */
+  const shareUserUuid = useShareUserUuid();
 
   /**
    * 「申报资料填报」/「查看/修改申报资料」→ **在新标签页打开**填报页。
@@ -97,10 +100,12 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
    *
    * 新标签页只会按本地证据落点（地址栏不指挥页面），所以地址里带一个显式意图
    * `?open=fill-details`；付过款才会被认（见 stepRoute.ts 的 openIntentOf）。
+   * **分享人跟着地址一起过去**：新标签页是全新的一份 `window.location`，
+   * 不带它就查不到分享人的专属客服码，第 5 步的「微信扫码咨询」只能显示通用码。
    * 万一被浏览器拦了弹窗（返回 null），退回原来的同页跳转，别让按钮变成没反应。
    */
   const openFillDetailsInNewTab = () => {
-    const url = fillDetailsOpenUrl(window.location.origin, window.location.pathname);
+    const url = fillDetailsOpenUrl(window.location.origin, window.location.pathname, shareUserUuid);
     // ⚠️ **不能带 `noopener`**：带它时 `window.open` 一律返回 null，就分不清「开成功」和
     // 「被弹窗拦截」了 —— 于是每次都走下面的兜底、把原网页也跳走（踩过）。
     // 新窗口与本站同源，开成功后再手动断开 opener 即可。
@@ -250,7 +255,14 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
     showToast('支付成功！委托代办已生效，已生成专属服务清单与企微顾问');
   }, [pay.phase, pay.paidOrder, order, payMethod, plan.finalPrice]);
 
-  // Checklist items for post-payment status display
+  /**
+   * 支付成功页「服务进度状态与办理清单」里的事项。
+   *
+   * **只有第 1 项**（申报资料填报与合规初审）：它才是这个页面真有功能的一件事（唯一的入口就是它，
+   * 提交后状态与按钮都跟着它变）。原来还排着 2~7 项（市监送审 / 刻章 / 银行开户 / 税种核定 /
+   * 记账托管 / 社保公积金），**那些功能目前都没有**，列在这里等于承诺了做不到的事 ——
+   * 2026-10-08 按用户要求删掉，只留这一项。
+   */
   const checklistItems = [
     {
       title: '企业注册申报资料在线填报与合规初审',
@@ -263,57 +275,6 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
       time: effectiveSubmitted ? '已提交（正在初核）' : '核心前置任务（约 10~15 分钟）',
       isPrereq: !effectiveSubmitted
     },
-    {
-      title: '市场监督管理局行政审批送审与执照领办',
-      desc: effectiveSubmitted
-        ? '【当前阶段】专人对接属地市监行政审批网申系统编制申报底稿，协同全体股东完成实名认证电子签名后，领办纸质营业执照正副本原件。'
-        : '【前置条件：资料审核通过后启动】专人对接属地市监行政审批网申系统编制申报底稿，协同全体股东完成实名认证电子签名后，领办纸质营业执照正副本原件。',
-      status: effectiveSubmitted ? 'in_progress' : 'waiting',
-      statusLabel: effectiveSubmitted ? '进行中 · 底稿编制与政务网申' : '待资料审核后启动',
-      dept: '市场监督管理局',
-      time: effectiveSubmitted ? '预计 1~2 工作日办结' : '资料审核通过后 1~2 工作日',
-      isPrereq: effectiveSubmitted
-    },
-    {
-      title: '公安特行备案防伪芯片印章刻制（全套5枚）',
-      desc: '【前置条件：执照下发后启动】公章、财务章、发票章、合同章、法人私章，公安特行刻印点内嵌芯片防伪备案。',
-      status: 'pending',
-      statusLabel: '执照核发后启动',
-      dept: '公安局特行备案点',
-      time: '执照下发后 4 小时'
-    },
-    {
-      title: '合作商业银行对公账户绿色通道开户预约',
-      desc: '【前置条件：证照齐全后启动】招商银行/工商银行/平安银行专属客户经理绿色通道对接，专人协同网点开户。',
-      status: 'waiting',
-      statusLabel: '证照齐全后启动',
-      dept: '合作商业银行',
-      time: '证照齐全后次日'
-    },
-    {
-      title: '国家电子税务局企业税种核定与登记',
-      desc: '【前置条件：开户完成后启动】办理电子税务局实名登记、税种核定、发票票种及数电发票额度申领。',
-      status: 'pending',
-      statusLabel: '开户完成后启动',
-      dept: '国家税务总局电子税局',
-      time: '开户完成后 1 工作日'
-    },
-    {
-      title: '专属财税专员建账与全年记账报税托管',
-      desc: '【常态化托管服务】持证资深会计师建立标准财务账套，按期纳税申报及汇算清缴。',
-      status: 'planned',
-      statusLabel: '按期交付',
-      dept: '专属财税团队',
-      time: '全年 12 个月托管'
-    },
-    {
-      title: '单位独立社保与住房公积金开户及托管',
-      desc: '【按需申报】开立单位专属五险一金账户，按月协助员工增减员申报与基数核算。',
-      status: 'planned',
-      statusLabel: '按需申报',
-      dept: '人社局 / 公积金中心',
-      time: '按月度办理'
-    }
   ];
 
   return (
@@ -1151,9 +1112,9 @@ export const AgreementAndPaymentStep: React.FC<AgreementAndPaymentStepProps> = (
                 </div>
               </div>
 
-              {/* Policy notes */}
+              {/* Policy notes —— 末尾原来还有一句「办结物料顺丰安全包邮寄达」，2026-10-08 按用户要求删掉 */}
               <div className="p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200/60 text-emerald-800 text-[11px]">
-                <strong>服务保障承诺：</strong>所选套餐与增值服务已完全缴清，绝无任何二次巧立名目加价；办结物料顺丰安全包邮寄达。
+                <strong>服务保障承诺：</strong>所选套餐与增值服务已完全缴清，绝无任何二次巧立名目加价。
               </div>
             </div>
 

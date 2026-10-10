@@ -36,6 +36,7 @@
  */
 
 import type { ProcessStep } from './types';
+import { SHARE_USER_UUID_PARAM, appendShareUserUuid, readShareUserUuid } from '../utils/shareUserUuid';
 
 /** 「已支付」那个界面自己的 hash。它是第 3 步内部的状态，不占 ProcessStep 的位置 */
 export const PAID_HASH = '#paid';
@@ -104,7 +105,8 @@ export const clampPersistedStep = (step: ProcessStep): ProcessStep =>
  *   1. **只有白名单里的值认**（现在只有 `fill-details`），其余一律忽略；
  *   2. 解析出来只是一个「意图」，**能不能真的进那一步还要看本地证据**（见
  *      `allowsFillDetailsIntent`：付过款才放行），否则链接就成了绕过支付的入口；
- *   3. 参数**用过就抹掉**（App 里 replaceState），刷新 / 转发出去的地址不会再触发跳步。
+ *   3. 参数**用过就抹掉**（App 里 replaceState，见 `searchAfterOpenIntentUsed`），
+ *      刷新 / 转发出去的地址不会再触发跳步。
  */
 export const OPEN_INTENT_PARAM = 'open';
 export const OPEN_FILL_DETAILS_VALUE = 'fill-details';
@@ -122,9 +124,39 @@ export const openIntentOf = (search: string | undefined): ProcessStep | null => 
   return value === OPEN_FILL_DETAILS_VALUE ? 'fill_details' : null;
 };
 
-/** 深链地址：`{origin}{pathname}?open=fill-details`（不带 hash —— 落点后由页面自己写进地址栏） */
-export const fillDetailsOpenUrl = (origin: string, pathname: string): string =>
-  `${origin}${pathname}?${OPEN_INTENT_PARAM}=${OPEN_FILL_DETAILS_VALUE}`;
+/**
+ * 深链地址：`{origin}{pathname}?open=fill-details[&shareUserUuid=…]`
+ * （不带 hash —— 落点后由页面自己写进地址栏）。
+ *
+ * `shareUserUuid` 是**分享人**（URL 上 `?shareUserUuid=`，见 utils/shareUserUuid.ts）：
+ * 新标签页是全新的一份 `window.location`，不带过去它就读不到分享人，第 5 步「微信扫码咨询」
+ * 里那张客服码只能回落通用码 —— 分享人的客户扫到的是公司的公共码，归属就断了。
+ * 所以打开者是谁的分享人，这条深链就带谁的（没有分享人时不带，与以前完全一样）。
+ */
+export const fillDetailsOpenUrl = (
+  origin: string,
+  pathname: string,
+  shareUserUuid?: string | null,
+): string =>
+  appendShareUserUuid(
+    `${origin}${pathname}?${OPEN_INTENT_PARAM}=${OPEN_FILL_DETAILS_VALUE}`,
+    shareUserUuid,
+  );
+
+/**
+ * 深链意图参数**用过之后**，地址栏里该留下什么。
+ *
+ * 只抹 `open`，**分享人要留下**：App 落点后会用 replaceState 重写地址栏，
+ * 以前是 `${pathname}${hash}` —— 连查询串一起抹了（分享人跟着没了），于是同一个标签页里
+ * 刷新一次、或再挂载一次客服码弹窗，专属码就退化成通用码。这里按白名单重建：
+ * 只保留分享人这一个参数，其余（意图参数、以及任何别人塞进来的东西）一律丢掉。
+ */
+export const searchAfterOpenIntentUsed = (search: string | undefined): string => {
+  const shareUserUuid = readShareUserUuid(search);
+  return shareUserUuid === null
+    ? ''
+    : `?${SHARE_USER_UUID_PARAM}=${encodeURIComponent(shareUserUuid)}`;
+};
 
 /**
  * 深链要不要真的放行：**必须已经付过款**。

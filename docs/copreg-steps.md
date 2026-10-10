@@ -54,10 +54,10 @@ copreg.html 是一个六步向导，每一步在地址栏里有一个 hash，但
 ### 新标签页怎么落到第 5 步：`?open=fill-details` 深链
 
 新标签页打开时**地址栏不指挥页面**（见前面「地址栏只读」），所以光带 `#fill-details` 它会按本地证据
-落回第 3 步。按钮打开的地址因此带一个**显式的意图参数**：
+落回第 3 步。按钮打开的地址因此带一个**显式的意图参数**（有分享人时还带上分享人）：
 
 ```
-copreg.html?open=fill-details
+copreg.html?open=fill-details[&shareUserUuid=…]
 ```
 
 四条约束（都在 `src/copreg/stepRoute.ts`，纯函数、可离线自检）：
@@ -65,17 +65,30 @@ copreg.html?open=fill-details
 1. **只认白名单值**（现在只有 `fill-details`），不认识的一律忽略；
 2. **能不能真的进第 5 步还要看本地证据**：只有「已支付（本地摘要 paid）或申报资料已提交」才放行 ——
    否则这条链接就成了绕过支付直接进填报页的入口（`allowsFillDetailsIntent`）；
-3. **参数用过就抹掉**（挂载后 `replaceState` 只留 `{pathname}#fill-details`）：刷新、复制、转发出去
-   的地址不会再触发跳步。
+3. **参数用过就抹掉**（挂载后 `replaceState`）：刷新、复制、转发出去的地址不会再触发跳步。
+   **只抹 `open` 这一个**（`searchAfterOpenIntentUsed`，白名单重建）：`shareUserUuid` 留在地址里 ——
+   填报表单里的客服码弹窗是后面才挂载的，它从 URL 上读分享人，整条查询串一起抹掉的话，
+   这个标签页刷新一次专属码就没了（2026-10 修）。
 4. **落点只到第 3 步**：`fill_details` / `progress` 都是**会话级浏览位置，不写进主体记录**
    （`canPersistStep` / `MAX_PERSISTED_STEP = 'payment'`）——「进度」最大到 `payment`，
    第 5 步只能从支付成功页进。所以：深链进来的那一页刷新一下就回到支付成功界面；
    读存档时若发现写着 `fill_details`（老版本写进去的）也收口回 `payment`（`clampPersistedStep`）。
 
-自检：`scripts/check-step-route.ts`（12 条深链断言 + 登记上限）、`npm run check:entry`（已支付+参数 → 落第 5 步；
-未支付+参数 → 忽略仍落第 3 步；不认识的意图值 → 忽略）、`.mcp-work/verify-paid-cta.mjs`（12 项，真机：
-**真实鼠标手势**点按钮 → `window.open` 真开成功（不是 null，否则会误走兜底把原网页跳走）、当前页留在 `#paid`、
-新标签页真的落在填报页、参数已抹掉、**主体记录里的步骤仍是 payment**、**刷新那一页回到支付成功界面**）。
+**分享人为什么要跟着深链走**（2026-10 加）：新标签页是全新的一份 `window.location`，打开者那页的 URL
+它读不到 —— 深链里不带 `shareUserUuid`，第 5 步「微信扫码咨询」里那张客服码就只能回落通用码
+（分享人的客户扫到的是公司的公共码，归属就断了）。所以 `fillDetailsOpenUrl(origin, pathname,
+shareUserUuid)` 把它拼上去（复用 `utils/shareUserUuid.ts` 的 `appendShareUserUuid`；没有分享人时不带，
+地址与以前一字不差）。同理，步骤 hash 那两处 `replaceState` 写的是**纯 fragment**（`#proposal`），
+它相对当前地址解析、pathname 与查询串都留着 —— 别改成 `${pathname}${hash}`。
+
+自检：`scripts/check-step-route.ts`（65 项：深链四条 + 带上分享人 / 只抹 open / 别的参数一律不留 +
+登记上限）、`npx tsx scripts/check-share-user-uuid.ts`（26 项：分享人参数怎么读怎么拼 + 三个接线点
+没被写歪）、`npm run check:entry`（已支付+参数 → 落第 5 步；未支付+参数 → 忽略仍落第 3 步；
+不认识的意图值 → 忽略）、`.mcp-work/verify-paid-cta.mjs`（12 项，真机：**真实鼠标手势**点按钮 →
+`window.open` 真开成功（不是 null，否则会误走兜底把原网页跳走）、当前页留在 `#paid`、
+新标签页真的落在填报页、参数已抹掉、**主体记录里的步骤仍是 payment**、**刷新那一页回到支付成功界面**）、
+`.mcp-work/verify-wecom-qr.mjs`（3 幕，真机：带分享人 → 专属码；不带 → 兜底图；
+**支付成功页点真实按钮 → 新标签页地址留着分享人、弹窗拿到专属码**）。
 
 已支付界面上「订单编号 / 支付时间」两格的数据来源是**查单响应**（`orderNo` / `payTime`）；
 「经办人姓名 / 经办联系电话」**以申报资料里填的「联系人」为准**（`registration/contactInfo.ts`
@@ -208,8 +221,15 @@ copreg.html?open=fill-details
    `https://www.ibanbu.com/image-yqt/customer-service-qr.png`（通用兜底图，绝对地址，换域名也不 404）。
 3. **后显示**：`<img>` 永远拿到一个可用地址，不会出现裂图或空二维码。
 
+分享人本身的口径（参数名、怎么读、怎么拼）在 `src/utils/shareUserUuid.ts`（纯函数）：
+**只认 URL，不落盘** —— 存进 localStorage 会让「先点开 A 的分享链接、再点开 B 的」串味，
+两个客户都会算到 A 头上。所以它必须能活过 copreg 自己的地址栏重写与开新标签页
+（见上面「新标签页怎么落到第 5 步」）；生成需求方案那一次还会把它塞进 `phoneNumber` 上送
+（`docs/copreg-plan-api.md` 2.1）。
+
 自检：`npx tsx scripts/check-customer-service-qr.ts`（20 项，覆盖地址拼接、转义、
-以及八种「拿不到」都必须回落兜底图）。
+以及八种「拿不到」都必须回落兜底图）、`npx tsx scripts/check-share-user-uuid.ts`（26 项，
+覆盖分享人参数的读与拼、以及「App 交给 generatePlanReport / 深链带上 / 空串而不是省略字段」三个接线点）。
 
 ## `#paid` 比别的 hash 更严格
 
@@ -287,7 +307,7 @@ copreg.html?open=fill-details
 - **页面版式（2026-09 改版）** 迁移自参考实现 `ProposalStep` 的「01 · 设立规划建议报告」：
   序号徽标 + 「存为 PDF」顶栏、标题与摘要、**意向诊断核对条**四格（拟营业务方向 / 股东构成特征 /
   经营场所安排 / 财税身份定位）、**四大核心维度上下竖排**（图标 + 序号·标题 + 右侧标签 + 加粗结论 +
-  「【小标题】正文」逐条要点）、营业执照拟定经营范围卡、初创期合规避坑竖排卡片、底部免责小字。
+  「【小标题】正文」逐条要点）、营业执照拟定经营范围卡、初创期合规避坑**合并在一张卡**里逐条列出、底部免责小字。
   组件是 `components/PlanReportView.tsx`（`report !== null` 时渲染；老响应仍走平铺字段的回落布局）。
 - **报告正文（纯函数）** 在 `src/copreg/proposalReportDoc.ts`：优先用服务端新报告结构
   （`report.reportTitle / summary / diagnosticBar / 四个 coreDecisions（含 points）/
