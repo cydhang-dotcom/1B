@@ -965,8 +965,9 @@ const plain = (html: string) => html.replace(/<!-- -->/g, '');
 
   check(
     '两个勾选（免申报承诺 / 信息真实性）在只读模式下不可改',
-    content.includes('disabled'),
-    JSON.stringify({ 勾选置灰: content.includes('disabled') })
+    // 认 SSR 真渲染出来的 `disabled=""`，别认 Tailwind 的 `disabled:` 类名（那个恒真，等于没断言）
+    (content.match(/disabled=""/g) || []).length === 2,
+    JSON.stringify({ disabled: (content.match(/disabled=""/g) || []).length })
   );
 
   check(
@@ -977,6 +978,21 @@ const plain = (html: string) => html.replace(/<!-- -->/g, '');
       content.includes('房产证.png'),
     JSON.stringify({ 地址卡: content.includes('地址性质与场地证明') })
   );
+
+  {
+    // 用户要求：两个勾选框（免申报承诺 / 信息真实性确认）挪到正文**最后** ——
+    // 它们本来是「05 确认提交」的结尾，但这一页在它们后面还补了第 5 块地址证明，
+    // 于是勾选框被夹在中间。这里按渲染顺序断言（纯文本 indexOf，够用且不依赖 DOM 结构）。
+    const body = plain(content);
+    const addressAt = body.indexOf('地址性质与场地证明');
+    const exemptionAt = body.indexOf('免申报受益所有人信息承诺');
+    const accurateAt = body.indexOf('我已核对本次拟申报的全部企业信息与证件资料');
+    check(
+      '两个勾选框挪到正文最后（都排在地址证明卡之后）',
+      addressAt > -1 && exemptionAt > addressAt && accurateAt > addressAt,
+      JSON.stringify({ 地址: addressAt, 免申报: exemptionAt, 真实性: accurateAt })
+    );
+  }
 
   const draft = renderToString(
     <ServiceRecordContent
@@ -1030,6 +1046,14 @@ const plain = (html: string) => html.replace(/<!-- -->/g, '');
     '非只读的确认提交章仍保留「修改」与跳转按钮（只读是加出来的，没有改掉客户页）',
     editable.includes('修改') && editable.includes('查看服务进度状态与办理清单'),
     JSON.stringify({ 修改: editable.includes('修改'), 跳转: editable.includes('查看服务进度状态与办理清单') })
+  );
+
+  check(
+    '客户页的 ReviewSection 不传 hideConfirmCards → 两个勾选框仍内联在章尾（版式没动）',
+    plain(editable).includes('免申报受益所有人信息承诺') &&
+      plain(editable).includes('我已核对本次拟申报的全部企业信息与证件资料') &&
+      !editable.includes('disabled=""'),
+    JSON.stringify({ 免申报: plain(editable).includes('免申报受益所有人信息承诺') })
   );
 }
 

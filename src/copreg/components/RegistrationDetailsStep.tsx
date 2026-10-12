@@ -37,6 +37,7 @@ import {
   type JingbanrenInfo,
 } from '../registration/jingbanren';
 import { createOnceGate } from '../registration/onceGate';
+import { completionOf } from '../registration/completion';
 import { DOC_HOST, JINGBANREN_PATH, OPEN_INFO_PATH } from '../../config/api';
 import type { RegistrationPlan, SurveyData } from '../types';
 import {
@@ -433,6 +434,13 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     });
   }, [allErrors]);
 
+  /**
+   * 卡片完善度：**绿框卡片数 / 卡片总数**（口径见 `registration/completion.ts`）。
+   * 界面上亮绿框的判据与这里用的是同一个 `cardDoneOf`，所以「看到的绿框数」与提交载荷里的
+   * `completionPercent` 一定对得上（2026-10-08 用户要求提交数据里带这个字段）。
+   */
+  const completion = useMemo(() => completionOf(allErrors), [allErrors]);
+
   const completedCount = chapterStates.filter((s) => s === 'complete').length;
   const currentChapterErrors = allErrors.filter((e) => e.s === currentChapter);
   const currentErrorsMap = useMemo(() => {
@@ -453,6 +461,8 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     const snapshot: RegistrationFullForm = {
       ...form,
       savedAt: nowStr,
+      // 完善百分比：绿框卡片数 / 卡片总数（四舍五入），随 var2 一起存/提交
+      completionPercent: completion.percent,
     };
     try {
       localStorage.setItem(storageKey, JSON.stringify(snapshot));
@@ -491,8 +501,15 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  /**
+   * 「下一项」：换章之前**先把这一章存一份**（与「保存草稿」同一套逻辑，2026-10-08 用户要求）。
+   * 用静默档（`handleSaveDraft(true)`）：本地草稿是同步写的（翻页前就已落盘），
+   * 服务端那次请求在后台走 —— 不挡翻页，也不会每翻一章弹一次「草稿已保存」；
+   * 真失败（网络 / 服务端报错）照样会弹提示，不会闷掉。
+   */
   const handleNext = () => {
     if (currentChapter < 4) {
+      void handleSaveDraft(true);
       handleGoChapter(currentChapter + 1);
     }
   };
@@ -523,6 +540,8 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
       status: 'submitted',
       submittedAt: nowStr,
       submissionPhone: verifiedPhone,
+      // 完善百分比：绿框卡片数 / 卡片总数（四舍五入），随 var2 一起提交
+      completionPercent: completion.percent,
     };
 
     setIsSaving(true);
@@ -926,6 +945,7 @@ export const RegistrationDetailsStep: React.FC<RegistrationDetailsStepProps> = (
             <div className="hidden md:block text-right">
               <span className="text-[11px] text-slate-400 block">
                 {form.savedAt ? `已自动保存 ${form.savedAt}` : '带 * 字段为必填项'}
+                <span className="ml-1 text-slate-500">· 完善度 {completion.percent}%（{completion.done}/{completion.total} 项）</span>
               </span>
             </div>
 

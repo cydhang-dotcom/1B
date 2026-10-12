@@ -19,7 +19,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, FileText, Loader2, RefreshCw, ShieldCheck } from 'lucide-react';
-import { ReviewSection } from '../registration/ReviewSection';
+import { ReviewConfirmSection, ReviewSection } from '../registration/ReviewSection';
 import { FilePreviewModal } from '../registration/FilePreviewModal';
 import { formatSize } from '../registration/defaultData';
 import {
@@ -201,9 +201,11 @@ export const ServiceRecordContent: React.FC<{
         </dl>
       </div>
 
+      {/* 只读正文：「05 确认提交」那一章的前四块（勾选框先不渲染，见下） */}
       <ReviewSection
         form={form}
         readOnly
+        hideConfirmCards
         onGoChapter={() => {}}
         onUpdateConfirm={() => {}}
         onPreviewFile={onPreviewFile}
@@ -212,6 +214,15 @@ export const ServiceRecordContent: React.FC<{
       />
 
       <AddressProofCard form={form} onPreview={onPreviewFile} />
+
+      {/* 两个勾选框（免申报承诺 / 信息真实性确认）放到**最后**：它们本来是「05 确认提交」
+          那一章的结尾，但这一页在它后面还要补第 5 块地址证明，勾选框夹在中间读起来像还没填完 */}
+      <ReviewConfirmSection
+        form={form}
+        readOnly
+        onUpdateConfirm={() => {}}
+        errors={{}}
+      />
     </>
   );
 };

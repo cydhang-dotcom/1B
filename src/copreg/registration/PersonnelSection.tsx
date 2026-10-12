@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
+import { cardDoneOf } from './completion';
 import { RoleRecord, PersonRecord, BasicInfoData } from './types';
 import { ChevronRight, Plus, AlertTriangle, UserCheck, ShieldCheck, ExternalLink } from 'lucide-react';
 
@@ -27,8 +28,8 @@ export const PersonnelSection: React.FC<PersonnelSectionProps> = ({
   onGoBasic,
   errors,
 }) => {
-  /** 这一章有没有待完善项：没有才亮高亮条（与 #survey 同一口径，2026-10-08） */
-  const sectionDone = Object.keys(errors || {}).length === 0;
+  /** 这一章有没有待完善项：没有才亮高亮条（口径见 `registration/completion.ts`，提交时的百分比同源） */
+  const sectionDone = cardDoneOf('personnel', errors);
 
   const assignedRoles = roles.flatMap((r) => r.roles);
 

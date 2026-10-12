@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
+import { cardDoneOf } from './completion';
 import { ShareholderRecord, PersonRecord, FileAttachment } from './types';
 import { ChevronRight, Plus, AlertTriangle, Users } from 'lucide-react';
 
@@ -23,8 +24,8 @@ export const ShareholderSection: React.FC<ShareholderSectionProps> = ({
   onEditShareholder,
   errors,
 }) => {
-  /** 这一章有没有待完善项：没有才亮高亮条（与 #survey 同一口径，2026-10-08） */
-  const sectionDone = Object.keys(errors || {}).length === 0;
+  /** 这一章有没有待完善项：没有才亮高亮条（口径见 `registration/completion.ts`，提交时的百分比同源） */
+  const sectionDone = cardDoneOf('shareholders', errors);
 
   const totalRatio = shareholders.reduce((sum, s) => sum + (Number(s.ratio) || 0), 0);
 

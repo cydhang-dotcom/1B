@@ -23,7 +23,107 @@ interface ReviewSectionProps {
    * 客户填的内容与版式一字不动，客户怎么看，服务人员就怎么看。
    */
   readOnly?: boolean;
+  /**
+   * 不渲染最后那两个勾选框（免申报承诺 / 信息真实性确认），由调用方**自己在末尾**渲染
+   * `<ReviewConfirmSection />`。给查看页用：那边「05 确认提交」后面还要补一块地址性质与场地证明
+   * （`AddressProofCard`），勾选框压在它前面读起来像还没填完；客户页不传，版式一字不动。
+   */
+  hideConfirmCards?: boolean;
 }
+
+/**
+ * 「05 确认提交」最后那两个勾选框（免申报承诺 / 信息真实性确认），单独抽出来是为了能让查看页把它们
+ * 挪到正文**最后**（见 `ReviewSectionProps['hideConfirmCards']`）。客户页由 `ReviewSection` 原样内联渲染，版式不变。
+ */
+export const ReviewConfirmSection: React.FC<{
+  form: RegistrationFullForm;
+  onUpdateConfirm: (partial: Partial<RegistrationFullForm['confirm']>) => void;
+  errors: Record<string, string>;
+  readOnly?: boolean;
+}> = ({ form, onUpdateConfirm, errors, readOnly = false }) => {
+  const { shareholders, confirm } = form;
+  const isPureNatural = shareholders.length > 0 && shareholders.every((s) => s.type === '自然人');
+
+  return (
+    <>
+      {/* Review Section 6: 免申报受益所有人信息承诺 */}
+      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+        <div className="mb-3">
+          <h2 className="text-sm sm:text-base font-bold text-slate-800">
+            免申报受益所有人信息承诺（选填）
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">符合条件的小微企业可申请免除额外备案受益所有人信息。</p>
+        </div>
+
+        {isPureNatural ? (
+          <label
+            className={`flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80 select-none ${
+              readOnly ? '' : 'cursor-pointer'
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={confirm.exemption}
+              disabled={readOnly}
+              onChange={(e) => onUpdateConfirm({ exemption: e.target.checked })}
+              className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5 disabled:cursor-not-allowed"
+            />
+            <div className="text-xs text-slate-700 leading-relaxed">
+              <span className="font-semibold text-slate-800">
+                我确认本企业股东均为自然人，申请免申报受益所有人信息，并同意由服务专员核验适用条件。
+              </span>
+              {confirm.exemption && (
+                <div className="text-[11px] text-[#1D6C5E] font-semibold mt-1">
+                  ✓ 已勾选承诺 · 适用资格由专员在网申环节初核
+                </div>
+              )}
+            </div>
+          </label>
+        ) : (
+          <p className="text-xs text-slate-500">
+            {shareholders.length > 0
+              ? '本申请包含非自然人股东，不适用于纯自然人免申报政策。'
+              : '完善股东信息后，可按实际情况选择是否作出承诺。'}
+          </p>
+        )}
+
+        <details className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600 group">
+          <summary className="font-semibold text-[#2AA894] cursor-pointer hover:underline flex items-center justify-between">
+            <span>查看免申报适用条件说明</span>
+            <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-2.5 space-y-1.5 text-slate-500 pl-2 border-l-2 border-emerald-200 text-[11px]">
+            <div>• 股东结构：全部为自然人</div>
+            <div>• 注册资本规模及出资安排符合国家市场监管及反洗钱相关规定</div>
+            <div>• 本勾选由专属顾问进行资质核验，符合政策标准方可享受免备案通道。</div>
+          </div>
+        </details>
+      </div>
+
+      {/* Review Section 7: 信息真实性确认 */}
+      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
+        <label
+          className={`flex items-start gap-3 select-none ${readOnly ? '' : 'cursor-pointer'}`}
+        >
+          <input
+            type="checkbox"
+            checked={confirm.accurate}
+            disabled={readOnly}
+            onChange={(e) => onUpdateConfirm({ accurate: e.target.checked })}
+            className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5 disabled:cursor-not-allowed"
+          />
+          <div className="text-xs sm:text-sm text-slate-800 leading-relaxed font-semibold">
+            我已核对本次拟申报的全部企业信息与证件资料，确认所填内容真实、完整、有效，并同意专员依此提交政务初审。
+            <span className="text-rose-500 ml-0.5">*</span>
+          </div>
+        </label>
+        {errors.accurate && (
+          <p className="text-xs text-rose-500 font-medium mt-2 ml-7">{errors.accurate}</p>
+        )}
+      </div>
+    </>
+  );
+};
 
 export const ReviewSection: React.FC<ReviewSectionProps> = ({
   form,
@@ -33,10 +133,9 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
   onProceedToDelivery,
   errors,
   readOnly = false,
+  hideConfirmCards = false,
 }) => {
-  const { basic, shareholders, people, roles, authorization, confirm, status, submittedAt, submissionPhone } = form;
-
-  const isPureNatural = shareholders.length > 0 && shareholders.every((s) => s.type === '自然人');
+  const { basic, shareholders, people, roles, authorization, status, submittedAt, submissionPhone } = form;
 
   // 受托人只看申报表里填了什么：不再回落到「联系人」（受托人未必是联系人，见 AuthorizationSection）
   const trusteeName = authorization.trusteeName;
@@ -325,81 +424,14 @@ export const ReviewSection: React.FC<ReviewSectionProps> = ({
         )}
       </div>
 
-      {/* Review Section 6: 免申报受益所有人信息承诺 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
-        <div className="mb-3">
-          <h2 className="text-sm sm:text-base font-bold text-slate-800">
-            免申报受益所有人信息承诺（选填）
-          </h2>
-          <p className="text-xs text-slate-500 mt-0.5">符合条件的小微企业可申请免除额外备案受益所有人信息。</p>
-        </div>
-
-        {isPureNatural ? (
-          <label
-            className={`flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/80 select-none ${
-              readOnly ? '' : 'cursor-pointer'
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={confirm.exemption}
-              disabled={readOnly}
-              onChange={(e) => onUpdateConfirm({ exemption: e.target.checked })}
-              className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5 disabled:cursor-not-allowed"
-            />
-            <div className="text-xs text-slate-700 leading-relaxed">
-              <span className="font-semibold text-slate-800">
-                我确认本企业股东均为自然人，申请免申报受益所有人信息，并同意由服务专员核验适用条件。
-              </span>
-              {confirm.exemption && (
-                <div className="text-[11px] text-[#1D6C5E] font-semibold mt-1">
-                  ✓ 已勾选承诺 · 适用资格由专员在网申环节初核
-                </div>
-              )}
-            </div>
-          </label>
-        ) : (
-          <p className="text-xs text-slate-500">
-            {shareholders.length > 0
-              ? '本申请包含非自然人股东，不适用于纯自然人免申报政策。'
-              : '完善股东信息后，可按实际情况选择是否作出承诺。'}
-          </p>
-        )}
-
-        <details className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-600 group">
-          <summary className="font-semibold text-[#2AA894] cursor-pointer hover:underline flex items-center justify-between">
-            <span>查看免申报适用条件说明</span>
-            <ChevronDown className="w-3.5 h-3.5 transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="mt-2.5 space-y-1.5 text-slate-500 pl-2 border-l-2 border-emerald-200 text-[11px]">
-            <div>• 股东结构：全部为自然人</div>
-            <div>• 注册资本规模及出资安排符合国家市场监管及反洗钱相关规定</div>
-            <div>• 本勾选由专属顾问进行资质核验，符合政策标准方可享受免备案通道。</div>
-          </div>
-        </details>
-      </div>
-
-      {/* Review Section 7: 信息真实性确认 */}
-      <div className="rounded-2xl p-5 sm:p-6 border border-slate-200/80 bg-white shadow-2xs">
-        <label
-          className={`flex items-start gap-3 select-none ${readOnly ? '' : 'cursor-pointer'}`}
-        >
-          <input
-            type="checkbox"
-            checked={confirm.accurate}
-            disabled={readOnly}
-            onChange={(e) => onUpdateConfirm({ accurate: e.target.checked })}
-            className="w-4 h-4 rounded text-[#36B39E] focus:ring-[#36B39E] mt-0.5 disabled:cursor-not-allowed"
-          />
-          <div className="text-xs sm:text-sm text-slate-800 leading-relaxed font-semibold">
-            我已核对本次拟申报的全部企业信息与证件资料，确认所填内容真实、完整、有效，并同意专员依此提交政务初审。
-            <span className="text-rose-500 ml-0.5">*</span>
-          </div>
-        </label>
-        {errors.accurate && (
-          <p className="text-xs text-rose-500 font-medium mt-2 ml-7">{errors.accurate}</p>
-        )}
-      </div>
+      {!hideConfirmCards && (
+        <ReviewConfirmSection
+          form={form}
+          onUpdateConfirm={onUpdateConfirm}
+          errors={errors}
+          readOnly={readOnly}
+        />
+      )}
     </div>
   );
 };

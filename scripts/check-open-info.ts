@@ -4,7 +4,7 @@
  *   npx tsx scripts/check-open-info.ts
  *
  * 覆盖三件事：
- *   1. **请求体**：恰好 `busUnionId` / `var2` / `savaType` 三个字段（`savaType` 是后端 DTO 的
+ *   1. **请求体**：`busUnionId` / `var2` / `savaType` 三个字段（`savaType` 是后端 DTO 的
  *      原始拼写，不许「顺手改对」），`var2` 是本地存档那份 JSON 的字符串，能原样解回来；
  *   2. **两个保存类型**：0 = 临时保存（保存草稿）、1 = 保存（确认提交并申请），原样带给服务端；
  *   3. **失败都拦人**：路径没配 / 没委托单号 → 一个请求都不发；非 2xx 用后端文案，
@@ -67,8 +67,16 @@ const failureOf = async (run: () => Promise<unknown>): Promise<string> => {
 {
   const request = openInfoRequestOf({ busUnionId: ' REC-1 ', form: FORM, savaType: '1' });
   ok(
-    '恰好三个字段，字段名就是后端那三个（savaType 原样拼写）',
+    '恰好三个字段，字段名就是后端那三个（savaType 原样拼写）—— 完善百分比走 var2，不占顶层',
     Object.keys(request).sort().join(',') === 'busUnionId,savaType,var2'
+  );
+  ok(
+    '★ 完善百分比放在 var2（表单快照）里，请求体顶层不额外加字段',
+    (() => {
+      const withPercent = openInfoRequestOf({ busUnionId: 'R', form: { ...FORM, completionPercent: 70 }, savaType: '1' });
+      return Object.keys(withPercent).sort().join(',') === 'busUnionId,savaType,var2' &&
+        (JSON.parse(withPercent.var2) as { completionPercent?: number }).completionPercent === 70;
+    })()
   );
   ok('busUnionId 前后空白被去掉', request.busUnionId === 'REC-1');
   ok('savaType 原样带出（1 = 保存/提交）', request.savaType === '1');
@@ -104,6 +112,7 @@ const failureOf = async (run: () => Promise<unknown>): Promise<string> => {
   ok('方法是 POST', calls[0].init?.method === 'POST');
   ok('带 JSON 请求头', (calls[0].init?.headers as Record<string, string>)['Content-Type'] === 'application/json');
   ok('请求体三个字段', Object.keys(body).sort().join(',') === 'busUnionId,savaType,var2');
+  ok('★ 顶层没有 completionPercent（用户要求：不加顶层，放 var2 里）', !('completionPercent' in body));
   ok('提交时 savaType = 1', body.savaType === '1');
   ok('提交时带上了委托单号', body.busUnionId === 'REC-1');
   ok('var2 在这条链路上仍是那份 JSON', JSON.stringify(JSON.parse(String(body.var2))) === JSON.stringify(FORM));

@@ -10,6 +10,7 @@ import { formatSize } from './defaultData';
 import { useAttachmentUpload } from './useAttachmentUpload';
 import { authorizationLetterFileName, buildAuthorizationLetterHtml } from './authorizationDoc';
 import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
+import { cardDoneOf } from './completion';
 import { printHtmlDocument } from '../../utils/printDocument';
 
 interface AuthorizationSectionProps {
@@ -40,8 +41,8 @@ export const AuthorizationSection: React.FC<AuthorizationSectionProps> = ({
   onReloadJingbanren,
   errors,
 }) => {
-  /** 这一章有没有待完善项：没有才亮高亮条（与 #survey 同一口径，2026-10-08） */
-  const sectionDone = Object.keys(errors || {}).length === 0;
+  /** 这一章有没有待完善项：没有才亮高亮条（口径见 `registration/completion.ts`，提交时的百分比同源） */
+  const sectionDone = cardDoneOf('authorization', errors);
 
   // 选完文件直接上传：拿到 fileUuid 才替掉旧的委托书附件
   const { isUploading, upload } = useAttachmentUpload();

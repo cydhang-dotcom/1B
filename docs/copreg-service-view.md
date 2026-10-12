@@ -104,9 +104,14 @@ effect 跑两遍 —— 没闸门时第二遍会真再打一次接口，服务�
 | 2. 股东及出资结构 | 每位股东：类型、姓名或企业名、股比、出资额、出资形式、附件 |
 | 3. 企业主要管理人员 | 角色标签、电话 / 邮箱 / 居住地址、附件 |
 | 4. 法定代表人委托书签署 | 受托人姓名 / 身份证号、委托书附件 |
-| 免申报受益所有人承诺 | 勾选态（只读） |
-| 信息真实性确认 | 勾选态（只读） |
 | **5. 地址性质与场地证明**（本项目新增） | 注册 / 实际经营地址的**性质**与场地证明附件 —— 「05 确认提交」那一章没有这两项，但它们在 `var2` 里，办工商申报要看，所以补一块 |
+| 免申报受益所有人承诺 | 勾选态（只读）· **排在最后** |
+| 信息真实性确认 | 勾选态（只读）· **排在最后** |
+
+**两个勾选框为什么在最后**（用户要求）：它们本来是「05 确认提交」那一章的结尾，但这一页在第 4 块
+之后还要补第 5 块地址证明，勾选框夹在中间读起来像这份资料还没填完。所以查看页给 `ReviewSection`
+传 `hideConfirmCards`，由它自己在地址卡之后渲染 `<ReviewConfirmSection />`；**客户页不传，
+那一章的版式一字未动**（`ReviewSection` 里两个勾选框仍是内联的收尾）。
 
 `readOnly` 时**整条客户报喜横幅不渲染**（「初审通过 · 资料已移交政务交付团队」是给客户的进展话术，
 没有数据支撑，服务人员不该把它当状态读）；概览卡上的「已确认提交 / 草稿」才是这一页的事实。
@@ -133,7 +138,7 @@ effect 跑两遍 —— 没闸门时第二遍会真再打一次接口，服务�
 | `src/copreg/registration/onceGate.ts` | 单次闸门：同一枚一次性查询码只打一次接口（`reset` 供「重新读取」） |
 | `src/copreg/registration/snapshotStore.ts` | 会话内快照（sessionStorage）：刷新直接渲染快照、不再请求（key 含查看码，最多留 5 条） |
 | `src/copreg/registration/formSnapshot.ts` | 申报表快照收口（空骨架打底 + 缺字段补默认值 + 附件过滤），**填报页读草稿与查看页读 `var2` 共用同一份** |
-| `src/copreg/registration/ReviewSection.tsx` | 加 `readOnly`（隐「修改」与报喜横幅、勾选置灰） |
+| `src/copreg/registration/ReviewSection.tsx` | 加 `readOnly`（隐「修改」与报喜横幅、勾选置灰）、`hideConfirmCards`（不渲染最后两个勾选框）+ 导出的 `ReviewConfirmSection`（那两个勾选框本体，查看页拿它挪到最后） |
 | `src/config/api.ts` | `SUBSCRIBE_QUERY_PATH`（默认 `/xcx/yqt-co/subscribe/`） |
 
 ---
@@ -143,8 +148,8 @@ effect 跑两遍 —— 没闸门时第二遍会真再打一次接口，服务�
 | 层 | 脚本 | 覆盖 |
 |---|---|---|
 | 纯逻辑 | `npx tsx scripts/check-service-view.ts`（**66 项**） | 参数解析（`scbUuid` / `uuid` / 空值 / 畸形串）、URL 组装（编码、尾斜杠、空 code）、`serviceFormOf` 取值（字符串 / 对象 / 缺 var2 / 坏 JSON / 不是申报表 / 缺字段补默认值 / 无 `fileUuid` 的旧附件丢掉）、七种失败文案 + 「路径没配 / 没编号不发请求」、**单次闸门**（同 key 只跑一次 / 换 key 重跑 / reset 重跑 / 在途并发复用 / 失败也记住 / key 不串号）、**会话内快照**（坏 JSON 当空表 / 形状不对丢掉 / 换码不命中 / 同 key 覆盖 / 只留最近 5 条） |
-| 渲染 | `npm run check:entry`（**75 项**，新增 13 条） | 客户页 `copreg.html` **不认** `?scbUuid=`；查看页带参数落只读视图（「正在读取」）、没参数提示「链接不完整」；正文四块 + 真实性确认 + 客户填的值 + 地址卡 + 读取时间；只读时无「修改」、勾选不可改；草稿标注；命中快照时出「会话内快照 · 刷新不会重新读取」提示（正常读取时**不**出现）；非只读的 `ReviewSection` 仍是原来那套（回归） |
-| 真机 | `node .mcp-work/verify-service-view.mjs`（**6 个场景 62 项**） | `ok` / `draft` / `badcode`（400 + reasons）/ `norecord`（没有 var2）/ `nolink`（不带 scbUuid）/ **`refresh`**（真按一次浏览器刷新）。断言**读接口恰好只打一次**（查询码一次性，StrictMode 下也是；刷新后仍只有 1 次）、请求地址与查询码、快照写进 sessionStorage、页面内容、**localStorage 一个键都没写**、地址栏 hash 不动、没有混进客户向导。`SHOT=1` 顺带存 `.mcp-work/service-view.png` |
+| 渲染 | `npm run check:entry`（**80 项**） | 客户页 `copreg.html` **不认** `?scbUuid=`；查看页带参数落只读视图（「正在读取」）、没参数提示「链接不完整」；正文四块 + 真实性确认 + 客户填的值 + 地址卡 + 读取时间；只读时无「修改」、勾选不可改（认 SSR 的 `disabled=""`，不认 Tailwind 类名）；**两个勾选框排在地址卡之后**；客户页的 `ReviewSection` 不传 `hideConfirmCards`、勾选框仍内联；草稿标注；命中快照时出「会话内快照 · 刷新不会重新读取」提示（正常读取时**不**出现）；非只读的 `ReviewSection` 仍是原来那套（回归） |
+| 真机 | `node .mcp-work/verify-service-view.mjs`（**6 个场景 65 项**） | `ok` / `draft` / `badcode`（400 + reasons）/ `norecord`（没有 var2）/ `nolink`（不带 scbUuid）/ **`refresh`**（真按一次浏览器刷新）。断言**读接口恰好只打一次**（查询码一次性，StrictMode 下也是；刷新后仍只有 1 次）、请求地址与查询码、快照写进 sessionStorage、页面内容（含**两个勾选框排在地址证明卡之后**的位置断言）、**localStorage 一个键都没写**、地址栏 hash 不动、没有混进客户向导。`SHOT=1` 顺带存 `.mcp-work/service-view.png` |
 
 ```bash
 npx tsx scripts/check-service-view.ts

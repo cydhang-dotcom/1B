@@ -24,6 +24,7 @@ import {
   primaryNamePlaceholderFor,
 } from './nameHints';
 import { SectionDecor, sectionCardClass } from '../components/SectionDecor';
+import { cardDoneOf, type RegistrationCardId } from './completion';
 import { CAPITAL_EXPERT_HINT, capitalEditPatch } from './capitalHints';
 import {
   Plus,
@@ -66,24 +67,11 @@ export const BasicInfoSection: React.FC<BasicInfoSectionProps> = ({
 
   /**
    * 每张面板「有没有待完善项」——高亮条**只在这一块校验过了才亮**（与 #survey 同一口径）。
-   * 判据直接用这一章的校验结果（`errors` 是章节级 id→文案）：这块的字段还错着就说明没填好。
-   * 面板 ↔ 校验 id 的对应关系写死在这里（`RegistrationDetailsStep.validate()` 用的是同一批 id）。
+   * 口径集中在 `registration/completion.ts`（`cardDoneOf`）：提交时的「完善百分比」也用同一份，
+   * 免得界面上的绿框数与载荷里的百分比各算一套。
    */
-  const PANEL_ERROR_IDS: Record<string, string[]> = {
-    '01': ['org', 'orgOther'],
-    '02': ['__names__'], // 名称那一组：id 形如 name-0 / name-1 …
-    '03': ['capital'],
-    '04': ['scope'],
-    '05': ['regAddress', 'regAddressNature', 'regFiles', 'workAddress', 'workAddressNature', 'workFiles'],
-    '06': ['board', 'directors', 'singleDirector'],
-    '07': ['singleSupervisor', 'unanimous'],
-  };
-  const basicPanelDone = (panel: string): boolean => {
-    const ids = PANEL_ERROR_IDS[panel] ?? [];
-    const keys = Object.keys(errors || {});
-    if (ids.includes('__names__')) return !keys.some((key) => key.startsWith('name-'));
-    return !keys.some((key) => ids.includes(key));
-  };
+  const basicPanelDone = (panel: string): boolean =>
+    cardDoneOf(`panel-${panel}` as RegistrationCardId, errors);
 
   /** 两个地址当前的提示口径（占位 / 缺填报错 / 需上传材料 / 要不要红字强调），按所选性质取 */
   const regHint = addressHintOf('reg', data.regAddressNature);

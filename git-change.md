@@ -4,6 +4,109 @@
 
 ## [开发中]
 
+### 第 5 步 · 股东出资（以及主要人员 / 委托书）的绿框判据改成「这一章有没有黄色提示框」
+- 修复 用户报的：「股东出资 的绿色完善状态不对，判断上面有没有黄色提示框就行」——
+  原来的判据只看**某几个校验 id**（股东那一章看 `shareholders`、人员看 `roles`、委托书看 `auth`），
+  而这一章的错还有别的 id：每个股东是 `share-{id}`（如「股东 1（张三）：请补齐身份证人像面和国徽面照片」）、
+  出资比例 / 出资额对不上是**冲突项**。结果就是章节上方挂着黄色提示框（「本章节尚有 N 项需完善…」）、
+  卡片却亮着绿框
+- 调整 `src/copreg/registration/completion.ts`：卡片分成两类 ——
+  **整章一张的卡片**（股东出资 / 主要人员 / 委托书办理）判据 = **这一章一条错都没有**
+  （与那个黄框同条件，黄框在就不绿）；**基本信息的面板卡片**（01~07）仍按各面板那组 id 判。
+  类型也拆开了：`PANEL_CARD_IDS` / `CHAPTER_CARD_IDS`、`PANEL_ERROR_IDS`（原来的 `CARD_ERROR_IDS`）
+- 更新 `scripts/check-completion.ts`（22 → **25 项**）：卡片两类、整章判据、用户报的那个 bug 用例
+  （只有 `share-{id}` 或认不出的冲突 id 时卡片不能绿）、以及「面板卡片不受别的章的错影响」
+- 更新 `.mcp-work/verify-fill-completion.mjs`（14 → **17 项**，真机）：新增第三份草稿 —— 1 位自然人股东、
+  人数与比例都对、**只是没传身份证照片**（错 id 是 `share-{id}`）→ 断言黄框在、卡片 `data-card-done="false"`；
+  对照组（校验能过的草稿切到股东那一章）黄框消失、卡片亮绿。并出图
+  `.mcp-work/shareholder-card-banner.png`（已看图核对：卡片是白的，底下的说明行仍在）
+- 更新 `docs/copreg-registration-fields.md` §1.1：写清两类卡片的判据与这次的修复原因
+- 回归：`npm run lint`、`npx tsx scripts/check-completion.ts`（25 项）、
+  `.mcp-work/verify-fill-completion.mjs`（17 项 + 截图已看）
+
+### 第 5 步 · 完善百分比**只放 var2**，请求体顶层不加
+- 调整 用户纠正：「不需要加在顶层，加到 var2 中」—— 上一版把 `completionPercent` 同时拼进了
+  请求体顶层，现在**回退掉顶层那个字段**：请求体仍是原来的三字段 `busUnionId` / `var2` / `savaType`，
+  完善百分比作为表单快照的一部分写在 **var2** 里（保存草稿与提交都写）
+- 调整 `src/copreg/registration/openInfo.ts`：去掉入参 / 请求体的 `completionPercent` 与
+  `normalizeCompletionPercent`（那套收口随顶层字段一起去掉），文件头注释改成「三字段 + 完善百分比走 var2」
+- 调整 `RegistrationDetailsStep`：两次 `saveOpenInfo` 回到三字段（快照里的 `completionPercent` 留着）
+- 更新 `scripts/check-open-info.ts`（**32 项**）：「恰好三个字段」保留，新增一条
+  「完善百分比放在 var2 里、顶层不额外加字段」，以及真实发出那次请求里
+  `!('completionPercent' in body)`（防止以后又被加回顶层）
+- 更新 `.mcp-work/verify-fill-completion.mjs`（**14 项**，真机抓请求体）：保存草稿与提交的请求体
+  键集合都是 `busUnionId,savaType,var2`（顶层**没有** completionPercent），而 var2 解析出来的
+  `completionPercent` 与界面显示的完善度一致（提交时 = 100）
+- 更新 `docs/copreg-registration-fields.md`：接口字段表去掉顶层那一行，改在 `var2` 那行的说明里写清
+- 回归：`npm run lint`、`npx tsx scripts/check-open-info.ts`（32 项）、
+  `.mcp-work/verify-fill-completion.mjs`（14 项）
+
+### 第 5 步 · 完善百分比补进**接口请求体**
+- 修复 用户指出的：完善度只写在 `var2`（表单快照）里，**请求体顶层没有** —— 现在加进接口请求
+- 调整 `src/copreg/registration/openInfo.ts`：请求体/入参加 `completionPercent?: number`；
+  `openInfoRequestOf` 里用新的 `normalizeCompletionPercent` 收口（非数字 / NaN 当**没给**、
+  小数四舍五入、越界夹到 0~100），**没给就不拼这个键**（老调用点 / 老脚本的请求体仍是三字段，
+  不会凭空塞个 0 出去）；`0` 是「给过的值」，照样发
+- 调整 `RegistrationDetailsStep`：保存草稿与提交两次 `saveOpenInfo` 都带上
+  `completionPercent: completion.percent`（与界面底部显示的百分比同一个数）
+- 保留 var2 里那份同名字段：只看 var2 的地方（服务人员查看页等）也读得到
+- 更新 `scripts/check-open-info.ts`（30 → **36 项**）：新增「给了完善度 → 请求体四字段且值正确」、
+  规格化（69.6→70 / 137→100 / -5→0）、NaN 与字符串当没给、`0` 当给过、真实发出那次请求里
+  `completionPercent === 90` 等断言；原来那条「恰好三个字段」改成「不给时仍是三个字段」
+- 更新 `.mcp-work/verify-fill-completion.mjs`（12 → **15 项**，真机）：断言保存草稿与提交的**请求体顶层**
+  都有 `completionPercent`（键集合 = `busUnionId,completionPercent,savaType,var2`），
+  且顶层那个数与界面显示的完善度一致；提交时 = 100
+- 更新 `docs/copreg-registration-fields.md` 的接口字段表（补一行 `completionPercent`）
+- 回归：`npm run lint`、`npx tsx scripts/check-open-info.ts`（36 项）、
+  `.mcp-work/verify-fill-completion.mjs`（15 项）
+
+### 第 5 步 · 提交数据带「完善百分比」+「下一项」先存草稿
+- 调整 用户要求两条：
+  1. 提交数据里加**完善百分比**字段，口径 = **绿框卡片数 / 总卡片数**；
+  2. 点「下一项」先调保存草稿逻辑。
+- 新增 `src/copreg/registration/completion.ts`（纯逻辑）把「哪些卡片算完成」收成一份口径：
+  卡片清单固定 **10 张**（基本信息 7 个面板 + 股东出资 / 主要人员 / 委托书办理）、
+  `cardDoneOf(card, errors)`（按这一章的错误 id 判，名称那组用 `name-*` 前缀）、
+  `completionOf(errors)` → `{ done, total, percent }`。原来这套判据散在 `BasicInfoSection` 的
+  `PANEL_ERROR_IDS` 与三个章节组件的 `Object.keys(errors).length === 0` —— 百分比必须与用户看到的
+  绿框同源，各算一套迟早对不上，所以**四个组件改成调这里**（界面外观没变）
+- 调整 `RegistrationDetailsStep`：
+  - 保存草稿与提交的快照都带上 `completionPercent`（进 `var2`），类型加可选字段 `completionPercent?: number`
+    （老存档没有它也不影响渲染，只在保存 / 提交那一刻现算）
+  - **「下一项」改成先 `void handleSaveDraft(true)` 再翻章**：本地草稿是同步写的（翻页前已落盘），
+    服务端那次 `savaType:'0'` 在后台走 —— 不挡翻页、也不会每翻一章弹一次「草稿已保存」；
+    真失败照样弹提示。底部操作条右侧顺带显示「完善度 N%（x/10 项）」便于肉眼核对
+- 新增 `scripts/check-completion.ts`（**22 项**，纯逻辑）：卡片清单 10 张与章节归属、各面板 id 命中
+  （含 `name-*` 前缀与「相似 id 不误伤」）、章节隔离、百分比与四舍五入、脏 id 不影响、0%/100% 两端
+- 新增 `.mcp-work/verify-fill-completion.mjs`（**12 项**，真机 · 两段）：① 半成品草稿 → 第 1 章挂 7 张面板
+  且完善度分母是跨章的 10、点「下一项」翻到第 2 章并落了一份本地草稿 + 发过 `savaType:'0'`，
+  该次 var2 的 `completionPercent` 与界面百分比一致；② 校验能过的完整草稿 → 跨章 10/10 = 100%，
+  点「确认并提交申请」后 `savaType:'1'` 的 var2 里 `completionPercent === 100`、`status === 'submitted'`
+- 更新 `docs/copreg-registration-fields.md`：§1.1 补完善度口径与 `completion.ts`、提交小节补字段说明
+- 回归：`npm run lint`、`npx tsx scripts/check-completion.ts`（22 项）、`npm run check:entry`（80 项）、
+  `.mcp-work/verify-fill-completion.mjs`（12 项）
+
+### 查看页 copreg-view.html：两个勾选框（免申报承诺 / 信息真实性确认）挪到正文最后
+- 调整 用户要求：「copreg-view.html 把 2 个勾选协议框放到最后」。查看页正文是照客户「05 确认提交」
+  那一章的 `ReviewSection` 渲染的，但这一页在它后面还要补一块 **5. 地址性质与场地证明**
+  （`AddressProofCard`，本项目新增），于是两个勾选框被夹在第 4 块和第 5 块中间，读起来像这份资料
+  还没填完。现在顺序是 1~4 → 5 地址证明 → 两个勾选框
+- 调整 `src/copreg/registration/ReviewSection.tsx`：把最后那两个勾选框（Review Section 6 / 7）
+  抽成导出的 `ReviewConfirmSection`（自带 `readOnly`，勾选置灰不变），`ReviewSection` 新增
+  `hideConfirmCards` —— 不传时仍内联渲染在章尾，**客户页 `#fill-details` 的版式一字未动**
+- 调整 `src/copreg/components/ServiceRecordView.tsx`：`ServiceRecordContent` 给 `ReviewSection`
+  传 `hideConfirmCards`，在 `AddressProofCard` 之后渲染 `<ReviewConfirmSection readOnly />`
+- 更新 `scripts/check-copreg-entry.tsx`（78 → **80 项**）：新增「两个勾选框挪到正文最后（都排在地址
+  证明卡之后）」的位置断言，以及「客户页不传 `hideConfirmCards`、勾选框仍内联」的回归断言；
+  顺手修掉那条**恒真**的老断言 —— 「只读时勾选不可改」原来认 `includes('disabled')`，
+  而 Tailwind 的 `disabled:cursor-not-allowed` 类名里就有 `disabled`，现在改认 SSR 真渲染的 `disabled=""`
+- 更新 `.mcp-work/verify-service-view.mjs`（62 → **65 项**，ok/draft/refresh 三个场景各 +1）：
+  真机断言两个勾选框的正文位置都在地址证明卡之后
+- 更新 `docs/copreg-service-view.md`：§四 区块表按新顺序排（两个勾选框标「排在最后」）并写明
+  「为什么」与「客户页版式未动」、§五 代码位置表补 `hideConfirmCards` / `ReviewConfirmSection`、
+  §六 自检项数同步
+- 回归：`npm run lint`、`npm run check:entry`（80 项）、`.mcp-work/verify-service-view.mjs`（6 个场景全过）
+
 ### 分享人 shareUserUuid：建单上报 + 归属落进这一单（客服码只认单，不认地址栏）
 - 调整 用户要求：「查看同目录的 caa 项目，把 shareUserUuid 的逻辑搬到 copreg.html 中」；
   随后用户指出「查看专属二维码的逻辑不对，应该建单后把 shareUserUuid 存到 plan_record 再本地取，

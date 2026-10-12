@@ -110,6 +110,12 @@ export interface RegistrationFullForm {
   savedAt: string | null;
   submittedAt: string | null;
   submissionPhone: string;
+  /**
+   * 完善百分比（0-100 整数）：**绿框卡片数 / 卡片总数**，与界面亮绿框的判据同源
+   * （`registration/completion.ts`）。保存草稿与提交时都会写进 var2（2026-10-08 用户要求）。
+   * 老存档没有这个字段、渲染层也不依赖它 —— 只在保存 / 提交那一刻现算。
+   */
+  completionPercent?: number;
   basic: BasicInfoData;
   people: Record<string, PersonRecord>;
   shareholders: ShareholderRecord[];
