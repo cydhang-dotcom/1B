@@ -364,3 +364,4 @@ host），请求体恰好三个字段（后端 DTO 原文，`savaType` 就是这
 | 确认页展示与真实性确认 | `src/copreg/registration/ReviewSection.tsx` |
 | 空白表单与 `STORAGE_KEY` | `src/copreg/registration/defaultData.ts` |
 | 填报状态在支付页 / 进度页的呈现 | `src/copreg/components/AgreementAndPaymentStep.tsx`、`ProgressAndReviewStep.tsx`、`App.tsx` |
+| 接口给 Dify / 外部工具用（OpenAPI 3.1.0） | `docs/openapi/copreg-fill-details.yaml`（导入说明 `docs/copreg-dify-tool.md`，契约自检 `scripts/check-openapi-fill-details.ts`） |

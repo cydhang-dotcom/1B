@@ -1,0 +1,703 @@
+# =============================================================================
+# copreg 第 5 步（#fill-details）申报资料接口 · OpenAPI 3.1.0
+#
+# 用途：粘/导入到 Dify 的「Swagger API」自定义工具（导入步骤见 docs/copreg-dify-tool.md）。
+#
+# 口径来源（改代码就回来改这里，两边的字面量由 scripts/check-openapi-fill-details.ts 盯着）：
+#   保存 / 提交      src/copreg/registration/openInfo.ts
+#   上传图片 / 附件  src/utils/fileUpload.ts、registration/useAttachmentUpload.ts
+#   读经办人         src/copreg/registration/jingbanren.ts
+#   读回申报资料     src/copreg/registration/subscribeQuery.ts、serviceView.ts
+#   端点常量         src/config/api.ts（OPEN_INFO_PATH / FILE_UPLOAD_PATH / JINGBANREN_PATH / SUBSCRIBE_QUERY_PATH）
+#
+# ★ 本组接口**会写库**：servers[0] 现在指向测试环境，别对着生产试导入。
+# =============================================================================
+openapi: 3.1.0
+info:
+  title: copreg 申报资料填报接口（#fill-details）
+  version: 1.0.0
+  description: |
+    copreg 第 5 步「企业注册申报资料填报」用到的接口。**主用两个**：
+
+    | operationId | 干什么 |
+    |---|---|
+    | `saveSubscribeOpenInfo` | 保存草稿（`savaType=0`）/ 确认并提交申请（`savaType=1`）—— 整份申报表以 JSON 字符串放在 `var2` 里 |
+    | `uploadSubscribeFile` | 上传图片 / PDF（multipart，字段名 `file`），拿回 `{ fileUuid, fileName }`；图片地址 = `{DOC_HOST}/doc/uuid/{fileUuid}/get` |
+
+    **只读两个**（做「先读回来 → 再改 → 再提交」的 Agent 时有用，不需要可以不导入）：
+
+    | operationId | 干什么 |
+    |---|---|
+    | `getSubscribeHandler` | 读「一窗通」经办人（委托书上的受托人姓名 / 身份证号） |
+    | `getSubscribeDetail` | 按开户单编号 `scbUuid` 读回客户提交的申报表（内容在 `openAccApply.var2`） |
+
+    三条导入相关的口径：
+
+    1. **基地址只认 `servers[0].url`**（Dify 的解析器只读第一条）。现在指向测试环境
+       `http://testv3001.yowits.net`；要连生产就把它换成 `https://yqt.ibanbu.com`（`DOC_HOST` 去掉 `/v1`）。
+    2. **认证选「无」**：这一族接口走内网网关，当前不带 token。接口方以后要 token，用 Dify 的
+       「请求头」方式加，这个文件不用改。
+    3. **`var2` 永远是「字符串」**：申报表对象 `JSON.stringify` 之后的文本。开发 / 服务端 DTO 的
+       字段名就叫 `var2`、保存类型就叫 `savaType`（不是笔误），不要「顺手改对」。
+
+    **一次完整填报的调用顺序**（Agent 照这个来）：
+    用户上传图片 → `uploadSubscribeFile` 逐个拿 `fileUuid` → 组装申报表快照 →
+    `JSON.stringify` 成 `var2` → `saveSubscribeOpenInfo`（草稿 `0` / 提交 `1`）。
+servers:
+  - url: https://yqt.ibanbu.com
+    description: 生产环境（yqt.ibanbu.com）
+tags:
+  - name: 申报资料（写）
+    description: 保存草稿 / 提交申请 —— #fill-details 的主链路
+  - name: 附件上传
+    description: 图片与 PDF 上传，先换 fileUuid 再写进 var2
+  - name: 申报资料（只读）
+    description: 读经办人 / 读回客户已提交的申报表（给「先读后改」用）
+paths:
+  # ---------------------------------------------------------------------------
+  # 一、保存 / 提交（要改数据就用它）
+  # ---------------------------------------------------------------------------
+  /v1/xcx/yqt-co/subscribe/open-info:
+    post:
+      tags:
+        - 申报资料（写）
+      operationId: saveSubscribeOpenInfo
+      summary: 保存草稿 / 提交申报资料
+      description: |
+        保存或提交整份申报资料 —— **会写库**，由 `savaType` 决定是哪一种：
+
+        - `0` = 临时保存（界面上的「保存草稿」）：可以只有一部分字段，随时再存，覆盖上一次的 `var2`；
+        - `1` = 保存（界面上的「确认并提交申请」）：服务端按「客户已提交」处理，服务人员开始初审。
+
+        **响应体不解析：HTTP 2xx 即成功**（接口方没有约定响应字段，不要猜 `code` / `status`）。
+        非 2xx 时把响应体里的 `message`（或 `reasons[].message`）当错误原因告诉用户。
+
+        提交（`savaType=1`）之前建议先自查这几条（前端同口径）：
+
+        - `confirm.accurate = true`（信息真实性确认）；
+        - 委托书 `authorization.files` 至少 1 份、且 `trusteeName` / `trusteeIdNumber` 都有；
+        - 地址没勾「服务商提供」（`regRecommend` / `workRecommend` 为 false）时，
+          `regAddress` / `workAddress` 已填、性质已选、场地证明 `regFiles` / `workFiles` 至少 1 份；
+        - 股东出资比例 `ratio` 合计 100%；填了出资额时，合计等于 `basic.capital`。
+
+        ⚠️ `busUnionId` 是第 1 步生成需求方案时服务端给的**委托单号**（`recordId`）。没有它服务端认不出
+        这笔业务 —— 不要自己编一个，先让用户回第 1 步生成方案。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - busUnionId
+                - var2
+                - savaType
+              properties:
+                busUnionId:
+                  type: string
+                  description: 委托单号（第 1 步生成需求方案返回的 recordId）。**必填**，服务端靠它认这笔开户业务。
+                var2:
+                  type: string
+                  description: |
+                    申报表快照 —— **必须是 JSON 字符串**（把下面这份对象 `JSON.stringify` 之后的文本），
+                    不是 JSON 对象。服务端把它原样存进开户单的 `openAccApply.var2`，读回来时再 parse。
+                    附件只存上传接口给的 `fileUuid`，不传文件内容、也不传图片地址。
+
+                    完整结构见 `components.schemas.RegistrationFormSnapshot`，这里给一份可直接照抄的最小样子：
+
+                    {
+                      "id": "form-1",
+                      "status": "submitted",
+                      "savedAt": "2026/10/8 10:00:00",
+                      "submittedAt": "2026/10/8 10:05:00",
+                      "submissionPhone": "13800000000",
+                      "completionPercent": 100,
+                      "basic": {
+                        "org": "有限责任公司",
+                        "orgOther": "",
+                        "intro": "跨境电商代运营",
+                        "service": "独立站运营与海外仓配",
+                        "scope": "企业管理咨询；货物进出口",
+                        "capital": "100",
+                        "expert": false,
+                        "names": ["班步企程", "", ""],
+                        "regAddress": "上海市浦东新区某某路 1 号 101 室",
+                        "regRecommend": false,
+                        "regAddressNature": "租赁用房",
+                        "regFiles": [{
+                          "id": "f1", "fileUuid": "上传接口给的编号", "fileName": "租赁合同.pdf",
+                          "size": 12345, "type": "application/pdf", "slot": "regAddressProof"
+                        }],
+                        "workAddress": "上海市浦东新区某某路 1 号 101 室",
+                        "workRecommend": false,
+                        "workAddressNature": "租赁用房",
+                        "workFiles": [{
+                          "id": "f2", "fileUuid": "上传接口给的编号", "fileName": "房产证.png",
+                          "size": 23456, "type": "image/png", "slot": "workAddressProof"
+                        }],
+                        "board": "不设董事会",
+                        "directors": "",
+                        "singleDirector": "由总经理代行职务（不设董事）",
+                        "singleSupervisor": "设 1 名监事",
+                        "unanimous": false
+                      },
+                      "people": {
+                        "p1": {
+                          "id": "p1", "name": "张三", "phone": "13800000000", "email": "",
+                          "education": "", "address": "上海市浦东新区某某路 1 号 101 室",
+                          "files": [
+                            {"id": "f3", "fileUuid": "编号", "fileName": "身份证人像面.png", "size": 1000, "type": "image/png", "slot": "idFront"},
+                            {"id": "f4", "fileUuid": "编号", "fileName": "身份证国徽面.png", "size": 1000, "type": "image/png", "slot": "idBack"}
+                          ]
+                        }
+                      },
+                      "shareholders": [{
+                        "id": "s1", "type": "自然人", "personId": "p1", "name": "", "code": "",
+                        "ratio": "100", "amount": "100", "method": ["货币"], "files": []
+                      }],
+                      "roles": [{"id": "r1", "personId": "p1", "roles": ["法定代表人", "联系人"]}],
+                      "authorization": {
+                        "trusteeName": "李四", "trusteeIdNumber": "310101199001011234",
+                        "entrustDate": "2026-10-08",
+                        "files": [{"id": "f5", "fileUuid": "编号", "fileName": "委托书.png", "size": 5000, "type": "image/png"}]
+                      },
+                      "confirm": {"exemption": false, "beneficiary": "", "files": [], "accurate": true}
+                    }
+
+                    各字段怎么填：
+
+                    - `status`：草稿 `draft`、提交 `submitted`；
+                    - `completionPercent`：完善百分比（0~100 整数）= 已完善卡片数 / 10 张卡片，见
+                      `src/copreg/registration/completion.ts`，与界面绿框同源，服务端只存档不校验；
+                    - `basic.names`：**只填字号（关键词）**，按优先级排序，如要注册「上海班步企程服务有限公司」
+                      就填 `["班步企程"]`，行政区划与组织形式由系统补全；
+                    - `basic.capital` / `ratio` / `amount` / `directors`：都是**字符串**（`"100"` 而不是 `100`）；
+                    - `people` 的 key 是本地人员 id，`shareholders[].personId` 与 `roles[].personId` 都指向它；
+                    - `roles[].roles` 取值：法定代表人 / 财务负责人 / 联系人 / 总经理 / 董事 / 监事；
+                    - `method`（出资形式）多选：货币 / 实物 / 知识产权 / 土地使用权 / 劳务 / 其他；
+                    - 附件行的 `slot`：人员证件 `idFront` / `idBack`、营业执照 `license`、
+                      注册场地 `regAddressProof`、经营场地 `workAddressProof`；委托书与确认页的附件不带 `slot`；
+                    - `confirm.exemption` 只在全体股东都是自然人时可为 true。
+                savaType:
+                  type: string
+                  enum:
+                    - '0'
+                    - '1'
+                  description: |
+                    保存类型（后端 DTO 原文如此）。`0` = 临时保存（保存草稿）；`1` = 保存（确认并提交申请）。
+                    **必填**：忘了带服务端会报错；想只存草稿就明确传 `0`。
+      responses:
+        '200':
+          description: |
+            成功（2xx 即成功，前端不解析响应体）。服务端可能返回空体，也可能回一个业务信封。
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '400':
+          description: 请求体不对（缺 `busUnionId` / `var2` 不是 JSON 字符串 / `savaType` 取值不对）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: 服务端异常；把响应体里那句人话转给用户
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  # ---------------------------------------------------------------------------
+  # 二、上传图片 / 附件（写进 var2 之前先走它）
+  # ---------------------------------------------------------------------------
+  /zuul/v1/xcx/yqt-co/subscribe/upload/file:
+    post:
+      tags:
+        - 附件上传
+      operationId: uploadSubscribeFile
+      summary: 上传申报资料附件（图片 / PDF）
+      description: |
+        选完文件先传这里，拿回 `{ fileUuid, fileName }`；申报表（`var2`）里只存 `fileUuid`，
+        要显示 / 下载时现拼 `{DOC_HOST}/doc/uuid/{fileUuid}/get`
+        （生产 `https://yqt.ibanbu.com/v1/doc/uuid/{fileUuid}/get`，
+        开发 `http://testv3001.yowits.net/v1/doc/uuid/{fileUuid}/get`）—— 与上传不是同一个 host，别拼错。
+
+        - `multipart/form-data`，**文件字段名固定 `file`**，不要改；
+        - 一次请求只传一个文件；多个文件就调多次（前端也是串行上传，顺序稳定）；
+        - 路径里的 `zuul` 前缀是必须的（上传走 zuul 网关，与普通接口的 `/v1/...` 不是一个前缀）；
+        - 单次上传超时 60 秒，失败（非 2xx）时把响应体里那句人话转给用户。
+
+        ⚠️ 在 Dify 里，`format: binary` 会生成一个**「文件」类型的参数** —— 值只能是用户上传的文件或
+        上游节点产出的文件，LLM 自己造不出文件。所以这个工具的入参通常接工作流里那个 file 变量。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    要上传的文件本体（身份证正反面、营业执照、场地证明材料、已签章的委托书扫描件……）。
+                    字段名必须是 `file`；图片、PDF 都走这一个接口。
+      responses:
+        '200':
+          description: 上传成功，返回文件编号（把它写进 `var2` 里对应附件行的 `fileUuid`）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadedFile'
+        '400':
+          description: 没收到文件 / 文件类型不允许；响应体里通常是错误说明
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  # ---------------------------------------------------------------------------
+  # 三、只读：经办人信息（委托书上的受托人）
+  # ---------------------------------------------------------------------------
+  /v1/xcx/yqt-co/subscribe/handler:
+    get:
+      tags:
+        - 申报资料（只读）
+      operationId: getSubscribeHandler
+      summary: 读「一窗通」经办人信息
+      description: |
+        委托书那一章的「受托经办人姓名 / 受托人身份证号」**由服务端下发、用户不手填** ——
+        这两个值必须与「一窗通」公章经办人一致，所以以接口为准。
+
+        返回 `{ handName, handIdNumber }`；服务端也可能套一层 `data` / `result` / `obj`
+        （里面甚至是 JSON 字符串），前端两种都认。读不到（空 / 报错）时**不要**把已有值抹成空，
+        提示用户联系企服专员核对。
+      parameters:
+        - name: busUnionId
+          in: query
+          required: true
+          description: 委托单号（第 1 步生成需求方案返回的 recordId）
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 经办人信息（拿不到就是空串 / 空对象）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HandlerInfo'
+        '400':
+          description: 缺少或认不出 `busUnionId`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  # ---------------------------------------------------------------------------
+  # 四、只读：按开户单编号读回客户提交的申报表
+  # ---------------------------------------------------------------------------
+  /v1/xcx/yqt-co/subscribe/{scbUuid}:
+    get:
+      tags:
+        - 申报资料（只读）
+      operationId: getSubscribeDetail
+      summary: 按开户单编号读回客户提交的申报资料
+      description: |
+        服务人员「看过但不动」的那条链路（与 www 站 code 版静态页 `static/js/page-display.js`
+        同一套地址与凭据口径）。客户提交的那份申报表在响应的 `openAccApply.var2` 里
+        （字符串时按 JSON 解析，已经是对象就直接用）。
+
+        读回来之后要改再写回：先在这里拿到整份快照 → 改字段 → `saveSubscribeOpenInfo`
+        （`savaType` 用 `1`）—— 注意写回用的是 `busUnionId`，不是这里的 `scbUuid`。
+
+        `code` 是一次性查看码：无效时是 `400` + `{"reasons":[{"message":"查询码无效或已过期"}]}`；
+        不带 `code` 服务端也可能放行（测试环境实测 200），所以有就带上、错误照实透出。
+      parameters:
+        - name: scbUuid
+          in: path
+          required: true
+          description: 开户单编号（uuid）。就是查看链接里的 `scbUuid`（`?uuid=…` 是同一件事）
+          schema:
+            type: string
+        - name: code
+          in: query
+          required: false
+          description: 查看码；没有就不带这个参数
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 开户单详情；申报表在 `openAccApply.var2`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  busUnionId:
+                    type: string
+                    description: 委托单号 —— 改完写回时要用的就是它
+                  openAccApply:
+                    type: object
+                    description: 开户申请信息；`var2` 是客户提交的申报表
+                    properties:
+                      var2:
+                        oneOf:
+                          - type: string
+                            description: 申报表快照的 JSON 字符串（服务端实际给的是这种）
+                          - $ref: '#/components/schemas/RegistrationFormSnapshot'
+                  reasons:
+                    type: array
+                    description: 业务错误信封（有时 200 里也带）
+                    items:
+                      type: object
+                      properties:
+                        message:
+                          type: string
+                additionalProperties: true
+        '400':
+          description: 查询码无效或已过期（`reasons[].message` 就是那句人话）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+components:
+  schemas:
+    # -------------------------------------------------------------------------
+    # var2 的结构（`registration/types.ts` 的 RegistrationFullForm）。
+    # 注意：接口要的是**字符串**，这里写出结构只为把字段说清楚，接口本身并不吃对象。
+    # -------------------------------------------------------------------------
+    RegistrationFormSnapshot:
+      type: object
+      description: 申报表快照（`var2` 那份 JSON 字符串 parse 之后的模样）
+      required:
+        - basic
+        - people
+        - shareholders
+        - roles
+        - authorization
+        - confirm
+      properties:
+        id:
+          type: string
+          description: 本地表单 id（可为空串）
+        status:
+          type: string
+          enum:
+            - draft
+            - submitted
+          description: 草稿 / 已提交（界面据此显示「已提交 · 初审中」）
+        savedAt:
+          type: string
+          description: 保存时间（本地时区文本，可为 null）
+        submittedAt:
+          type: string
+          description: 提交时间（提交时写）
+        submissionPhone:
+          type: string
+          description: 经办手机号（第 1 步手机验证通过的那个；提交时写进快照）
+        completionPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: 完善百分比 = 已完善卡片数 / 10 张卡片（四舍五入），口径见 `registration/completion.ts`
+        basic:
+          $ref: '#/components/schemas/BasicInfoData'
+        people:
+          type: object
+          description: 人员表，key 是本地人员 id（`shareholders[].personId` / `roles[].personId` 指向它）
+          additionalProperties:
+            $ref: '#/components/schemas/PersonRecord'
+        shareholders:
+          type: array
+          description: 股东及出资
+          items:
+            $ref: '#/components/schemas/ShareholderRecord'
+        roles:
+          type: array
+          description: 主要人员（每人一条，可兼任多个角色）
+          items:
+            $ref: '#/components/schemas/RoleRecord'
+        setup:
+          type: object
+          description: 旧版治理字段（界面上已无入口，老存档里可能还在；新写可以不传）
+          additionalProperties: true
+        authorization:
+          $ref: '#/components/schemas/AuthorizationData'
+        confirm:
+          $ref: '#/components/schemas/ConfirmData'
+    BasicInfoData:
+      type: object
+      description: 基本信息那一章
+      properties:
+        org:
+          type: string
+          enum:
+            - 有限责任公司
+            - 股份有限公司
+            - 合伙企业
+            - 其他
+          description: 组织形式
+        orgOther:
+          type: string
+          description: 组织形式选「其他」（org = 其他）时的具体组织形式，否则空串
+        intro:
+          type: string
+          description: 企业简介（来自第 1 步问卷，只读展示）
+        service:
+          type: string
+          description: 主营服务（来自第 1 步问卷，只读展示）
+        scope:
+          type: string
+          description: 经营范围（多条用「；」拼接，按市监规范表述）
+        capital:
+          type: string
+          description: 注册资本（万元人民币），**字符串数字**，须为 > 0 的整数
+        expert:
+          type: boolean
+          description: 金额是否由服务人员给建议（问卷选了「需要注册资本专家建议」；用户自己改过金额就撤掉）
+        names:
+          type: array
+          description: 拟注册企业名称 —— **只填字号（关键词）**，按优先级排序，最多 9 个
+          items:
+            type: string
+        regAddress:
+          type: string
+          description: 法定注册详细地址（`regRecommend` 为 true 时不用填）
+        regRecommend:
+          type: boolean
+          description: 注册地址是否由服务商提供
+        regAddressNature:
+          type: string
+          enum:
+            - 租赁用房
+            - 自有房产
+            - 无偿使用证明
+          description: 注册地址性质（决定要传哪些场地材料）
+        regFiles:
+          type: array
+          description: 法定注册场地证明材料（`slot` = `regAddressProof`）
+          items:
+            $ref: '#/components/schemas/FileAttachment'
+        workAddress:
+          type: string
+          description: 实际经营办公地址（`workRecommend` 为 true 时不用填）
+        workRecommend:
+          type: boolean
+          description: 经营地址是否由服务商提供
+        workAddressNature:
+          type: string
+          enum:
+            - 租赁用房
+            - 自有房产
+            - 无偿使用证明
+          description: 经营地址性质（与注册地址同一套）
+        workFiles:
+          type: array
+          description: 实际经营场地证明材料（`slot` = `workAddressProof`）
+          items:
+            $ref: '#/components/schemas/FileAttachment'
+        board:
+          type: string
+          enum:
+            - 设董事会
+            - 不设董事会
+          description: 董事会设置
+        directors:
+          type: string
+          description: 董事人数（设董事会时必填且不少于 3），字符串数字；不设时为空串
+        singleDirector:
+          type: string
+          enum:
+            - 设 1 名董事
+            - 由总经理代行职务（不设董事）
+          description: 不设董事会时的职务安排（注意「设 1 名董事」中间有一个空格）
+        singleSupervisor:
+          type: string
+          enum:
+            - 设 1 名监事
+            - 不设监事
+          description: 监事设置
+        unanimous:
+          type: boolean
+          description: 全体股东一致同意不设监事（`singleSupervisor` = 不设监事 时必须为 true）
+    PersonRecord:
+      type: object
+      description: 一位人员（自然人股东 / 主要人员共用）
+      properties:
+        id:
+          type: string
+          description: 本地人员 id（= `people` 里的 key）
+        name:
+          type: string
+          description: 姓名
+        phone:
+          type: string
+          description: 手机号
+        email:
+          type: string
+          description: 邮箱（选填）
+        education:
+          type: string
+          description: 学历（选填）
+        address:
+          type: string
+          description: 居住地址
+        files:
+          type: array
+          description: 身份证人像面 / 国徽面（`slot` = `idFront` / `idBack`）
+          items:
+            $ref: '#/components/schemas/FileAttachment'
+    ShareholderRecord:
+      type: object
+      description: 一条股东记录
+      properties:
+        id:
+          type: string
+          description: 本地行 id
+        type:
+          type: string
+          enum:
+            - 自然人
+            - 企业
+            - 其他
+          description: 股东类型
+        personId:
+          type: string
+          description: 自然人股东关联的人员 id（`people` 的 key）；企业 / 其他为 null
+        name:
+          type: string
+          description: 企业股东的全称 / 其他股东的说明（自然人股东为空）
+        code:
+          type: string
+          description: 企业股东的统一社会信用代码
+        ratio:
+          type: string
+          description: 出资比例百分数，字符串（如 "100"），全部股东合计须为 100
+        amount:
+          type: string
+          description: 认缴出资金额（万元），字符串；填就得全部填，合计等于注册资本
+        method:
+          type: array
+          description: 出资形式（多选）：货币 / 实物 / 知识产权 / 土地使用权 / 劳务 / 其他
+          items:
+            type: string
+        files:
+          type: array
+          description: 企业股东的营业执照照片（`slot` = `license`）
+          items:
+            $ref: '#/components/schemas/FileAttachment'
+    RoleRecord:
+      type: object
+      description: 主要人员的一条角色指派
+      properties:
+        id:
+          type: string
+          description: 本地行 id
+        personId:
+          type: string
+          description: 指向 `people` 的 key
+        roles:
+          type: array
+          description: 角色（可多选）：法定代表人 / 财务负责人 / 联系人 / 总经理 / 董事 / 监事
+          items:
+            type: string
+    AuthorizationData:
+      type: object
+      description: 委托书办理那一章
+      properties:
+        trusteeName:
+          type: string
+          description: 受托经办人姓名（由 `getSubscribeHandler` 带入，用户不手填）
+        trusteeIdNumber:
+          type: string
+          description: 受托人身份证号（由接口带入；只可能数字 + 结尾 X，统一大写）
+        entrustDate:
+          type: string
+          description: 委托日期（YYYY-MM-DD）
+        files:
+          type: array
+          description: 已签字盖章的委托书扫描件（提交前至少 1 份，不带 `slot`）
+          items:
+            $ref: '#/components/schemas/FileAttachment'
+    ConfirmData:
+      type: object
+      description: 05 确认提交那一章
+      properties:
+        exemption:
+          type: boolean
+          description: 免申报受益所有人承诺（仅全体股东均为自然人时成立）
+        beneficiary:
+          type: string
+          description: 受益所有人信息
+        files:
+          type: array
+          description: 相关证明材料（不带 `slot`）
+          items:
+            $ref: '#/components/schemas/FileAttachment'
+        accurate:
+          type: boolean
+          description: 信息真实性确认（未勾选不许提交）
+    FileAttachment:
+      type: object
+      description: |
+        一行附件。**只存上传接口给的 fileUuid**，不存文件内容、也不存地址
+        （地址用 `{DOC_HOST}/doc/uuid/{fileUuid}/get` 现拼，存下来会过期）。
+      required:
+        - fileUuid
+      properties:
+        id:
+          type: string
+          description: 本地行 key（React key / 删除用），与服务端 fileUuid 无关
+        fileUuid:
+          type: string
+          description: 上传接口 `uploadSubscribeFile` 返回的文件编号
+        fileName:
+          type: string
+          description: 文件名（服务端没给就用本地的）
+        size:
+          type: integer
+          description: 文件大小（字节，仅用于展示，服务端不回）
+        type:
+          type: string
+          description: MIME（如 image/png、application/pdf；判断预览还是给下载链接）
+        slot:
+          type: string
+          description: 附件位：idFront / idBack / license / regAddressProof / workAddressProof
+    UploadedFile:
+      type: object
+      description: 上传接口的响应
+      required:
+        - fileUuid
+      properties:
+        fileUuid:
+          type: string
+          description: 文件编号 —— 写进 `var2` 里对应附件行的 `fileUuid`
+        fileName:
+          type: string
+          description: 服务端存下来的文件名（可能不给，可回落到本地文件名）
+    HandlerInfo:
+      type: object
+      description: 经办人信息（服务端也可能套一层 data / result / obj，甚至是 JSON 字符串）
+      properties:
+        handName:
+          type: string
+          description: 经办人姓名（拿不到就是空串）
+        handIdNumber:
+          type: string
+          description: 经办人身份证号（数字 + 结尾 X，统一大写；拿不到就是空串）
+    ErrorEnvelope:
+      type: object
+      description: |
+        错误信封（这一族接口常见两种）：`{"message":"…"}` 或
+        `{"reasons":[{"message":"…"}]}`。取里面那句人话当错误提示。
+      properties:
+        message:
+          type: string
+        reasons:
+          type: array
+          items:
+            type: object
+            properties:
+              message:
+                type: string
+      additionalProperties: true
