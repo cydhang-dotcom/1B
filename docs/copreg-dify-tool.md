@@ -38,11 +38,13 @@ YAML，可以直接粘进 Dify 的**自定义工具（Swagger API）**：
 
 | 环境 | `servers[0].url` | 代码里的对应值 |
 |---|---|---|
-| 测试（文件里现在写的就是它） | `http://testv3001.yowits.net` | `.env.development` 的 `VITE_DOC_HOST` 去掉结尾 `/v1` |
-| 生产 | `https://yqt.ibanbu.com` | `.env.production` 的 `VITE_DOC_HOST` 去掉结尾 `/v1` |
+| 生产（文件里现在写的就是它） | `https://yqt.ibanbu.com` | `.env.production` 的 `VITE_DOC_HOST` 去掉结尾 `/v1` |
+| 测试（要先跑通流程就换成它） | `http://testv3001.yowits.net` | `.env.development` 的 `VITE_DOC_HOST` 去掉结尾 `/v1` |
 
-⚠️ `open-info` 是**会写库**的接口（草稿与提交都覆盖服务端那份 `var2`），**别拿生产地址试导入**。
-文件里 `servers[1]` 已经把生产地址写好了，注释也标了，改顺序或改第一条即可。
+⚠️ `open-info` 是**会写库**的接口（草稿与提交都覆盖服务端那份 `var2`），而文件里现在指向**生产**：
+拿它试导入，写的就是生产数据。只想先跑通流程，就把第一条换成测试环境那个地址 ——
+正文（`info.description` 与文件头注释）也写了当前指向哪一边，改完跑一次自检，
+它会提醒你「servers 改了、文案没跟着改」。
 
 注意基地址是**站点根（不带 `/v1`）**，所以路径里带着 `/v1/...`；而上传那条自带 `zuul/v1` 前缀
 （上传走 zuul 网关，与普通接口的 `/v1/...` 不是一个前缀）—— 这两条别「顺手统一」。
@@ -110,7 +112,8 @@ YAML，可以直接粘进 Dify 的**自定义工具（Swagger API）**：
    `str(dict)` 出来一串**单引号**的假 JSON，服务端 Jackson 按 `String var2` 反序列化会 400。
    给 Agent 的提示里写死：「`var2` 是 `JSON.stringify` 之后的字符串」。YAML 里 `var2` 的说明
    已经带了一份可照抄的最小 JSON 样例 —— Dify 会把这段说明当参数描述喂给 LLM。
-2. **基地址只看 `servers[0]`**，第二条（生产）只是个备查注释；列表顺序就是实际生效顺序。
+2. **基地址只看 `servers[0]`**：文件里现在只有一条（生产），换环境就改那一条 —— 这组接口会写库，
+   没想清楚别对着生产试。
 3. **一次只传一个文件**：Dify 把 `format: binary` 当单文件参数；想多文件得调多次（前端也是串行）。
 4. **别把响应体当成功判据**：Dify 的 API 工具在 `status >= 400` 时抛
    `Request failed with status code NNN and <body>`，那句报错会进 LLM 上下文；

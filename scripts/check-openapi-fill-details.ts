@@ -17,8 +17,8 @@
  *      型参数），响应字段 `fileUuid` / `fileName`；
  *   4. **只读两条**：经办人的 `busUnionId` → `handName` / `handIdNumber`、读回的 `openAccApply.var2`；
  *   5. **表单口径**：`var2` 的字段名与地址性质 / 附件位 / 出资形式 / 角色这些固定取值；
- *   6. **Dify 侧的硬要求**：servers[0] 是测试环境（会写库，别默认打生产）、每个操作都有
- *      operationId（ASCII、不重复）与 responses。
+ *   6. **Dify 侧的硬要求**：servers[0] 的指向与正文文案一致（会写库，指错了就是打错环境）、
+ *      每个操作都有 operationId（ASCII、不重复）与 responses。
  */
 import { readFileSync } from 'node:fs';
 
@@ -84,11 +84,15 @@ const schemaBlockOf = (name: string): string => {
 console.log('\n—— 一、文档头部与端点（对齐 src/config/api.ts）——');
 
 ok('openapi 版本就是 3.1.0', /^openapi: 3\.1\.0$/m.test(yaml));
-ok('servers 至少有两条，且第一条是测试环境（会写库，别默认打生产）', (() => {
+// 2026-10-14 按实际导入需要把基地址定成了生产：这组接口会写库，所以「servers 的指向」与
+// 「正文写的指向」必须同时对上，不然文档会骗人去打错环境。
+ok('servers 只有一条，且指向生产 yqt.ibanbu.com', (() => {
   const urls = [...yaml.matchAll(/^ {2}- url: (\S+)$/gm)].map((m) => m[1]);
-  return urls.length >= 2 && urls[0].includes('testv3001');
+  return urls.length === 1 && urls[0] === 'https://yqt.ibanbu.com';
 })());
-ok('生产基地址也在（yqt.ibanbu.com，= DOC_HOST 去掉 /v1）', yaml.includes('https://yqt.ibanbu.com'));
+ok('正文（info.description）跟着写成生产，不再说「现在指向测试环境」', yaml.includes('现在是**生产**') && !yaml.includes('现在指向测试环境'));
+ok('文件头注释也写了「写的就是生产数据」的警告', yaml.includes('写的就是生产数据'));
+ok('测试环境地址仍写在正文里（换过去只需改 servers[0]）', yaml.includes('http://testv3001.yowits.net'));
 
 const openInfoPath = pathDefaultOf('VITE_OPEN_INFO_PATH');
 const uploadPath = pathDefaultOf('VITE_FILE_UPLOAD_PATH');

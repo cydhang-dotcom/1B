@@ -9,14 +9,15 @@
   `saveSubscribeOpenInfo`（保存草稿 / 提交申请，请求体恰好 `busUnionId` / `var2` / `savaType`）、
   `uploadSubscribeFile`（multipart，字段名 `file`）两个**主用**，加 `getSubscribeHandler`、
   `getSubscribeDetail` 两个只读（做「先读回来 → 改 → 再写回」的 Agent 时用）。
-  `servers[0]` 指**测试**环境（`open-info` 会写库，默认不打生产）、`servers[1]` 是生产；
+  `servers` 只有一条、指**生产**（`https://yqt.ibanbu.com`；`open-info` 会写库，换环境只改这一条，
+  测试地址写在正文与 `docs/copreg-dify-tool.md` 里）；
   `var2` 的完整结构收在 `components.schemas`（与 `registration/types.ts` 一致），说明里带一份
   可照抄的最小 JSON 样例 —— Dify 会把参数说明喂给 LLM，样例比字段清单管用
 - 新增 `docs/copreg-dify-tool.md`：导入步骤（认证选「无」）、换环境只改 `servers[0].url`、
   导入后生成的四个工具与参数表，以及四个坑 —— `var2` 必须是**字符串**（传对象会被 Dify 弄成
   单引号假 JSON）、`format: binary` 生成的「文件」型参数只能接用户上传 / 上游节点的文件、
   基地址只认 `servers[0]`、图片地址是另一个 host（`{DOC_HOST}/doc/uuid/{fileUuid}/get`）
-- 新增 `scripts/check-openapi-fill-details.ts`（**59 项**，源码级契约）：四条路径与
+- 新增 `scripts/check-openapi-fill-details.ts`（**61 项**，源码级契约）：四条路径与
   `config/api.ts` 的默认值逐条对应（含 `/v1` 与上传那条 `zuul/v1` 的差别）、请求体恰好三字段且
   `savaType` 不许被「顺手改对」、上传是 `multipart/form-data` + `file` + `format: binary`、
   只读两条的入参出参与取值路径（`openAccApply.var2`）、`var2` 字段与地址性质 / 附件位 /
@@ -25,7 +26,10 @@
 - 为什么值得钉一道：Dify 导入的是 schema 全文，路径或字段名写错**导入时不报错**，只会在调用时
   静默打错接口 / 存错字段；前端那三层自检完全覆盖不到这份 YAML
 - 更新 `docs/copreg-registration-fields.md` §五的「改哪里」：补一行指向这份 YAML 与导入说明
-- 回归：`npm run lint`、`npx tsx scripts/check-openapi-fill-details.ts`（59 项）。另用一份临时脚本
+- 基地址按实际导入需要定成**生产**（原稿是测试）：`servers` 只留一条，同步改文件头注释、
+  `info.description` 与 `docs/copreg-dify-tool.md` 的环境表；自检里对应两条 ——
+  servers 只有一条且是生产、正文不许再写「现在指向测试环境」（改了地址忘了改文案同样会红）
+- 回归：`npm run lint`、`npx tsx scripts/check-openapi-fill-details.ts`（61 项）。另用一份临时脚本
   按 Dify 解析器的取值口径（`servers[0]` + `parameters` + `requestBody.content`）模拟了一遍导入：
   四个操作拼出的 URL 与参数类型与预期一致（上传是 FILE，其余是 STRING），未落盘
 
